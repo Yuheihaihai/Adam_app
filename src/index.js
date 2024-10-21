@@ -1,76 +1,74 @@
-// Import required packages
+// Import necessary libraries
 const express = require('express');
 const line = require('@line/bot-sdk');
 const { Configuration, OpenAIApi } = require('openai');
-require('dotenv').config(); // Load environment variables
 
-// Create an instance of an Express app
-const app = express();
+// Load environment variables
+require('dotenv').config();
 
-// LINE SDK configuration using environment variables
+// Initialize OpenAI with API key
+const configuration = new Configuration({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+const openai = new OpenAIApi(configuration);
+
+// LINE bot configuration
 const config = {
-    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-    channelSecret: process.env.LINE_CHANNEL_SECRET
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
-// Create a LINE client
-const client = new line.Client(config);
-
-// Setup OpenAI configuration
-const openaiConfig = new Configuration({
-    apiKey: process.env.OPENAI_API_KEY
-});
-const openai = new OpenAIApi(openaiConfig);
+// Create an Express application
+const app = express();
 
 // Setup webhook route for LINE events
 app.post('/webhook', line.middleware(config), (req, res) => {
-    if (!Array.isArray(req.body.events)) {
-        return res.status(500).send('No events found');
-    }
+  if (!Array.isArray(req.body.events)) {
+    return res.status(500).send('No events found');
+  }
 
-    // Respond with status 200 to LINE server
-    res.sendStatus(200);
-
-    // Process each event
-    req.body.events.forEach(event => {
-        console.log('Event received:', event);
-
-        if (event.type === 'message' && event.message.type === 'text') {
-            handleTextMessage(event);
-        }
+  // Process each event from LINE
+  Promise.all(req.body.events.map(handleEvent))
+    .then((result) => res.json(result))
+    .catch((err) => {
+      console.error('Error handling events:', err);
+      res.status(500).end();
     });
 });
 
-// Function to handle text messages
-async function handleTextMessage(event) {
-    try {
-        // Generate a response using OpenAI API
-        const response = await openai.createCompletion({
-            model: 'text-davinci-003',
-            prompt: event.message.text,
-            max_tokens: 150
-        });
+// Function to handle incoming LINE events
+async function handleEvent(event) {
+  if (event.type !== 'message' || event.message.type !== 'text') {
+    // Ignore non-text messages
+    return Promise.resolve(null);
+  }
 
-        // Reply with the generated response
-        const reply = {
-            type: 'text',
-            text: response.data.choices[0].text.trim()
-        };
+  const userMessage = event.message.text;
 
-        client.replyMessage(event.replyToken, reply)
-            .then(() => {
-                console.log('Reply sent');
-            })
-            .catch(err => {
-                console.error('Error sending reply:', err);
-            });
-    } catch (error) {
-        console.error('Error handling text message:', error);
-    }
+  try {
+    // Get a response from OpenAI based on the user's message
+    const openaiResponse = await openai.createChatCompletion({
+      model: 'gpt-3.5-turbo',
+      messages: [{ role: 'user', content: userMessage }],
+    });
+
+    const replyText = openaiResponse.data.choices[0].message.content;
+
+    // Reply to the user using LINE API
+    const client = new line.Client(config);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: replyText,
+    });
+  } catch (error) {
+    console.error('Error with OpenAI request:', error);
+    return Promise.resolve(null);
+  }
 }
 
-// Set up the port for the server to listen on (Heroku port or default to 3000)
+// Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
+
