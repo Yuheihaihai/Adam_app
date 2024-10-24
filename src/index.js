@@ -7,10 +7,10 @@ const { Configuration, OpenAIApi } = require('openai');
 require('dotenv').config();
 
 // Initialize OpenAI with configuration
-const configuration = new Configuration({
+const openaiConfig = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
 });
-const openai = new OpenAIApi(configuration);
+const openai = new OpenAIApi(openaiConfig);
 
 // LINE bot configuration
 const config = {
@@ -68,6 +68,6 @@ async function handleEvent(event) {
 
 // Start the server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`);
 });
