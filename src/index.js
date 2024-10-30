@@ -1,7 +1,7 @@
-// Import necessary libraries
+// Import required libraries
 const express = require('express');
 const line = require('@line/bot-sdk');
-const { OpenAIApi, Configuration } = require('openai');
+const { Configuration, OpenAIApi } = require('openai');
 
 // Load environment variables
 require('dotenv').config();
