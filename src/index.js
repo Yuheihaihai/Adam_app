@@ -1,16 +1,15 @@
 // Import necessary libraries
 const express = require('express');
 const line = require('@line/bot-sdk');
-const { Configuration, OpenAIApi } = require('openai');
+const { OpenAIApi } = require('openai');
 
 // Load environment variables
 require('dotenv').config();
 
-// Initialize OpenAI with the correct configuration
-const configuration = new Configuration({
+// Initialize OpenAI API instance with API Key directly
+const openai = new OpenAIApi({
   apiKey: process.env.OPENAI_API_KEY,
 });
-const openai = new OpenAIApi(configuration);
 
 // LINE bot configuration
 const config = {
