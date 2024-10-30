@@ -1,15 +1,16 @@
 // Import necessary libraries
 const express = require('express');
 const line = require('@line/bot-sdk');
-const { OpenAI } = require('openai');
+const { OpenAIApi, Configuration } = require('openai');
 
 // Load environment variables
 require('dotenv').config();
 
-// Initialize OpenAI with API key
-const openai = new OpenAI({
+// Initialize OpenAI with configuration
+const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
 });
+const openai = new OpenAIApi(configuration);
 
 // LINE bot configuration
 const config = {
@@ -46,12 +47,12 @@ async function handleEvent(event) {
 
   try {
     // Get a response from OpenAI based on the user's message
-    const openaiResponse = await openai.chat.completions.create({
+    const openaiResponse = await openai.createChatCompletion({
       model: 'gpt-3.5-turbo',
       messages: [{ role: 'user', content: userMessage }],
     });
 
-    const replyText = openaiResponse.choices[0].message.content;
+    const replyText = openaiResponse.data.choices[0].message.content;
 
     // Reply to the user using LINE API
     const client = new line.Client(config);
