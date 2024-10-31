@@ -15,11 +15,8 @@
   "license": "ISC",
   "dependencies": {
     "dotenv": "^16.0.3",
-    "express": "^4.18.2",D
-    "openai": "^4.68.4"
-
-    "dotenv": "^16.0.3",
-    "openai": "^3.2.1"
-　　 d62a8cc4b8e22a5624c5ae4a585e02989a4d1137
+    "express": "^4.18.2",
+    "openai": "^4.67.3",
+    "@line/bot-sdk": "^9.4.1"
   }
 }
