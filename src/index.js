@@ -1,20 +1,12 @@
 // Import necessary libraries
 const express = require('express');
 const line = require('@line/bot-sdk');
-
 const { Configuration, OpenAIApi } = require('openai');
-
-const { OpenAIApi, Configuration } = require('openai');
-　　　 d62a8cc4b8e22a5624c5ae4a585e02989a4d1137
 
 // Load environment variables
 require('dotenv').config();
 
-
-// Initialize OpenAI with API key
-
 // Initialize OpenAI with the correct configuration
-    d62a8cc4b8e22a5624c5ae4a585e02989a4d1137
 const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -55,20 +47,12 @@ async function handleEvent(event) {
 
   try {
     // Get a response from OpenAI based on the user's message
-
     const openaiResponse = await openai.createChatCompletion({
-
-    const openaiResponse = await openai.chat.completions.create({
-         d62a8cc4b8e22a5624c5ae4a585e02989a4d1137
       model: 'gpt-3.5-turbo',
       messages: [{ role: 'user', content: userMessage }],
     });
 
-
     const replyText = openaiResponse.data.choices[0].message.content;
-
-    const replyText = openaiResponse.choices[0].message.content;
-        d62a8cc4b8e22a5624c5ae4a585e02989a4d1137
 
     // Reply to the user using LINE API
     const client = new line.Client(config);
@@ -84,11 +68,7 @@ async function handleEvent(event) {
 
 // Start the server
 const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-
 app.listen(PORT, '0.0.0.0', () => {
-        d62a8cc4b8e22a5624c5ae4a585e02989a4d1137
   console.log(`Server is running on port ${PORT}`);
 });
 
