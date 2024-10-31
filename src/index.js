@@ -7,10 +7,10 @@ const { OpenAIApi, Configuration } = require('openai');
 require('dotenv').config();
 
 // Initialize OpenAI with the correct configuration
-const configuration = {
+const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
-};
-const openai = new OpenAIApi(configuration); // Directly pass the configuration object
+});
+const openai = new OpenAIApi(configuration); // Correct instantiation of OpenAIApi
 
 // LINE bot configuration
 const config = {
@@ -47,12 +47,12 @@ async function handleEvent(event) {
 
   try {
     // Get a response from OpenAI based on the user's message
-    const openaiResponse = await openai.chat.completions.create({
+    const openaiResponse = await openai.createChatCompletion({
       model: 'gpt-3.5-turbo',
       messages: [{ role: 'user', content: userMessage }],
     });
 
-    const replyText = openaiResponse.choices[0].message.content;
+    const replyText = openaiResponse.data.choices[0].message.content;
 
     // Reply to the user using LINE API
     const client = new line.Client(config);
