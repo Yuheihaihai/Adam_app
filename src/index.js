@@ -1,16 +1,15 @@
 // Import necessary libraries
 const express = require('express');
 const line = require('@line/bot-sdk');
-const { Configuration, OpenAIApi } = require('openai');
+const { OpenAIApi } = require('openai'); // Note: Configuration is not used in version 4.x
 
 // Load environment variables
 require('dotenv').config();
 
-// Initialize OpenAI with the correct configuration
-const configuration = new Configuration({
+// Initialize OpenAI directly
+const openai = new OpenAIApi({
   apiKey: process.env.OPENAI_API_KEY,
 });
-const openai = new OpenAIApi(configuration);
 
 // LINE bot configuration
 const config = {
@@ -24,7 +23,6 @@ const app = express();
 // Setup webhook route for LINE events
 app.post('/webhook', line.middleware(config), (req, res) => {
   if (!Array.isArray(req.body.events)) {
-    console.error('No events found in request body.');
     return res.status(500).send('No events found');
   }
 
@@ -48,16 +46,12 @@ async function handleEvent(event) {
 
   try {
     // Get a response from OpenAI based on the user's message
-    const openaiResponse = await openai.createChatCompletion({
+    const openaiResponse = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [{ role: 'user', content: userMessage }],
     });
 
-    if (!openaiResponse || !openaiResponse.data || !openaiResponse.data.choices) {
-      throw new Error('Unexpected response format from OpenAI');
-    }
-
-    const replyText = openaiResponse.data.choices[0].message.content;
+    const replyText = openaiResponse.choices[0].message.content;
 
     // Reply to the user using LINE API
     const client = new line.Client(config);
