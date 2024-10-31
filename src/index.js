@@ -24,6 +24,7 @@ const app = express();
 // Setup webhook route for LINE events
 app.post('/webhook', line.middleware(config), (req, res) => {
   if (!Array.isArray(req.body.events)) {
+    console.error('No events found in request body.');
     return res.status(500).send('No events found');
   }
 
@@ -51,6 +52,10 @@ async function handleEvent(event) {
       model: 'gpt-3.5-turbo',
       messages: [{ role: 'user', content: userMessage }],
     });
+
+    if (!openaiResponse || !openaiResponse.data || !openaiResponse.data.choices) {
+      throw new Error('Unexpected response format from OpenAI');
+    }
 
     const replyText = openaiResponse.data.choices[0].message.content;
 
