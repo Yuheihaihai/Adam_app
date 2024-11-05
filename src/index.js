@@ -1,15 +1,18 @@
 // Import necessary libraries
 const express = require('express');
 const line = require('@line/bot-sdk');
-const { OpenAIApi } = require('openai');
+const { Configuration, OpenAIApi } = require('openai');
 
 // Load environment variables
 require('dotenv').config();
 
-// Initialize OpenAI with the correct configuration
-const openai = new OpenAIApi({
+// Create OpenAI configuration
+const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+// Initialize OpenAIApi using the configuration
+const openai = new OpenAIApi(configuration);
 
 // LINE bot configuration
 const config = {
@@ -60,13 +63,3 @@ async function handleEvent(event) {
       text: replyText,
     });
   } catch (error) {
-    console.error('Error with OpenAI request:', error);
-    return Promise.resolve(null);
-  }
-}
-
-// Start the server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server is running on port ${PORT}`);
-});
