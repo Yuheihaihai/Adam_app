@@ -5,12 +5,14 @@
   "scripts": {
     "start": "node app.js"
   },
-  "dependencies": {
-    "@line/bot-sdk": "^7.5.0",
-    "dotenv": "^16.3.1",
-    "express": "^4.21.2"
-  },
   "engines": {
     "node": "16.x"
+  },
+  "dependencies": {
+    "@line/bot-sdk": "^7.5.0",
+    "axios": "^1.5.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.21.2",
+    "airtable": "^0.11.4"
   }
 }
