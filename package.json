@@ -1,15 +1,12 @@
 {
   "name": "adam-app",
   "version": "1.0.0",
-  "description": "LINE mini-app with GPT integration",
   "main": "app.js",
   "scripts": {
     "start": "node app.js"
   },
   "dependencies": {
     "@line/bot-sdk": "^7.5.0",
-    "airtable": "^0.11.4",
-    "axios": "^1.4.0",
     "dotenv": "^16.3.1",
     "express": "^4.21.2"
   },
