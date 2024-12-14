@@ -9,7 +9,7 @@ const {
 } = process.env;
 
 if (!CHANNEL_ACCESS_TOKEN || !CHANNEL_SECRET) {
-  console.error("Missing LINE channel tokens. Set CHANNEL_ACCESS_TOKEN and CHANNEL_SECRET.");
+  console.error("Missing LINE channel tokens. Please set CHANNEL_ACCESS_TOKEN and CHANNEL_SECRET.");
   process.exit(1);
 }
 
@@ -20,17 +20,19 @@ const config = {
 
 const app = express();
 
-// DO NOT use app.use(express.json()) or other body parsers before line.middleware!
-// line.middleware needs the raw request body.
+// A simple GET route for the root path to show a friendly message
+app.get('/', (req, res) => {
+  res.send('Hello, this is the Adam server running on Heroku!');
+});
 
+// The LINE webhook endpoint (POST)
 app.post('/webhook', line.middleware(config), (req, res) => {
   // If no events, return empty array (200 OK)
   if (!req.body.events || req.body.events.length === 0) {
     return res.json([]);
   }
 
-  // If events are present, just return 200 with empty array for now
-  // This confirms the webhook works, you can add logic later.
+  // For now, just send back an empty array to confirm receipt
   return res.json([]);
 });
 
