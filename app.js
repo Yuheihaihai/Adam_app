@@ -2,14 +2,11 @@ require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
 
-// Load environment variables from .env or Heroku config vars
-const {
-  CHANNEL_ACCESS_TOKEN,
-  CHANNEL_SECRET
-} = process.env;
+// Load environment variables
+const { CHANNEL_ACCESS_TOKEN, CHANNEL_SECRET } = process.env;
 
 if (!CHANNEL_ACCESS_TOKEN || !CHANNEL_SECRET) {
-  console.error("Missing LINE channel tokens. Please set CHANNEL_ACCESS_TOKEN and CHANNEL_SECRET.");
+  console.error("Missing LINE channel tokens. Set CHANNEL_ACCESS_TOKEN and CHANNEL_SECRET.");
   process.exit(1);
 }
 
@@ -20,22 +17,17 @@ const config = {
 
 const app = express();
 
-// Simple GET route at root path to verify the app is up.
+// Health check route - to ensure the server is running
 app.get('/', (req, res) => {
-  res.send('Hello, this is the LINE bot server running on Heroku!');
+  res.send('Hello! The server is running.');
 });
 
-// LINE webhook endpoint
-// This must match the webhook URL you set in the LINE Developer Console: https://your-app-name.herokuapp.com/webhook
+// Webhook route for LINE
 app.post('/webhook', line.middleware(config), (req, res) => {
-  if (!req.body.events || req.body.events.length === 0) {
-    // If no events, return empty array (JSON) with 200 OK
-    return res.json([]);
-  }
-
-  // If there are events, return a simple JSON object to confirm receipt.
-  // This ensures a 200 OK response.
-  return res.json({status: 'ok'});
+  // Just return a 200 OK response no matter what
+  // This ensures that the LINE platform sees 200 and not 404.
+  console.log('Received a POST /webhook request from LINE.');
+  res.status(200).json({received:true});
 });
 
 const PORT = process.env.PORT || 3000;
