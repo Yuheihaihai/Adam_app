@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
 
-// Load environment variables
+// Load environment variables from .env or Heroku config vars
 const {
   CHANNEL_ACCESS_TOKEN,
   CHANNEL_SECRET
@@ -20,20 +20,22 @@ const config = {
 
 const app = express();
 
-// A simple GET route for the root path to show a friendly message
+// Simple GET route at root path to verify the app is up.
 app.get('/', (req, res) => {
-  res.send('Hello, this is the Adam server running on Heroku!');
+  res.send('Hello, this is the LINE bot server running on Heroku!');
 });
 
-// The LINE webhook endpoint (POST)
+// LINE webhook endpoint
+// This must match the webhook URL you set in the LINE Developer Console: https://your-app-name.herokuapp.com/webhook
 app.post('/webhook', line.middleware(config), (req, res) => {
-  // If no events, return empty array (200 OK)
   if (!req.body.events || req.body.events.length === 0) {
+    // If no events, return empty array (JSON) with 200 OK
     return res.json([]);
   }
 
-  // For now, just send back an empty array to confirm receipt
-  return res.json([]);
+  // If there are events, return a simple JSON object to confirm receipt.
+  // This ensures a 200 OK response.
+  return res.json({status: 'ok'});
 });
 
 const PORT = process.env.PORT || 3000;
