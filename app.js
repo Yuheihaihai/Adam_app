@@ -24,25 +24,29 @@ const config = {
 
 const app = express();
 
-// DO NOT put express.json() before line.middleware.
+// Important: Do NOT use express.json() or other body parsers before line.middleware
+// line.middleware must receive the raw request body to verify signature
+
 app.post('/webhook', line.middleware(config), (req, res) => {
+  // If no events, just return an empty array
   if (!req.body.events || req.body.events.length === 0) {
     return res.json([]);
   }
 
-  // For testing, just respond with a simple message.
+  // For testing: just respond "Test OK" to text messages
   const client = new line.Client(config);
   const event = req.body.events[0];
 
   if (event.type === 'message' && event.message.type === 'text') {
     return client.replyMessage(event.replyToken, { type: 'text', text: 'Test OK' })
-      .then(() => res.json({}))
+      .then(() => res.json({})) // Return 200 OK
       .catch(err => {
         console.error("Reply error:", err);
-        // still return 200 to not cause signature error confusion
+        // Still return 200 to not fail signature verification
         return res.json({});
       });
   } else {
+    // Non-text or other events, just return empty response 200 OK
     return res.json({});
   }
 });
