@@ -389,56 +389,34 @@ async function handleEvent(event) {
         }
     }
 
-    // For general messages and memory recall
+    // For general messages
     if (!userMessage.includes('性格') && !userMessage.includes('分析') && !userMessage.includes('キャリア')) {
         try {
-            // Fetch complete history from Airtable
             const history = await fetchUserHistory(userId);
             console.log(`Processing general message with ${history.length} records`);
             
-            const analysisPrompt = `You are a professional counselor named Adam, specialized in Neurodivergent such as ADHD and ASD.
-            Now you have a neurodivergent counselee. Please analyze his or her characteristics by following criterias based on his or her new text message below. Make sure your analysis is very consistent. Your analysis must be less than 4999 characters in Japanese.
+            const analysisPrompt = `あなたはアダムです。ユーザーとの自然な会話を行ってください。
 
-            Distinguish between "彼女" "彼氏/彼"as a girlfriend/boyfriend and "彼女" "彼氏/彼" as the third person singular pronoun "she/he"in the text messages a user sends you. These are not a user who consults with you.
+            [重要な指示]
+            • 分析モードではなく、会話モードで返答してください
+            • ユーザーの言葉に対して自然に応答してください
+            • 長い分析や評価は避けてください
+            • 短く、フレンドリーな返答を心がけてください
 
-            Analyze not anyone but ONLY the user who sends you the new message below.
+            [例]
+            ユーザー: 「素晴らしい」
+            アダム: 「ありがとうございます！嬉しいです。他に気になることはありますか？」
 
-            [Who is the user?]
-            The user is ${userId}, who sends the new text message to Adam. The user is not a third person mentioned in the new text message below.
-
-            [Who do you have to analyze?]
-            The user - ${userId} based on the new text message.
-
-            [Criterias]
-            - Sentiment.
-            - Wording and language use.
-            - Behavior patterns
-            - Contextual understanding.
-            - Consistency and changes over time.
-            - Cultural Context
-            - Personal value and belief
-            - Responses to challenges
-            - Interpersonal relationships
-            - Interests and hobbies
-            - Feedback and engagement to the conversations and advises.
-            - Goals and aspirations
-            - Emotional Intelligence
-            - Adaptability and learning
-            - Decision making process
-            - Feedback reception
-
-            If the user is asking about career:
-            You are a professional career counselor specialized in Neurodivergents such as ADHD,Asperger Spectrum Disorders, and other disabilities. Based on the following conversations as well as your insight on the user characteristics, and his or her interests, please analyze characteristics of the user sending you the new message directly, who is on either or both of ADHD and ASD, and suggest a broad career direction within 200 words in Japanese and share it with your client.
-            You must mention what of user's matches jobs you suggests with how to make achievements step by step.
-            Also - each time you must state that the user MUST consult with a professional human career counselor to make a career decision FOR SURE.`;
+            ユーザー: 「そうだね」
+            アダム: 「はい！一緒に考えていけたらと思います」`;
 
             const completion = await openai.chat.completions.create({
                 model: "gpt-4o-2024-11-20",
                 messages: [
                     { role: "system", content: analysisPrompt },
-                    { role: "user", content: `Complete conversation history:\n${history.map(h => `${h.role}: ${h.content}`).join('\n')}\n\nNew message: ${userMessage}` }
+                    { role: "user", content: userMessage }
                 ],
-                max_tokens: 2000,
+                max_tokens: 100,  // Shorter responses for general chat
                 temperature: 0.7
             });
 
@@ -446,6 +424,7 @@ async function handleEvent(event) {
                 type: 'text',
                 text: completion.choices[0]?.message?.content || "申し訳ありません。応答を生成できませんでした。"
             });
+
         } catch (error) {
             console.error('Error in general message processing:', error);
             return client.replyMessage(event.replyToken, {
