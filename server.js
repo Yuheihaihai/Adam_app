@@ -5,7 +5,7 @@ const Airtable = require('airtable');
 
 const app = express();
 
-// Debug logging
+// Debug logging (without dotenv requirement)
 console.log('Environment check:', {
   hasAccessToken: !!process.env.CHANNEL_ACCESS_TOKEN,
   hasSecret: !!process.env.CHANNEL_SECRET
@@ -82,12 +82,11 @@ app.get('/', (req, res) => {
   res.send('OK');
 });
 
-// Add request debugging
+// Safe body logging middleware
 app.use('/webhook', (req, res, next) => {
-  console.log('Webhook request:', {
-    signature: req.headers['x-line-signature'],
-    body: JSON.stringify(req.body).substring(0, 100) + '...'
-  });
+  const rawBody = req.body ? JSON.stringify(req.body) : '';
+  const snippet = rawBody.length > 100 ? rawBody.slice(0, 100) + '...' : rawBody;
+  console.log('Webhook request:', snippet);
   next();
 });
 
