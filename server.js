@@ -33,9 +33,10 @@ const client = new line.Client(config);
 // ------------------------------------------------------------------
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Comment out Airtable initialization
-// const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
-//   .base(process.env.AIRTABLE_BASE_ID);
+// Initialize Airtable
+const base = new Airtable({
+  apiKey: process.env.AIRTABLE_API_KEY
+}).base(process.env.AIRTABLE_BASE_ID);
 
 // ------------------------------------------------------------------
 // 4) In-memory storage for conversation history (per user).
@@ -193,44 +194,63 @@ async function handleEvent(event) {
     mode = 'characteristics';
   }
 
-  // Initialize chat history if needed
-  if (!userChatHistory.has(userId)) {
-    userChatHistory.set(userId, []);
-  }
-
-  // Store user message
-  userChatHistory.get(userId).push({ role: "user", text: userMessage });
-
-  // Get AI reply with appropriate mode
-  const aiReply = await processWithAI(userId, userMessage, mode);
-
-  // Store AI reply
-  userChatHistory.get(userId).push({ role: "assistant", text: aiReply });
-
-  // Comment out Airtable operations
-  /* 
   try {
-    await base('Conversations').create([
-      {
-        fields: {
-          UserID: userId,
-          Message: userMessage,
-          Response: aiReply,
-          Mode: mode,
-          Timestamp: new Date().toISOString()
-        }
-      }
-    ]);
-  } catch (error) {
-    console.error('Airtable Error:', error);
-  }
-  */
+    // Store user message
+    if (!userChatHistory.has(userId)) {
+      userChatHistory.set(userId, []);
+    }
+    userChatHistory.get(userId).push({ role: "user", text: userMessage });
 
-  // 5) Send back to user
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: aiReply,
-  });
+    // Get AI reply
+    const aiReply = await processWithAI(userId, userMessage, mode);
+
+    // Store AI reply in chat history
+    userChatHistory.get(userId).push({ role: "assistant", text: aiReply });
+
+    // Store conversation in Airtable with correct table and field names
+    try {
+      // Store user message
+      await base('ConversationHistory').create([
+        {
+          fields: {
+            UserID: userId,
+            Role: "user",
+            Content: userMessage,
+            Timestamp: new Date().toISOString()
+          }
+        }
+      ]);
+
+      // Store AI response
+      await base('ConversationHistory').create([
+        {
+          fields: {
+            UserID: userId,
+            Role: "assistant",
+            Content: aiReply,
+            Timestamp: new Date().toISOString()
+          }
+        }
+      ]);
+      
+      console.log('Conversation stored in Airtable');
+    } catch (airtableError) {
+      console.error('Airtable Error:', airtableError);
+      // Continue even if Airtable storage fails
+    }
+
+    // Send response
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: aiReply,
+    });
+  } catch (error) {
+    console.error('Handler Error:', error);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: "申し訳ありません。エラーが発生しました。",
+    });
+  }
 }
 
 // ------------------------------------------------------------------
