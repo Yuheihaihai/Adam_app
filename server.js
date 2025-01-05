@@ -108,10 +108,10 @@ async function processWithAI(userId, userMessage, mode = 'general') {
   try {
     console.log('Calling AI with messages length:', messages.length);
     const completion = await openai.chat.completions.create({
-      model: "o1-2024-12-17",
+      model: "gpt-4",
       messages,
-      max_completion_tokens: 500,
-      reasoning_effort: "high"
+      max_tokens: 500,
+      temperature: 0.7
     });
 
     const aiReply = completion.choices[0]?.message?.content || '（エラー）';
