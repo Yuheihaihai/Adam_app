@@ -217,11 +217,9 @@ async function createAISummary(history) {
 // Update analyzeUserHistory function with specific instructions
 async function analyzeUserHistory(userId, mode) {
     try {
-        // Fetch history
         const history = await fetchUserHistory(userId);
         console.log(`Analyzing ${history.length} records for ${mode} analysis`);
 
-        // Prepare conversation history
         const conversationHistory = history
             .map(item => {
                 const date = new Date(item.timestamp).toLocaleString('ja-JP');
@@ -229,16 +227,52 @@ async function analyzeUserHistory(userId, mode) {
             })
             .join('\n');
 
-        // Define analysis prompt here
+        // Use exact instructions from the template
         const analysisPrompt = mode === 'career' ? 
-            `あなたは神経多様性（ADHD、ASD等）に特化したキャリアカウンセラー、アダムです。
-            ユーザーID: ${userId} との会話履歴から分析を行います。
-            ...` : // (Your full career prompt)
-            `あなたは神経多様性（ADHD、ASD等）の専門カウンセラー、アダムです。
-            ユーザーID: ${userId} の特性を分析します。
-            ...`; // (Your full characteristics prompt)
+            `You are a professional career counselor specialized in Neurodivergents such as ADHD,Asperger Spectrum Disorders, and other disabilities. Based on the following conversations as well as your insight on the user characteristics, and his or her interests, please analyze characteristics of the user sending you the new message directly, who is on either or both of ADHD and ASD, and suggest a broad career direction within 200 words in Japanese and share it with your client.
+            You must mention what of user's matches jobs you suggests with how to make achievements step by step.
+            Also - each time you must state that the user MUST consult with a professional human career counselor to make a career decision FOR SURE.
 
-        // Use GPT-4o
+            Distinguish between "彼女" "彼氏/彼"as a girlfriend/boyfriend and "彼女" "彼氏/彼" as the third person singular pronoun "she/he." These are not a user who sends you the new message.
+
+            Analyze not anyone but ONLY the user who sends you the new message directly.
+
+            <Who is the user?>
+            ${userId}
+
+            <Your insight on the user characteristics>
+            Extract from your past characteristic analysis.` :
+            `You are a professional counselor named Adam, specialized in Neurodivergent such as ADHD and ASD.
+            Now you have a neurodivergent counselee. Please analyze his or her characteristics by following criterias based on his or her new text message below. Make sure your analysis is very consistent. Your analysis must be less than 4999 characters in Japanese.
+
+            Distinguish between "彼女" "彼氏/彼"as a girlfriend/boyfriend and "彼女" "彼氏/彼" as the third person singular pronoun "she/he"in the text messages a user sends you. These are not a user who consults with you.
+
+            Analyze not anyone but ONLY the user who sends you the new message below.
+
+            [Who is the user?]
+            The user is ${userId}, who sends the new text message to Adam. The user is not a third person mentioned in the new text message below.
+
+            [Who do you have to analyze?]
+            The user - ${userId} based on the new text message.
+
+            [Criterias]
+            - Sentiment.
+            - Wording and language use.
+            - Behavior patterns
+            - Contextual understanding.
+            - Consistency and changes over time.
+            - Cultural Context
+            - Personal value and belief
+            - Responses to challenges
+            - Interpersonal relationships
+            - Interests and hobbies
+            - Feedback and engagement to the conversations and advises.
+            - Goals and aspirations
+            - Emotional Intelligence
+            - Adaptability and learning
+            - Decision making process
+            - Feedback reception`;
+
         const completion = await openai.chat.completions.create({
             model: "gpt-4o-2024-11-20",
             messages: [
