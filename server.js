@@ -217,63 +217,21 @@ async function createAISummary(history) {
 // Update analyzeUserHistory function with specific instructions
 async function analyzeUserHistory(userId, mode) {
     try {
-        // Fetch all user history
+        // Fetch full history
         const history = await fetchUserHistory(userId);
         console.log(`Analyzing ${history.length} records for ${mode} analysis`);
 
-        // Prepare conversation history for analysis
+        // Prepare conversation history
         const conversationHistory = history
-            .map(item => `${item.role}: ${item.content}`)
+            .map(item => {
+                const date = new Date(item.timestamp).toLocaleString('ja-JP');
+                return `[${date}] ${item.role}: ${item.content}`;
+            })
             .join('\n');
 
-        // Create analysis prompt based on mode
-        const analysisPrompt = mode === 'career' ? 
-            `
-            あなたは神経多様性（ADHD、ASD等）に特化したキャリアカウンセラー、アダムです。
-            ユーザーID: ${userId} との会話履歴から分析を行います。
-
-            以下の点に注目して分析してください：
-            1. ユーザーの特性とキャリアの適性
-            2. 興味・関心と仕事のマッチング
-            3. ステップバイステップの達成プロセス
-            
-            必ず以下を含めてください：
-            ・専門のキャリアカウンセラーへの相談を強く推奨
-            ・具体的な職種や業界の提案
-            ・実現のための具体的なステップ
-            
-            ※第三者の「彼」「彼女」への言及は分析対象外です。
-            ※200文字以内で回答してください。
-            ` :
-            `
-            あなたは神経多様性（ADHD、ASD等）の専門カウンセラー、アダムです。
-            ユーザーID: ${userId} の特性を分析します。
-
-            以下の基準で分析してください：
-            ・感情表現
-            ・言葉遣いと言語使用
-            ・行動パターン
-            ・文脈理解
-            ・一貫性と変化
-            ・文化的文脈
-            ・価値観と信念
-            ・課題への対応
-            ・対人関係
-            ・興味と趣味
-            ・会話とアドバイスへの反応
-            ・目標と願望
-            ・感情知性
-            ・適応性と学習
-            ・意思決定プロセス
-            ・フィードバックの受け取り方
-
-            ※第三者の「彼」「彼女」への言及は分析対象外です。
-            ※4999文字以内で回答してください。
-            `;
-
-        // Get AI analysis
+        // Use GPT-4 Turbo for faster processing
         const completion = await openai.chat.completions.create({
-            model: "gpt-4",
+            model: "gpt-4-0125-preview",  // Updated to GPT-4 Turbo
             messages: [
                 { role: "system", content: analysisPrompt },
                 { role: "user", content: `会話履歴：\n${conversationHistory}` }
