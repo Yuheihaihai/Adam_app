@@ -1,9 +1,18 @@
 const express = require('express');
 const line = require('@line/bot-sdk');
 const { OpenAI } = require('openai');
+const Airtable = require('airtable');
 require('dotenv').config();
 
 const app = express();
+
+// Add detailed debug logging
+console.log('Full environment check:', {
+  accessTokenLength: process.env.CHANNEL_ACCESS_TOKEN?.length,
+  secretLength: process.env.CHANNEL_SECRET?.length,
+  accessTokenStart: process.env.CHANNEL_ACCESS_TOKEN?.substring(0, 10) + '...',
+  secretStart: process.env.CHANNEL_SECRET?.substring(0, 10) + '...'
+});
 
 // LINE Config
 const config = {
@@ -22,19 +31,83 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+// Initialize Airtable
+const base = new Airtable({
+  apiKey: process.env.AIRTABLE_API_KEY
+}).base(process.env.AIRTABLE_BASE_ID);
+
+// Chat history and user state management
+const userChatHistory = new Map();
+const userStates = new Map();
+
+// AI Processing functions
+async function processWithAIInstructions(text, userId) {
+  const history = userChatHistory.get(userId) || [];
+  
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4",
+      messages: [
+        {
+          role: "system",
+          content: "You are Adam, a specialized counselor for neurodivergent individuals..."
+          // Full instructions would go here
+        },
+        ...history.map(msg => ({
+          role: "user",
+          content: msg.text
+        })),
+        {
+          role: "user",
+          content: text
+        }
+      ],
+      max_tokens: 1000
+    });
+
+    // Store response in Airtable
+    await base('Interactions').create([
+      {
+        fields: {
+          UserID: userId,
+          Message: text,
+          Response: completion.choices[0].message.content,
+          Timestamp: new Date().toISOString()
+        }
+      }
+    ]);
+
+    return completion.choices[0].message.content;
+  } catch (error) {
+    console.error('AI Processing Error:', error);
+    return "申し訳ありません。一時的なエラーが発生しました。😢";
+  }
+}
+
 // Basic health check
 app.get('/', (req, res) => {
   res.send('OK');
 });
 
+// Add request debugging
+app.use('/webhook', (req, res, next) => {
+  console.log('Webhook request:', {
+    signature: req.headers['x-line-signature'],
+    body: JSON.stringify(req.body).substring(0, 100) + '...'
+  });
+  next();
+});
+
 // LINE Webhook
 app.post('/webhook', line.middleware(config), async (req, res) => {
   try {
-    await Promise.all(req.body.events.map(handleEvent));
-    res.json({ status: 'ok' });
+    const events = req.body.events || [];
+    console.log('Processing events:', events.length);
+    await Promise.all(events.map(handleEvent));
+    return res.json({ status: 'ok' });
   } catch (error) {
     console.error('Webhook Error:', error);
-    res.status(500).end();
+    return res.status(500).json({ error: error.toString() });
   }
 });
 
