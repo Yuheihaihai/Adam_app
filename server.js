@@ -33,8 +33,9 @@ const client = new line.Client(config);
 // ------------------------------------------------------------------
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
-  .base(process.env.AIRTABLE_BASE_ID);
+// Comment out Airtable initialization
+// const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
+//   .base(process.env.AIRTABLE_BASE_ID);
 
 // ------------------------------------------------------------------
 // 4) In-memory storage for conversation history (per user).
@@ -124,10 +125,10 @@ async function processWithAI(userId, userMessage, mode = 'general') {
   try {
     console.log('Calling AI with messages length:', messages.length);
     const completion = await openai.chat.completions.create({
-      model: "o1-2024-12-17",
+      model: "gpt-4",
       messages,
-      max_completion_tokens: 500,
-      reasoning_effort: "high"
+      max_tokens: 500,
+      temperature: 0.7,
     });
 
     const aiReply = completion.choices[0]?.message?.content || '（エラー）';
@@ -206,7 +207,8 @@ async function handleEvent(event) {
   // Store AI reply
   userChatHistory.get(userId).push({ role: "assistant", text: aiReply });
 
-  // Optional: Store in Airtable
+  // Comment out Airtable operations
+  /* 
   try {
     await base('Conversations').create([
       {
@@ -222,6 +224,7 @@ async function handleEvent(event) {
   } catch (error) {
     console.error('Airtable Error:', error);
   }
+  */
 
   // 5) Send back to user
   return client.replyMessage(event.replyToken, {
