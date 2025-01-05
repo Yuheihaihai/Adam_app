@@ -28,15 +28,15 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Initialize Airtable with detailed logging
+// Initialize Airtable with proper configuration
 const base = new Airtable({
     apiKey: process.env.AIRTABLE_API_KEY
 }).base(process.env.AIRTABLE_BASE_ID);
 
-// Add startup verification
+// Add startup verification with actual base ID
 console.log('Airtable Configuration Check:', {
     hasApiKey: !!process.env.AIRTABLE_API_KEY,
-    baseId: process.env.AIRTABLE_BASE_ID,
+    baseId: process.env.AIRTABLE_BASE_ID,  // Show actual base ID for verification
     tableName: 'ConversationHistory'
 });
 
@@ -153,7 +153,7 @@ async function handleEvent(event) {
     // Verify Airtable connection first
     console.log('Attempting Airtable operation...', {
         table: 'ConversationHistory',
-        baseId: process.env.AIRTABLE_BASE_ID.substring(0, 10) + '...',
+        baseId: process.env.AIRTABLE_BASE_ID,  // Show full base ID
         fields: ['UserID', 'Role', 'Content', 'Timestamp']
     });
 
@@ -214,7 +214,7 @@ async function handleEvent(event) {
         statusCode: error.statusCode,
         stack: error.stack,
         config: {
-            baseId: process.env.AIRTABLE_BASE_ID,
+            baseId: process.env.AIRTABLE_BASE_ID,  // Show actual base ID
             table: 'ConversationHistory',
             apiKeyExists: !!process.env.AIRTABLE_API_KEY
         }
