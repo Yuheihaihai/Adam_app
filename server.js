@@ -93,9 +93,11 @@ const AI_INSTRUCTIONS = {
 
 // AI Processing functions
 async function processWithAI(text, userId, mode = 'general') {
+  console.log('Starting AI processing...'); // Debug log
   const history = userChatHistory.get(userId) || [];
   
   try {
+    console.log('OpenAI API Key exists:', !!process.env.OPENAI_API_KEY); // Debug log
     const completion = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
@@ -106,10 +108,7 @@ async function processWithAI(text, userId, mode = 'general') {
       max_tokens: 1000
     });
 
-    // Store message in history
-    history.push({ text, timestamp: new Date() });
-    userChatHistory.set(userId, history);
-
+    console.log('AI Response received'); // Debug log
     return completion.choices[0].message.content;
   } catch (error) {
     console.error('AI Processing Error:', error);
