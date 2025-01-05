@@ -109,16 +109,19 @@ async function processWithAI(userId, userMessage, mode = 'general') {
   console.log('Starting AI processing for user:', userId, 'mode:', mode);
   
   const history = userChatHistory.get(userId) || [];
+  const limitedHistory = history.slice(-5);
+  console.log('History length:', history.length, 'Limited history length:', limitedHistory.length);
+  
   const messages = [
     { role: "system", content: AI_INSTRUCTIONS[mode] },
-    ...history.map(item => ({ role: item.role, content: item.text })),
+    ...limitedHistory.map(item => ({ role: item.role, content: item.text })),
     { role: "user", content: userMessage }
   ];
 
   try {
-    console.log('Calling GPT-4 with messages length:', messages.length);
+    console.log('Calling AI with messages length:', messages.length);
     const completion = await openai.chat.completions.create({
-      model: "gpt-4",
+      model: "o1-2024-12-17",
       messages,
       max_tokens: 500,
       temperature: 0.7,
