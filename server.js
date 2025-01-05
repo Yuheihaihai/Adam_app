@@ -78,4 +78,77 @@ process.on('SIGTERM', () => {
     console.log('Server closed');
     process.exit(0);
   });
-}); 
+});
+
+// Add WebSocket handling for real-time audio
+const wss = new WebSocket.Server({ server });
+
+wss.on('connection', async (ws) => {
+  try {
+    // Initialize OpenAI session
+    const session = await initializeOpenAISession();
+    ws.session = session;
+
+    ws.on('message', async (data) => {
+      try {
+        // Handle incoming audio data
+        await processRealtimeAudio(ws, data);
+      } catch (error) {
+        console.error('WebSocket message error:', error);
+      }
+    });
+
+    ws.on('close', () => {
+      cleanupSession(ws);
+    });
+  } catch (error) {
+    console.error('WebSocket connection error:', error);
+    ws.close();
+  }
+});
+
+// Add session management
+const sessions = new Map();
+
+function cleanupSession(ws) {
+  if (ws.session) {
+    sessions.delete(ws.session.id);
+  }
+}
+
+// Add audio processing
+async function processRealtimeAudio(ws, audioData) {
+  // Process audio with OpenAI Realtime API
+  const openaiWs = new WebSocket('wss://api.openai.com/v1/realtime');
+  
+  openaiWs.on('open', () => {
+    openaiWs.send(JSON.stringify({
+      type: 'authentication',
+      token: ws.session.client_secret.value
+    }));
+  });
+
+  openaiWs.on('message', (data) => {
+    const event = JSON.parse(data);
+    switch(event.type) {
+      case 'response.audio.delta':
+        ws.send(JSON.stringify({
+          type: 'audio',
+          data: event.delta
+        }));
+        break;
+    }
+  });
+}
+
+// Add monitoring
+const metrics = {
+  activeSessions: 0,
+  totalRequests: 0,
+  errors: 0
+};
+
+function updateMetrics(type, value) {
+  metrics[type] = value;
+  console.log('Metrics updated:', metrics);
+} 
