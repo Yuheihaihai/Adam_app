@@ -172,6 +172,8 @@ async function handleEvent(event) {
         userMessage.includes('思い出') || userMessage.includes('履歴')) {
         try {
             const history = await fetchUserHistory(userId);
+            console.log(`Formatting ${history.length} records for display`);
+
             if (history.length === 0) {
                 return client.replyMessage(event.replyToken, {
                     type: 'text',
@@ -179,18 +181,21 @@ async function handleEvent(event) {
                 });
             }
 
-            // Format history for display
+            // Format history with timestamps
             const formattedHistory = history
-                .slice(0, 10) // Show last 10 interactions
+                .slice(0, 10)
                 .map(item => {
                     const role = item.role === 'user' ? 'あなた' : 'アダム';
-                    return `${role}: ${item.content}`;
+                    const date = new Date(item.timestamp).toLocaleString('ja-JP');
+                    return `${date}\n${role}: ${item.content}`;
                 })
                 .join('\n\n');
 
+            console.log('Sending formatted history:', formattedHistory.substring(0, 100) + '...');
+
             return client.replyMessage(event.replyToken, {
                 type: 'text',
-                text: `過去の会話記録です：\n\n${formattedHistory}`
+                text: `直近の会話記録です：\n\n${formattedHistory}`
             });
         } catch (error) {
             console.error('Error processing history:', error);
