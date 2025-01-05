@@ -6,10 +6,16 @@ require('dotenv').config();
 const app = express();
 
 // LINE Config
-const lineConfig = {
+const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET
 };
+
+// Debug to verify values are loaded
+console.log('Environment check:', {
+  hasAccessToken: !!process.env.CHANNEL_ACCESS_TOKEN,
+  hasSecret: !!process.env.CHANNEL_SECRET
+});
 
 // OpenAI Config
 const openai = new OpenAI({
@@ -22,7 +28,7 @@ app.get('/', (req, res) => {
 });
 
 // LINE Webhook
-app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
+app.post('/webhook', line.middleware(config), async (req, res) => {
   try {
     await Promise.all(req.body.events.map(handleEvent));
     res.json({ status: 'ok' });
@@ -38,7 +44,7 @@ async function handleEvent(event) {
     return null;
   }
 
-  const client = new line.Client(lineConfig);
+  const client = new line.Client(config);
 
   try {
     const response = await openai.chat.completions.create({
