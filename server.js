@@ -2,29 +2,19 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const { OpenAI } = require('openai');
 const Airtable = require('airtable');
-require('dotenv').config();
 
 const app = express();
 
-// Add detailed debug logging
-console.log('Full environment check:', {
-  accessTokenLength: process.env.CHANNEL_ACCESS_TOKEN?.length,
-  secretLength: process.env.CHANNEL_SECRET?.length,
-  accessTokenStart: process.env.CHANNEL_ACCESS_TOKEN?.substring(0, 10) + '...',
-  secretStart: process.env.CHANNEL_SECRET?.substring(0, 10) + '...'
-});
-
-// LINE Config
-const config = {
-  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.CHANNEL_SECRET
-};
-
-// Debug to verify values are loaded
+// Debug logging
 console.log('Environment check:', {
   hasAccessToken: !!process.env.CHANNEL_ACCESS_TOKEN,
   hasSecret: !!process.env.CHANNEL_SECRET
 });
+
+const config = {
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.CHANNEL_SECRET
+};
 
 // OpenAI Config
 const openai = new OpenAI({
