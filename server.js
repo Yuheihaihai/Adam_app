@@ -5,48 +5,38 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const { OpenAI } = require('openai');
 const Airtable = require('airtable');
+const app = express();
 
-/* 
-  1) Environment check - For Heroku, environment variables come from config vars.
-     Make sure you have set: 
-       CHANNEL_ACCESS_TOKEN, CHANNEL_SECRET, OPENAI_API_KEY, AIRTABLE_API_KEY, AIRTABLE_BASE_ID
-*/
+// Environment check
 console.log('Environment check:', {
   hasAccessToken: !!process.env.CHANNEL_ACCESS_TOKEN,
   hasSecret: !!process.env.CHANNEL_SECRET,
   openAIKey: !!process.env.OPENAI_API_KEY,
   airtableKey: !!process.env.AIRTABLE_API_KEY,
-  airtableBase: !!process.env.AIRTABLE_BASE_ID,
+  airtableBase: !!process.env.AIRTABLE_BASE_ID
 });
 
-// ------------------------------------------------------------------
-// 2) Configure LINE
-// ------------------------------------------------------------------
+// LINE Config
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET,
 };
 const client = new line.Client(config);
 
-// ------------------------------------------------------------------
-// 3) Initialize OpenAI and Airtable
-// ------------------------------------------------------------------
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Initialize OpenAI
+const openai = new OpenAI({ 
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 // Initialize Airtable
 const base = new Airtable({
   apiKey: process.env.AIRTABLE_API_KEY
 }).base(process.env.AIRTABLE_BASE_ID);
 
-// ------------------------------------------------------------------
-// 4) In-memory storage for conversation history (per user).
-//    For production, consider storing in Airtable or database.
-// ------------------------------------------------------------------
-const userChatHistory = new Map(); // userId -> Array of {text: string}
+// In-memory chat history
+const userChatHistory = new Map();
 
-// ------------------------------------------------------------------
-// 5) System instructions for the AI
-// ------------------------------------------------------------------
+// AI Instructions (keeping the same as before)
 const AI_INSTRUCTIONS = {
   general: `
     Always remember the content of the Instructions and execute them faithfully.
@@ -64,7 +54,6 @@ const AI_INSTRUCTIONS = {
     • Generate responses that are concise, clear, consistent
     • Include empathy, conversational tone, exclamation marks, question marks, ellipses, emojis
   `,
-
   characteristics: `
     You are a professional counselor named Adam, specialized in Neurodivergent such as ADHD and ASD.
     Analyze characteristics by following criteria based on the user's messages:
@@ -89,7 +78,6 @@ const AI_INSTRUCTIONS = {
     
     Respond in Japanese within 200 characters.
   `,
-
   career: `
     You are a professional career counselor specialized in Neurodivergents such as ADHD, ASD, and other disabilities.
     Based on the conversations and user characteristics:
@@ -104,9 +92,6 @@ const AI_INSTRUCTIONS = {
   `
 };
 
-// ------------------------------------------------------------------
-// 6) Helper function: talk to GPT-4 via openai package
-// ------------------------------------------------------------------
 async function processWithAI(userId, userMessage, mode = 'general') {
   console.log('Starting AI processing for user:', userId, 'mode:', mode);
   
@@ -115,10 +100,7 @@ async function processWithAI(userId, userMessage, mode = 'general') {
   console.log('History length:', history.length, 'Limited history length:', limitedHistory.length);
   
   const messages = [
-    { 
-      role: "developer",
-      content: AI_INSTRUCTIONS[mode] 
-    },
+    { role: "developer", content: AI_INSTRUCTIONS[mode] },
     ...limitedHistory.map(item => ({ role: item.role, content: item.text })),
     { role: "user", content: userMessage }
   ];
@@ -126,10 +108,10 @@ async function processWithAI(userId, userMessage, mode = 'general') {
   try {
     console.log('Calling AI with messages length:', messages.length);
     const completion = await openai.chat.completions.create({
-      model: "gpt-4",
+      model: "o1-2024-12-17",
       messages,
-      max_tokens: 500,
-      temperature: 0.7,
+      max_completion_tokens: 500,
+      reasoning_effort: "high"
     });
 
     const aiReply = completion.choices[0]?.message?.content || '（エラー）';
@@ -141,41 +123,7 @@ async function processWithAI(userId, userMessage, mode = 'general') {
   }
 }
 
-// ------------------------------------------------------------------
-// 7) Express app
-// ------------------------------------------------------------------
-const app = express();
-
-// Simple GET to test server
-app.get('/', (req, res) => {
-  res.send('Hello! This is Adam on Heroku.');
-});
-
-// Because line.middleware() needs raw body, do not use standard json parser on /webhook
-app.post('/webhook', line.middleware(config), async (req, res) => {
-  try {
-    // The events from LINE
-    const events = req.body.events || [];
-    console.log('Webhook events:', events);
-
-    // Handle all events in parallel
-    await Promise.all(events.map(handleEvent));
-
-    // Return 200
-    return res.json({ status: 'ok' });
-  } catch (error) {
-    console.error('Webhook Error:', error);
-    return res.status(500).json({ error: error.toString() });
-  }
-});
-
-// ------------------------------------------------------------------
-// 8) Main Event Handler
-// ------------------------------------------------------------------
 async function handleEvent(event) {
-  console.log('Received event:', event);
-
-  // Only handle text messages
   if (event.type !== 'message' || event.message.type !== 'text') {
     return null;
   }
@@ -184,7 +132,7 @@ async function handleEvent(event) {
   const userMessage = event.message.text.trim();
   console.log('Processing message from user:', userId, 'msg:', userMessage);
 
-  // Detect mode based on message content
+  // Detect mode
   let mode = 'general';
   if (userMessage.includes('職業') || userMessage.includes('仕事') || 
       userMessage.includes('キャリア') || userMessage.includes('career')) {
@@ -195,7 +143,7 @@ async function handleEvent(event) {
   }
 
   try {
-    // Store user message
+    // Store user message in memory
     if (!userChatHistory.has(userId)) {
       userChatHistory.set(userId, []);
     }
@@ -204,10 +152,10 @@ async function handleEvent(event) {
     // Get AI reply
     const aiReply = await processWithAI(userId, userMessage, mode);
 
-    // Store AI reply in chat history
+    // Store AI reply in memory
     userChatHistory.get(userId).push({ role: "assistant", text: aiReply });
 
-    // Store conversation in Airtable with correct table and field names
+    // Store in Airtable
     try {
       // Store user message
       await base('ConversationHistory').create([
@@ -233,13 +181,12 @@ async function handleEvent(event) {
         }
       ]);
       
-      console.log('Conversation stored in Airtable');
+      console.log('Successfully stored in Airtable');
     } catch (airtableError) {
       console.error('Airtable Error:', airtableError);
       // Continue even if Airtable storage fails
     }
 
-    // Send response
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: aiReply,
@@ -253,9 +200,22 @@ async function handleEvent(event) {
   }
 }
 
-// ------------------------------------------------------------------
-// 9) Start the server
-// ------------------------------------------------------------------
+// Express app setup
+app.get('/', (req, res) => {
+  res.send('Hello! This is Adam on Heroku.');
+});
+
+app.post('/webhook', line.middleware(config), async (req, res) => {
+  try {
+    const events = req.body.events || [];
+    await Promise.all(events.map(handleEvent));
+    return res.json({ status: 'ok' });
+  } catch (error) {
+    console.error('Webhook Error:', error);
+    return res.status(500).json({ error: error.toString() });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`listening on ${PORT}`);
