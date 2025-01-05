@@ -113,7 +113,10 @@ async function processWithAI(userId, userMessage, mode = 'general') {
   console.log('History length:', history.length, 'Limited history length:', limitedHistory.length);
   
   const messages = [
-    { role: "system", content: AI_INSTRUCTIONS[mode] },
+    { 
+      role: "developer",
+      content: AI_INSTRUCTIONS[mode] 
+    },
     ...limitedHistory.map(item => ({ role: item.role, content: item.text })),
     { role: "user", content: userMessage }
   ];
@@ -123,8 +126,8 @@ async function processWithAI(userId, userMessage, mode = 'general') {
     const completion = await openai.chat.completions.create({
       model: "o1-2024-12-17",
       messages,
-      max_tokens: 500,
-      temperature: 0.7,
+      max_completion_tokens: 500,
+      reasoning_effort: "high"
     });
 
     const aiReply = completion.choices[0]?.message?.content || '（エラー）';
