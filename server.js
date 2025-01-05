@@ -331,6 +331,29 @@ async function handleEvent(event) {
         }
     }
 
+    // For characteristics or career analysis, fetch full history
+    if (userMessage.includes('性格') || userMessage.includes('分析') || userMessage.includes('キャリア')) {
+        const mode = userMessage.includes('キャリア') ? 'career' : 'characteristics';
+        console.log(`Starting full history analysis for user: ${userId} mode: ${mode}`);
+        
+        try {
+            // Fetch complete history from Airtable
+            const analysis = await analyzeUserHistory(userId, mode);
+            console.log(`Analysis completed using full history`);
+            
+            return client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: analysis
+            });
+        } catch (error) {
+            console.error('Error in history analysis:', error);
+            return client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: "申し訳ありません。分析中にエラーが発生しました。"
+            });
+        }
+    }
+
     // Detect mode
     let mode = 'general';
     if (userMessage.includes('職業') || userMessage.includes('仕事') || 
