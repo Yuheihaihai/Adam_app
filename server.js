@@ -133,101 +133,160 @@ async function processWithAI(userId, userMessage, mode = 'general') {
   }
 }
 
-async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') {
-    return null;
-  }
-
-  const userId = event.source.userId;
-  const userMessage = event.message.text.trim();
-  console.log('Processing message from user:', userId, 'msg:', userMessage);
-
-  // Detect mode
-  let mode = 'general';
-  if (userMessage.includes('職業') || userMessage.includes('仕事') || 
-      userMessage.includes('キャリア') || userMessage.includes('career')) {
-    mode = 'career';
-  } else if (userMessage.includes('特徴') || userMessage.includes('性格') || 
-             userMessage.includes('診断') || userMessage.includes('分析')) {
-    mode = 'characteristics';
-  }
-
-  try {
-    // Verify Airtable connection first
-    console.log('Attempting Airtable operation...', {
-        table: 'ConversationHistory',
-        baseId: process.env.AIRTABLE_BASE_ID,  // Show full base ID
-        fields: ['UserID', 'Role', 'Content', 'Timestamp']
-    });
-
-    // Store user message in memory
-    if (!userChatHistory.has(userId)) {
-      userChatHistory.set(userId, []);
+// Add function to fetch history from Airtable
+async function fetchUserHistory(userId) {
+    try {
+        console.log('Fetching history for user:', userId);
+        const records = await base('ConversationHistory')
+            .select({
+                filterByFormula: `{UserID} = '${userId}'`,
+                sort: [{field: 'Timestamp', direction: 'desc'}],
+                maxRecords: 100
+            })
+            .all();
+        
+        console.log(`Found ${records.length} records for user`);
+        return records.map(record => ({
+            role: record.get('Role'),
+            content: record.get('Content'),
+            timestamp: record.get('Timestamp')
+        }));
+    } catch (error) {
+        console.error('Error fetching history:', error);
+        return [];
     }
-    userChatHistory.get(userId).push({ role: "user", text: userMessage });
+}
 
-    // Get AI reply
-    const aiReply = await processWithAI(userId, userMessage, mode);
+// Update handleEvent function to handle memory recall
+async function handleEvent(event) {
+    if (event.type !== 'message' || event.message.type !== 'text') {
+        return null;
+    }
 
-    // Store AI reply in memory
-    userChatHistory.get(userId).push({ role: "assistant", text: aiReply });
+    const userId = event.source.userId;
+    const userMessage = event.message.text.trim();
+    console.log('Processing message from user:', userId, 'msg:', userMessage);
 
-    // Store user message
-    const userRecord = await base('ConversationHistory').create([
-        {
-            fields: {
-                UserID: userId,
-                Role: "user",
-                Content: userMessage,
-                Timestamp: new Date().toISOString()
+    // Check for memory recall command
+    if (userMessage.includes('過去の会話') || userMessage.includes('記憶') || 
+        userMessage.includes('思い出') || userMessage.includes('履歴')) {
+        try {
+            const history = await fetchUserHistory(userId);
+            if (history.length === 0) {
+                return client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: "申し訳ありません。過去の会話記録が見つかりませんでした。"
+                });
             }
-        }
-    ]);
-    console.log('User message stored:', {
-        recordId: userRecord[0].id,
-        userId: userId,
-        messageLength: userMessage.length
-    });
 
-    // Store AI response
-    const aiRecord = await base('ConversationHistory').create([
-        {
-            fields: {
-                UserID: userId,
-                Role: "assistant",
-                Content: aiReply,
-                Timestamp: new Date().toISOString()
-            }
-        }
-    ]);
-    console.log('AI response stored:', {
-        recordId: aiRecord[0].id,
-        userId: userId,
-        messageLength: aiReply.length
-    });
+            // Format history for display
+            const formattedHistory = history
+                .slice(0, 10) // Show last 10 interactions
+                .map(item => {
+                    const role = item.role === 'user' ? 'あなた' : 'アダム';
+                    return `${role}: ${item.content}`;
+                })
+                .join('\n\n');
 
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: aiReply,
-    });
-  } catch (error) {
-    console.error('Detailed Airtable Error:', {
-        error: error.error,
-        message: error.message,
-        statusCode: error.statusCode,
-        stack: error.stack,
-        config: {
-            baseId: process.env.AIRTABLE_BASE_ID,
+            return client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: `過去の会話記録です：\n\n${formattedHistory}`
+            });
+        } catch (error) {
+            console.error('Error processing history:', error);
+            return client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: "申し訳ありません。会話履歴の取得中にエラーが発生しました。"
+            });
+        }
+    }
+
+    // Detect mode
+    let mode = 'general';
+    if (userMessage.includes('職業') || userMessage.includes('仕事') || 
+        userMessage.includes('キャリア') || userMessage.includes('career')) {
+        mode = 'career';
+    } else if (userMessage.includes('特徴') || userMessage.includes('性格') || 
+               userMessage.includes('診断') || userMessage.includes('分析')) {
+        mode = 'characteristics';
+    }
+
+    try {
+        // Verify Airtable connection first
+        console.log('Attempting Airtable operation...', {
             table: 'ConversationHistory',
-            hasAccessToken: !!process.env.AIRTABLE_ACCESS_TOKEN,
-            tokenPrefix: process.env.AIRTABLE_ACCESS_TOKEN?.substring(0, 4)
+            baseId: process.env.AIRTABLE_BASE_ID,  // Show full base ID
+            fields: ['UserID', 'Role', 'Content', 'Timestamp']
+        });
+
+        // Store user message in memory
+        if (!userChatHistory.has(userId)) {
+            userChatHistory.set(userId, []);
         }
-    });
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: "申し訳ありません。エラーが発生しました。",
-    });
-  }
+        userChatHistory.get(userId).push({ role: "user", text: userMessage });
+
+        // Get AI reply
+        const aiReply = await processWithAI(userId, userMessage, mode);
+
+        // Store AI reply in memory
+        userChatHistory.get(userId).push({ role: "assistant", text: aiReply });
+
+        // Store user message
+        const userRecord = await base('ConversationHistory').create([
+            {
+                fields: {
+                    UserID: userId,
+                    Role: "user",
+                    Content: userMessage,
+                    Timestamp: new Date().toISOString()
+                }
+            }
+        ]);
+        console.log('User message stored:', {
+            recordId: userRecord[0].id,
+            userId: userId,
+            messageLength: userMessage.length
+        });
+
+        // Store AI response
+        const aiRecord = await base('ConversationHistory').create([
+            {
+                fields: {
+                    UserID: userId,
+                    Role: "assistant",
+                    Content: aiReply,
+                    Timestamp: new Date().toISOString()
+                }
+            }
+        ]);
+        console.log('AI response stored:', {
+            recordId: aiRecord[0].id,
+            userId: userId,
+            messageLength: aiReply.length
+        });
+
+        return client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: aiReply,
+        });
+    } catch (error) {
+        console.error('Detailed Airtable Error:', {
+            error: error.error,
+            message: error.message,
+            statusCode: error.statusCode,
+            stack: error.stack,
+            config: {
+                baseId: process.env.AIRTABLE_BASE_ID,
+                table: 'ConversationHistory',
+                hasAccessToken: !!process.env.AIRTABLE_ACCESS_TOKEN,
+                tokenPrefix: process.env.AIRTABLE_ACCESS_TOKEN?.substring(0, 4)
+            }
+        });
+        return client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: "申し訳ありません。エラーが発生しました。",
+        });
+    }
 }
 
 // Express app setup
