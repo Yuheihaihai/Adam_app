@@ -28,9 +28,9 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Initialize Airtable with PAT
+// Initialize Airtable with consistent environment variable name
 const base = new Airtable({
-    apiKey: process.env.AIRTABLE_ACCESS_TOKEN
+    apiKey: process.env.AIRTABLE_API_KEY
 }).base(process.env.AIRTABLE_BASE_ID);
 
 // Add startup verification with actual base ID
@@ -214,7 +214,7 @@ async function handleEvent(event) {
         statusCode: error.statusCode,
         stack: error.stack,
         config: {
-            baseId: process.env.AIRTABLE_BASE_ID,  // Show actual base ID
+            baseId: process.env.AIRTABLE_BASE_ID,
             table: 'ConversationHistory',
             apiKeyExists: !!process.env.AIRTABLE_API_KEY
         }
