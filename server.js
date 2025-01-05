@@ -28,9 +28,9 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Initialize Airtable with proper configuration
+// Initialize Airtable with PAT
 const base = new Airtable({
-    apiKey: process.env.AIRTABLE_API_KEY
+    apiKey: process.env.AIRTABLE_ACCESS_TOKEN
 }).base(process.env.AIRTABLE_BASE_ID);
 
 // Add startup verification with actual base ID
