@@ -12,7 +12,7 @@ console.log('Environment check:', {
   hasAccessToken: !!process.env.CHANNEL_ACCESS_TOKEN,
   hasSecret: !!process.env.CHANNEL_SECRET,
   openAIKey: !!process.env.OPENAI_API_KEY,
-  airtableKey: !!process.env.AIRTABLE_API_KEY,
+  airtableToken: !!process.env.AIRTABLE_ACCESS_TOKEN,
   airtableBase: !!process.env.AIRTABLE_BASE_ID
 });
 
@@ -28,15 +28,18 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Initialize Airtable with consistent environment variable name
+// Initialize Airtable with Access Token
 const base = new Airtable({
-    apiKey: process.env.AIRTABLE_API_KEY
+    endpointUrl: 'https://api.airtable.com',
+    apiKey: process.env.AIRTABLE_ACCESS_TOKEN,
+    requestTimeout: 300000
 }).base(process.env.AIRTABLE_BASE_ID);
 
-// Add startup verification with actual base ID
+// Add detailed Airtable configuration check
 console.log('Airtable Configuration Check:', {
-    hasApiKey: !!process.env.AIRTABLE_API_KEY,
-    baseId: process.env.AIRTABLE_BASE_ID,  // Show actual base ID for verification
+    hasAccessToken: !!process.env.AIRTABLE_ACCESS_TOKEN,
+    tokenPrefix: process.env.AIRTABLE_ACCESS_TOKEN?.substring(0, 4),
+    baseId: process.env.AIRTABLE_BASE_ID,
     tableName: 'ConversationHistory'
 });
 
@@ -216,7 +219,8 @@ async function handleEvent(event) {
         config: {
             baseId: process.env.AIRTABLE_BASE_ID,
             table: 'ConversationHistory',
-            apiKeyExists: !!process.env.AIRTABLE_API_KEY
+            hasAccessToken: !!process.env.AIRTABLE_ACCESS_TOKEN,
+            tokenPrefix: process.env.AIRTABLE_ACCESS_TOKEN?.substring(0, 4)
         }
     });
     return client.replyMessage(event.replyToken, {
