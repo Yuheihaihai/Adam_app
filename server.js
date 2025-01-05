@@ -332,6 +332,45 @@ async function handleEvent(event) {
         }
     }
 
+    // Special handling for memory recall requests
+    if (userMessage.includes('思い出して') || userMessage.includes('覚えてる')) {
+        try {
+            const history = await fetchUserHistory(userId);
+            console.log(`Fetching memory for user with ${history.length} records`);
+            
+            const analysisPrompt = `You are Adam, an AI counselor with access to past conversations.
+            When the user asks you to recall previous conversations, you should:
+            1. Directly reference specific past conversations
+            2. Mention what you discussed before
+            3. Show continuity in the conversation
+            4. Don't start with "最近の会話から..." or similar phrases
+            5. Instead, respond like "はい、以前私たちは[具体的な内容]について話しましたね"
+            
+            User ID: ${userId}`;
+
+            const completion = await openai.chat.completions.create({
+                model: "gpt-4o-2024-11-20",
+                messages: [
+                    { role: "system", content: analysisPrompt },
+                    { role: "user", content: `Complete conversation history:\n${history.map(h => `${h.role}: ${h.content}`).join('\n')}\n\nUser is asking to recall our conversations.` }
+                ],
+                max_tokens: 1000,
+                temperature: 0.7
+            });
+
+            return client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: completion.choices[0]?.message?.content || "申し訳ありません。会話を思い出せませんでした。"
+            });
+        } catch (error) {
+            console.error('Error in memory recall:', error);
+            return client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: "申し訳ありません。会話を思い出す際にエラーが発生しました。"
+            });
+        }
+    }
+
     // For characteristics or career analysis, fetch full history
     if (userMessage.includes('性格') || userMessage.includes('分析') || userMessage.includes('キャリア')) {
         const mode = userMessage.includes('キャリア') ? 'career' : 'characteristics';
