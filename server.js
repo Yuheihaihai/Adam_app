@@ -157,6 +157,58 @@ async function fetchUserHistory(userId) {
     }
 }
 
+// Add function to create AI summary
+async function createAISummary(history) {
+    try {
+        // Prepare conversation history for AI
+        const conversationSummary = history
+            .slice(0, 50)  // Last 50 messages for context
+            .map(item => `${item.role}: ${item.content}`)
+            .join('\n');
+
+        const messages = [
+            {
+                role: "system",
+                content: `
+                    あなたは会話履歴を要約する専門家です。
+                    以下の点に注目して、簡潔に200文字以内で要約してください：
+                    - 主な話題
+                    - 重要なポイント
+                    - ユーザーの関心事
+                    - 進展や結論
+                    
+                    形式：
+                    「期間：○月○日～○月○日
+                    主な話題：
+                    ・〇〇について
+                    ・〇〇の相談
+                    
+                    特記事項：
+                    ・〇〇という結論に至りました
+                    ・〇〇について継続的に話し合っています」
+                `
+            },
+            {
+                role: "user",
+                content: `以下の会話を要約してください：\n${conversationSummary}`
+            }
+        ];
+
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4",
+            messages,
+            max_tokens: 500,
+            temperature: 0.7
+        });
+
+        return completion.choices[0]?.message?.content || "要約を生成できませんでした。";
+
+    } catch (error) {
+        console.error('Error creating AI summary:', error);
+        return "申し訳ありません。要約の生成中にエラーが発生しました。";
+    }
+}
+
 // Update handleEvent function to handle memory recall
 async function handleEvent(event) {
     if (event.type !== 'message' || event.message.type !== 'text') {
@@ -172,7 +224,7 @@ async function handleEvent(event) {
         userMessage.includes('思い出') || userMessage.includes('履歴')) {
         try {
             const history = await fetchUserHistory(userId);
-            console.log(`Formatting ${history.length} records for display`);
+            console.log(`Creating AI summary for ${history.length} records`);
 
             if (history.length === 0) {
                 return client.replyMessage(event.replyToken, {
@@ -181,21 +233,13 @@ async function handleEvent(event) {
                 });
             }
 
-            // Format history with timestamps
-            const formattedHistory = history
-                .slice(0, 10)
-                .map(item => {
-                    const role = item.role === 'user' ? 'あなた' : 'アダム';
-                    const date = new Date(item.timestamp).toLocaleString('ja-JP');
-                    return `${date}\n${role}: ${item.content}`;
-                })
-                .join('\n\n');
-
-            console.log('Sending formatted history:', formattedHistory.substring(0, 100) + '...');
+            // Get AI-generated summary
+            const summary = await createAISummary(history);
+            console.log('AI Summary generated:', summary);
 
             return client.replyMessage(event.replyToken, {
                 type: 'text',
-                text: `直近の会話記録です：\n\n${formattedHistory}`
+                text: summary
             });
         } catch (error) {
             console.error('Error processing history:', error);
