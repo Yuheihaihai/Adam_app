@@ -30,6 +30,9 @@ const base = new Airtable({
 const userChatHistory = new Map();
 const userStates = new Map();
 
+// Initialize LINE client
+const client = new line.Client(config);
+
 // AI Processing functions
 async function processWithAIInstructions(text, userId) {
   const history = userChatHistory.get(userId) || [];
@@ -92,7 +95,7 @@ app.use('/webhook', (req, res, next) => {
 app.post('/webhook', line.middleware(config), async (req, res) => {
   try {
     const events = req.body.events || [];
-    console.log('Processing events:', events.length);
+    console.log('Webhook events:', events); // Debug log
     await Promise.all(events.map(handleEvent));
     return res.json({ status: 'ok' });
   } catch (error) {
@@ -103,40 +106,29 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
 
 // Event Handler
 async function handleEvent(event) {
+  console.log('Received event:', event); // Debug log
+
   if (event.type !== 'message' || event.message.type !== 'text') {
-    return null;
+    return Promise.resolve(null);
   }
 
-  const client = new line.Client(config);
+  // Safely handle the message text
+  const messageText = event.message?.text || '';
+  console.log('Processing message:', messageText); // Debug log
 
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4-1106-preview",
-      messages: [{
-        role: "user",
-        content: event.message.text
-      }],
-      max_tokens: 500
-    });
-
-    const aiReply = response.choices[0]?.message?.content || 
-                    'すみません、応答の生成に失敗しました。';
-
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: aiReply
+      text: messageText || 'メッセージを受け取りました。'
     });
   } catch (error) {
-    console.error('OpenAI Error:', error);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: 'すみません、エラーが発生しました。'
-    });
+    console.error('Reply error:', error);
+    return Promise.resolve(null);
   }
 }
 
 // Start server
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`listening on ${port}`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`listening on ${PORT}`);
 }); 
