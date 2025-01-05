@@ -26,9 +26,9 @@ if (!OPENAI_API_KEY || !AIRTABLE_API_KEY || !AIRTABLE_BASE_ID) {
 }
 
 // 3. Configure LINE
-const lineConfig = {
-  channelAccessToken: CHANNEL_ACCESS_TOKEN,
-  channelSecret: CHANNEL_SECRET
+const config = {
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
 // 4. Initialize Airtable
@@ -37,20 +37,40 @@ const base = new Airtable({ apiKey: AIRTABLE_API_KEY }).base(AIRTABLE_BASE_ID);
 // 5. Create Express app
 const app = express();
 
+// Middleware configuration
+app.use(line.middleware(config));
+
+// Add debug logging middleware
+app.use('/webhook', (req, res, next) => {
+  console.log('Incoming headers:', req.headers);
+  console.log('X-Line-Signature:', req.headers['x-line-signature']);
+  next();
+});
+
+// LINE middleware with error handling
+app.use('/webhook', (req, res, next) => {
+  line.middleware(config)(req, res, (err) => {
+    if (err) {
+      console.error('Middleware error:', err);
+      console.log('Config being used:', {
+        channelAccessToken: config.channelAccessToken ? 'Set' : 'Not set',
+        channelSecret: config.channelSecret ? 'Set' : 'Not set'
+      });
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+    next();
+  });
+});
+
 // 6. LINE webhook endpoint (must come before body-parser if used)
-app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
-  if (!req.body.events || req.body.events.length === 0) {
-    // No events -> respond 200 with empty
-    return res.json([]);
+app.post('/webhook', async (req, res) => {
+  try {
+    const events = req.body.events;
+    return res.status(200).json({ status: 'ok' });
+  } catch (error) {
+    console.error('Error:', error);
+    return res.status(500).json({ error: error.toString() });
   }
-  // Process each event
-  Promise.all(req.body.events.map(handleEvent))
-    .then((result) => res.json(result))
-    .catch(err => {
-      console.error("Error handling webhook events:", err);
-      // Return 200 to avoid repeated attempts from LINE
-      return res.json({});
-    });
 });
 
 // 7. Main event handler
