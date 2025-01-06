@@ -301,48 +301,52 @@ async function handleEvent(event) {
 
         // For general messages
         if (!userMessage.includes('性格') && !userMessage.includes('分析') && !userMessage.includes('キャリア')) {
-            const messages = [
-                {
-                    role: "system",
-                    content: `あなたはアダムです。ユーザーとの会話履歴を参照し、最近の内容をまとめて返答してください。
+            try {
+                const recentHistory = await fetchUserHistory(userId, 10);
+                console.log(`Loaded ${recentHistory.length} recent messages for context`);
+                
+                const contextHistory = recentHistory
+                    .map(item => `${item.role}: ${item.content}`)
+                    .join('\n');
 
-                    [ルール/制約（必ず守ること）]
-                    1. 直近の会話内容を最優先で参照すること。
-                    2. 会話でユーザーが言及した具体的な話題（例：留学、言語学習、政治など）を網羅的に含めること。
-                    3. 会話の文脈を維持すること。
+                const messages = [
+                    {
+                        role: "system",
+                        content: `あなたはアダムです。以下の会話履歴を参考に、自然な会話を続けてください。
 
-                    [やってはいけないこと]
-                    1. 古い会話だけに依拠しないこと。（最新の会話を中心にまとめる）
-                    2. 特定の一つの話題に固執しないこと。（最近の話全体を取り上げる）
-                    3. 分析モード（性格評価、アドバイスなど）に切り替えないこと。
-                    4. 「専門家への相談」を勧める文言を入れないこと。
+                        [重要な指示]
+                        • 「覚えています」「思い出しました」などの言葉は使わないでください
+                        • 文脈を理解した上で、自然に会話を続けてください
+                        • 過去の話題を参照する時も、さりげなく言及してください
+                        • 分析的な言い回しは避けてください
 
-                    [返答例]
-                    「はい、覚えています。ここ数回では○○の話が中心でした。
-                    その少し前に△△という話題も扱いました。
-                    特に××について詳しく共有いただきましたね。」
+                        [直近の会話履歴]
+                        ${contextHistory}`
+                    },
+                    {
+                        role: "user",
+                        content: userMessage
+                    }
+                ];
 
-                    [直近の会話履歴]
-                    ${contextHistory}
-                    `
-                },
-                {
-                    role: "user",
-                    content: userMessage
-                }
-            ];
+                const completion = await openai.chat.completions.create({
+                    model: "gpt-4o-2024-11-20",
+                    messages: messages,
+                    max_tokens: 200,
+                    temperature: 0.7
+                });
 
-            const completion = await openai.chat.completions.create({
-                model: "gpt-4o-2024-11-20",
-                messages: messages,
-                max_tokens: 200,
-                temperature: 0.7
-            });
-
-            return client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: completion.choices[0]?.message?.content || "申し訳ありません。応答を生成できませんでした。"
-            });
+                return client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: completion.choices[0]?.message?.content || "申し訳ありません。応答を生成できませんでした。"
+                });
+            } catch (error) {
+                console.error('Error in handleEvent:', error);
+                return client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: "申し訳ありません。エラーが発生しました。"
+                });
+            }
         }
 
         // ... rest of existing code for analysis, career advice, etc.
