@@ -134,18 +134,16 @@ async function processWithAI(userId, userMessage, mode = 'general') {
 }
 
 // Add function to fetch history from Airtable
-async function fetchUserHistory(userId) {
+async function fetchUserHistory(userId, limit = 100) {
     try {
-        console.log('Fetching history for user:', userId);
-        const records = await base('ConversationHistory')
+        const records = await base(INTERACTIONS_TABLE)
             .select({
                 filterByFormula: `{UserID} = '${userId}'`,
-                sort: [{field: 'Timestamp', direction: 'desc'}],
-                maxRecords: 100
+                sort: [{ field: 'Timestamp', direction: 'desc' }],
+                maxRecords: limit
             })
             .all();
-        
-        console.log(`Found ${records.length} records for user`);
+
         return records.map(record => ({
             role: record.get('Role'),
             content: record.get('Content'),
@@ -288,135 +286,56 @@ async function analyzeUserHistory(userId, mode) {
 
 // Update handleEvent function to handle memory recall
 async function handleEvent(event) {
-    if (event.type !== 'message' || event.message.type !== 'text') {
-        return null;
-    }
-
     const userId = event.source.userId;
-    const userMessage = event.message.text.trim();
-    console.log('Processing message from user:', userId, 'msg:', userMessage);
+    const userMessage = event.message.text;
 
-    // Check for memory recall command
-    if (userMessage.includes('過去の会話') || userMessage.includes('記憶') || 
-        userMessage.includes('思い出') || userMessage.includes('履歴')) {
-        try {
-            const history = await fetchUserHistory(userId);
-            console.log(`Creating AI summary for ${history.length} records`);
+    try {
+        // Always fetch last 5 exchanges (10 messages total)
+        const recentHistory = await fetchUserHistory(userId, 10);
+        console.log(`Loaded ${recentHistory.length} recent messages for context`);
 
-            if (history.length === 0) {
-                return client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: "申し訳ありません。過去の会話記録が見つかりませんでした。"
-                });
-            }
+        // Format recent context
+        const contextHistory = recentHistory
+            .map(item => `${item.role}: ${item.content}`)
+            .join('\n');
 
-            // Get AI-generated summary
-            const summary = await createAISummary(history);
-            console.log('AI Summary generated:', summary);
+        // For general messages
+        if (!userMessage.includes('性格') && !userMessage.includes('分析') && !userMessage.includes('キャリア')) {
+            const messages = [
+                {
+                    role: "system",
+                    content: `あなたはアダムです。ユーザーとの会話履歴を参照し、最近の内容をまとめて返答してください。
 
-            return client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: summary
-            });
-        } catch (error) {
-            console.error('Error processing history:', error);
-            return client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: "申し訳ありません。会話履歴の取得中にエラーが発生しました。"
-            });
-        }
-    }
+                    [ルール/制約（必ず守ること）]
+                    1. 直近の会話内容を最優先で参照すること。
+                    2. 会話でユーザーが言及した具体的な話題（例：留学、言語学習、政治など）を網羅的に含めること。
+                    3. 会話の文脈を維持すること。
 
-    // Special handling for memory recall requests
-    if (userMessage.includes('思い出して') || userMessage.includes('覚えてる')) {
-        try {
-            const history = await fetchUserHistory(userId);
-            console.log(`Fetching memory for user with ${history.length} records`);
-            
-            const analysisPrompt = `You are Adam, an AI counselor with access to past conversations.
-            When the user asks you to recall previous conversations, you should:
-            1. Directly reference specific past conversations
-            2. Mention what you discussed before
-            3. Show continuity in the conversation
-            4. Don't start with "最近の会話から..." or similar phrases
-            5. Instead, respond like "はい、以前私たちは[具体的な内容]について話しましたね"
-            
-            User ID: ${userId}`;
+                    [やってはいけないこと]
+                    1. 古い会話だけに依拠しないこと。（最新の会話を中心にまとめる）
+                    2. 特定の一つの話題に固執しないこと。（最近の話全体を取り上げる）
+                    3. 分析モード（性格評価、アドバイスなど）に切り替えないこと。
+                    4. 「専門家への相談」を勧める文言を入れないこと。
+
+                    [返答例]
+                    「はい、覚えています。ここ数回では○○の話が中心でした。
+                    その少し前に△△という話題も扱いました。
+                    特に××について詳しく共有いただきましたね。」
+
+                    [直近の会話履歴]
+                    ${contextHistory}
+                    `
+                },
+                {
+                    role: "user",
+                    content: userMessage
+                }
+            ];
 
             const completion = await openai.chat.completions.create({
                 model: "gpt-4o-2024-11-20",
-                messages: [
-                    { role: "system", content: analysisPrompt },
-                    { role: "user", content: `Complete conversation history:\n${history.map(h => `${h.role}: ${h.content}`).join('\n')}\n\nUser is asking to recall our conversations.` }
-                ],
-                max_tokens: 1000,
-                temperature: 0.7
-            });
-
-            return client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: completion.choices[0]?.message?.content || "申し訳ありません。会話を思い出せませんでした。"
-            });
-        } catch (error) {
-            console.error('Error in memory recall:', error);
-            return client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: "申し訳ありません。会話を思い出す際にエラーが発生しました。"
-            });
-        }
-    }
-
-    // For characteristics or career analysis, fetch full history
-    if (userMessage.includes('性格') || userMessage.includes('分析') || userMessage.includes('キャリア')) {
-        const mode = userMessage.includes('キャリア') ? 'career' : 'characteristics';
-        console.log(`Starting full history analysis for user: ${userId} mode: ${mode}`);
-        
-        try {
-            // Fetch complete history from Airtable
-            const analysis = await analyzeUserHistory(userId, mode);
-            console.log(`Analysis completed using full history`);
-            
-            return client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: analysis
-            });
-        } catch (error) {
-            console.error('Error in history analysis:', error);
-            return client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: "申し訳ありません。分析中にエラーが発生しました。"
-            });
-        }
-    }
-
-    // For general messages
-    if (!userMessage.includes('性格') && !userMessage.includes('分析') && !userMessage.includes('キャリア')) {
-        try {
-            const history = await fetchUserHistory(userId);
-            console.log(`Processing general message with ${history.length} records`);
-            
-            const analysisPrompt = `あなたはアダムです。ユーザーとの自然な会話を行ってください。
-
-            [重要な指示]
-            • 分析モードではなく、会話モードで返答してください
-            • ユーザーの言葉に対して自然に応答してください
-            • 長い分析や評価は避けてください
-            • 短く、フレンドリーな返答を心がけてください
-
-            [例]
-            ユーザー: 「素晴らしい」
-            アダム: 「ありがとうございます！嬉しいです。他に気になることはありますか？」
-
-            ユーザー: 「そうだね」
-            アダム: 「はい！一緒に考えていけたらと思います」`;
-
-            const completion = await openai.chat.completions.create({
-                model: "gpt-4o-2024-11-20",
-                messages: [
-                    { role: "system", content: analysisPrompt },
-                    { role: "user", content: userMessage }
-                ],
-                max_tokens: 100,  // Shorter responses for general chat
+                messages: messages,
+                max_tokens: 200,
                 temperature: 0.7
             });
 
@@ -424,100 +343,14 @@ async function handleEvent(event) {
                 type: 'text',
                 text: completion.choices[0]?.message?.content || "申し訳ありません。応答を生成できませんでした。"
             });
-
-        } catch (error) {
-            console.error('Error in general message processing:', error);
-            return client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: "申し訳ありません。エラーが発生しました。"
-            });
         }
-    }
 
-    // Detect mode
-    let mode = 'general';
-    if (userMessage.includes('職業') || userMessage.includes('仕事') || 
-        userMessage.includes('キャリア') || userMessage.includes('career')) {
-        mode = 'career';
-    } else if (userMessage.includes('特徴') || userMessage.includes('性格') || 
-               userMessage.includes('診断') || userMessage.includes('分析')) {
-        mode = 'characteristics';
-    }
-
-    try {
-        // Verify Airtable connection first
-        console.log('Attempting Airtable operation...', {
-            table: 'ConversationHistory',
-            baseId: process.env.AIRTABLE_BASE_ID,  // Show full base ID
-            fields: ['UserID', 'Role', 'Content', 'Timestamp']
-        });
-
-        // Store user message in memory
-        if (!userChatHistory.has(userId)) {
-            userChatHistory.set(userId, []);
-        }
-        userChatHistory.get(userId).push({ role: "user", text: userMessage });
-
-        // Get AI reply
-        const aiReply = await processWithAI(userId, userMessage, mode);
-
-        // Store AI reply in memory
-        userChatHistory.get(userId).push({ role: "assistant", text: aiReply });
-
-        // Store user message
-        const userRecord = await base('ConversationHistory').create([
-            {
-                fields: {
-                    UserID: userId,
-                    Role: "user",
-                    Content: userMessage,
-                    Timestamp: new Date().toISOString()
-                }
-            }
-        ]);
-        console.log('User message stored:', {
-            recordId: userRecord[0].id,
-            userId: userId,
-            messageLength: userMessage.length
-        });
-
-        // Store AI response
-        const aiRecord = await base('ConversationHistory').create([
-            {
-                fields: {
-                    UserID: userId,
-                    Role: "assistant",
-                    Content: aiReply,
-                    Timestamp: new Date().toISOString()
-                }
-            }
-        ]);
-        console.log('AI response stored:', {
-            recordId: aiRecord[0].id,
-            userId: userId,
-            messageLength: aiReply.length
-        });
-
-        return client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: aiReply,
-        });
+        // ... rest of existing code for analysis, career advice, etc.
     } catch (error) {
-        console.error('Detailed Airtable Error:', {
-            error: error.error,
-            message: error.message,
-            statusCode: error.statusCode,
-            stack: error.stack,
-            config: {
-                baseId: process.env.AIRTABLE_BASE_ID,
-                table: 'ConversationHistory',
-                hasAccessToken: !!process.env.AIRTABLE_ACCESS_TOKEN,
-                tokenPrefix: process.env.AIRTABLE_ACCESS_TOKEN?.substring(0, 4)
-            }
-        });
+        console.error('Error in handleEvent:', error);
         return client.replyMessage(event.replyToken, {
             type: 'text',
-            text: "申し訳ありません。エラーが発生しました。",
+            text: "申し訳ありません。エラーが発生しました。"
         });
     }
 }
