@@ -102,6 +102,9 @@ const AI_INSTRUCTIONS = {
   `
 };
 
+// Add at the top with other constants
+const INTERACTIONS_TABLE = 'ConversationHistory';
+
 async function processWithAI(userId, userMessage, mode = 'general') {
   console.log('Starting AI processing for user:', userId, 'mode:', mode);
   
@@ -133,9 +136,10 @@ async function processWithAI(userId, userMessage, mode = 'general') {
   }
 }
 
-// Add function to fetch history from Airtable
+// Update fetchUserHistory function
 async function fetchUserHistory(userId, limit = 100) {
     try {
+        console.log(`Fetching history for user ${userId}, limit: ${limit}`);
         const records = await base(INTERACTIONS_TABLE)
             .select({
                 filterByFormula: `{UserID} = '${userId}'`,
@@ -144,13 +148,19 @@ async function fetchUserHistory(userId, limit = 100) {
             })
             .all();
 
-        return records.map(record => ({
+        console.log(`Found ${records.length} records for user`);
+
+        const history = records.map(record => ({
             role: record.get('Role'),
             content: record.get('Content'),
             timestamp: record.get('Timestamp')
         }));
+
+        return history;
+
     } catch (error) {
         console.error('Error fetching history:', error);
+        console.error(error.stack);  // Add stack trace for better debugging
         return [];
     }
 }
