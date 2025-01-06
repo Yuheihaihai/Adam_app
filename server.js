@@ -160,9 +160,6 @@ async function fetchUserHistory(userId, limit) {
  * 10) Call GPT
  */
 async function processWithAI(systemPrompt, userMessage, history, mode) {
-  // conversation messages
-  // historyを先に並べ、最後に今回のuser発話
-  // systemPromptは先頭に
   const messages = [
     { role: 'system', content: systemPrompt },
     ...history.map(h => ({ role: h.role, content: h.content })),
@@ -174,9 +171,8 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
 
   try {
     const resp = await openai.chat.completions.create({
-      model: 'gpt-4',
+      model: 'chatgpt-4o-latest',
       messages,
-      max_tokens: 300,
       temperature: 0.7,
     });
     const reply = resp.choices?.[0]?.message?.content || '（No reply）';
