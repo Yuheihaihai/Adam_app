@@ -77,12 +77,35 @@ AIとして「記憶不可」とは言わないでください。
 返答は日本語。過去ログに基づいた要約を簡潔に。
 `;
 
+const SYSTEM_PROMPT_HUMAN_RELATIONSHIP = `
+あなたは「Adam」というカウンセラーです。
+ユーザーの過去ログ(最大200件)がすべてあなたの記憶。
+人間関係の相談に対して:
+1. ユーザーの特徴を分析
+2. 状況を整理
+3. 具体的なアドバイスを提供
+返答は日本語。200文字以内。
+共感的な態度を保ちつつ、建設的な提案をしてください。
+`;
+
 /**
  * 汎用ヘルパー：mode判定 & limit設定
  */
 function determineModeAndLimit(userMessage) {
   const lcMsg = userMessage.toLowerCase();
-  // 例: "特性" "分析" "キャリア" "思い出して"
+  
+  // Human relationship keywords
+  if (
+    lcMsg.includes('人間関係') ||
+    lcMsg.includes('友人') ||
+    lcMsg.includes('同僚') ||
+    lcMsg.includes('恋愛') ||
+    lcMsg.includes('パートナー')
+  ) {
+    return { mode: 'humanRelationship', limit: 200 };
+  }
+  
+  // Existing modes
   if (lcMsg.includes('特性') || lcMsg.includes('分析')) {
     return { mode: 'characteristics', limit: 100 };
   }
@@ -92,7 +115,7 @@ function determineModeAndLimit(userMessage) {
   if (lcMsg.includes('思い出して')) {
     return { mode: 'memoryRecall', limit: 100 };
   }
-  // それ以外
+  
   return { mode: 'general', limit: 10 };
 }
 
@@ -101,10 +124,15 @@ function determineModeAndLimit(userMessage) {
  */
 function getSystemPromptForMode(mode) {
   switch (mode) {
-    case 'characteristics': return SYSTEM_PROMPT_CHARACTERISTICS;
-    case 'career': return SYSTEM_PROMPT_CAREER;
-    case 'memoryRecall': return SYSTEM_PROMPT_MEMORY_RECALL;
-    default: // general
+    case 'characteristics':
+      return SYSTEM_PROMPT_CHARACTERISTICS;
+    case 'career':
+      return SYSTEM_PROMPT_CAREER;
+    case 'memoryRecall':
+      return SYSTEM_PROMPT_MEMORY_RECALL;
+    case 'humanRelationship':
+      return SYSTEM_PROMPT_HUMAN_RELATIONSHIP;
+    default:
       return SYSTEM_PROMPT_GENERAL;
   }
 }
