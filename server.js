@@ -71,7 +71,7 @@ const SYSTEM_PROMPT_CAREER = `
 `;
 
 const SYSTEM_PROMPT_MEMORY_RECALL = `
-あなたは「Adam」、ユーザーの過去ログ(最大100件)がすべてあなたの記憶。
+あなたは「Adam」、ユーザーの過去ログ(最大200件)がすべてあなたの記憶。
 「思い出して」と言われたら、その記録を要約してください。
 AIとして「記憶不可」とは言わないでください。
 返答は日本語。過去ログに基づいた要約を簡潔に。
@@ -94,7 +94,12 @@ const SYSTEM_PROMPT_HUMAN_RELATIONSHIP = `
 function determineModeAndLimit(userMessage) {
   const lcMsg = userMessage.toLowerCase();
   
-  // Human relationship keywords
+  // Memory recall - now fetches 200 messages
+  if (lcMsg.includes('思い出して') || lcMsg.includes('今までの話')) {
+    return { mode: 'memoryRecall', limit: 200 }; // Changed from 100 to 200
+  }
+  
+  // Human relationship - already at 200
   if (
     lcMsg.includes('人間関係') ||
     lcMsg.includes('友人') ||
@@ -105,15 +110,12 @@ function determineModeAndLimit(userMessage) {
     return { mode: 'humanRelationship', limit: 200 };
   }
   
-  // Existing modes
+  // Other existing modes
   if (lcMsg.includes('特性') || lcMsg.includes('分析')) {
     return { mode: 'characteristics', limit: 100 };
   }
   if (lcMsg.includes('キャリア')) {
     return { mode: 'career', limit: 100 };
-  }
-  if (lcMsg.includes('思い出して')) {
-    return { mode: 'memoryRecall', limit: 100 };
   }
   
   return { mode: 'general', limit: 10 };
