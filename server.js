@@ -149,9 +149,23 @@ const SYSTEM_PROMPT_HUMAN_RELATIONSHIP = `
 function determineModeAndLimit(userMessage) {
   const lcMsg = userMessage.toLowerCase();
   
-  // Memory recall - now fetches 200 messages
+  // Analysis-related keywords - all fetch 200 messages
+  if (
+    lcMsg.includes('特性') || 
+    lcMsg.includes('分析') ||
+    lcMsg.includes('思考') ||
+    lcMsg.includes('傾向') ||
+    lcMsg.includes('パターン') ||
+    lcMsg.includes('コミュニケーション') ||
+    lcMsg.includes('対人関係') ||
+    lcMsg.includes('性格')
+  ) {
+    return { mode: 'characteristics', limit: 200 };  // Increased to 200
+  }
+  
+  // Memory recall - already at 200
   if (lcMsg.includes('思い出して') || lcMsg.includes('今までの話')) {
-    return { mode: 'memoryRecall', limit: 200 }; // Changed from 100 to 200
+    return { mode: 'memoryRecall', limit: 200 };
   }
   
   // Human relationship - already at 200
@@ -165,14 +179,12 @@ function determineModeAndLimit(userMessage) {
     return { mode: 'humanRelationship', limit: 200 };
   }
   
-  // Other existing modes
-  if (lcMsg.includes('特性') || lcMsg.includes('分析')) {
-    return { mode: 'characteristics', limit: 100 };
-  }
+  // Career consultation - increased to 200
   if (lcMsg.includes('キャリア')) {
-    return { mode: 'career', limit: 100 };
+    return { mode: 'career', limit: 200 };
   }
   
+  // General conversation
   return { mode: 'general', limit: 10 };
 }
 
