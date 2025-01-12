@@ -12,6 +12,7 @@ const { Client } = require('@line/bot-sdk');
 const { OpenAI } = require('openai');
 const Airtable = require('airtable');
 const helmet = require('helmet');
+const line = require('@line/bot-sdk');
 
 // 2) Setup Express app
 const app = express();
@@ -29,8 +30,8 @@ console.log('Environment check:', {
 
 // 4) LINE config
 const config = {
-  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.CHANNEL_SECRET,
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 const client = new Client(config);
 
@@ -330,41 +331,15 @@ app.get('/', (req, res) => {
 /**
  * 13) POST /webhook
  */
-app.post('/webhook', 
-  (req, res, next) => {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk;
+app.post('/webhook', line.middleware(config), (req, res) => {
+  Promise
+    .all(req.body.events.map(handleEvent))
+    .then((result) => res.json(result))
+    .catch((err) => {
+      console.error(err);
+      res.status(500).end();
     });
-    req.on('end', () => {
-      req.rawBody = body;
-      try {
-        req.body = JSON.parse(body);
-        next();
-      } catch (err) {
-        console.error('JSON parse error:', err.message);
-        res.status(400).send('Invalid JSON');
-      }
-    });
-  },
-  (req, res, next) => {
-    // Debug logging
-    console.log('Headers:', req.headers);
-    console.log('Raw body length:', req.rawBody?.length);
-    next();
-  },
-  line.middleware(config),
-  async (req, res) => {
-    try {
-      const events = req.body.events || [];
-      await Promise.all(events.map(handleEvent));
-      return res.json({ status: 'ok' });
-    } catch (err) {
-      console.error('Webhook error:', err.message);
-      return res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-);
+});
 
 /**
  * 14) Listen
