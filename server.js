@@ -331,15 +331,21 @@ app.get('/', (req, res) => {
  * 13) POST /webhook
  */
 app.post('/webhook', 
-  express.json({
-    verify: (req, res, buf) => {
-      req.rawBody = buf.toString();
-    }
+  express.raw({ 
+    type: 'application/json',
+    limit: '10mb'
   }),
   (req, res, next) => {
-    if (!req.rawBody) {
-      console.error('No raw body available');
-      return res.status(400).send('No raw body');
+    if (!req.body) {
+      return res.status(400).send('No body');
+    }
+    
+    // Convert raw body to string for LINE validation
+    req.rawBody = req.body.toString('utf8');
+    try {
+      req.body = JSON.parse(req.rawBody);
+    } catch (err) {
+      return res.status(400).send('Invalid JSON');
     }
     next();
   },
