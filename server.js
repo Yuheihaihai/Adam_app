@@ -8,48 +8,65 @@
 // 1) Import dependencies
 require('dotenv').config();
 const express = require('express');
-const { Client } = require('@line/bot-sdk');
-const { OpenAI } = require('openai');
-const Airtable = require('airtable');
 const helmet = require('helmet');
 const line = require('@line/bot-sdk');
+const Airtable = require('airtable');
+const { OpenAI } = require('openai');
 
-// 2) Setup Express app
-const app = express();
-app.set('trust proxy', 1);
-app.use(helmet());
-
-// 3) Basic environment checks
+//---------------------------------------------------------
+// 2) Basic environment checks
+//---------------------------------------------------------
 console.log('Environment check:', {
   hasAccessToken: !!process.env.CHANNEL_ACCESS_TOKEN,
   hasSecret: !!process.env.CHANNEL_SECRET,
   openAIKey: !!process.env.OPENAI_API_KEY,
-  airtableToken: !!process.env.AIRTABLE_API_KEY, // ここはAIRTABLE_API_KEY or AIRTABLE_ACCESS_TOKEN等に合わせる
+  airtableToken: !!process.env.AIRTABLE_API_KEY,
   airtableBase: !!process.env.AIRTABLE_BASE_ID,
 });
 
-// 4) LINE config
-const config = {
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET
-};
-const client = new Client(config);
+//---------------------------------------------------------
+// 3) Setup Express app
+//---------------------------------------------------------
+const app = express();
+app.set('trust proxy', 1);
+app.use(helmet());
 
+// DO NOT do express.json() or urlencoded() here. line.middleware needs raw body.
+
+//---------------------------------------------------------
+// 4) LINE config and client
+//---------------------------------------------------------
+const config = {
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.CHANNEL_SECRET
+};
+
+const client = new line.Client(config);
+
+//---------------------------------------------------------
 // 5) OpenAI initialization
+//---------------------------------------------------------
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+//---------------------------------------------------------
 // 6) Airtable initialization
+//---------------------------------------------------------
 console.log('Airtable Configuration Check:', {
   hasApiKey: !!process.env.AIRTABLE_API_KEY,
   baseId: process.env.AIRTABLE_BASE_ID,
-  tableName: 'ConversationHistory',
+  tableName: 'ConversationHistory'
 });
-const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(process.env.AIRTABLE_BASE_ID);
+
+const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
+  .base(process.env.AIRTABLE_BASE_ID);
 const INTERACTIONS_TABLE = 'ConversationHistory';
 
+//---------------------------------------------------------
 // 7) Define system prompts for each "mode"
+//     (These are your instructions to OpenAI, kept intact.)
+//---------------------------------------------------------
 const SYSTEM_PROMPT_GENERAL = `
 あなたは「Adam」というアシスタントです。
 ASDやADHDなど発達障害の方へのサポートが主目的。
@@ -58,7 +75,7 @@ ASDやADHDなど発達障害の方へのサポートが主目的。
 `;
 
 const SYSTEM_PROMPT_CHARACTERISTICS = `
-あなたは「Adam」という�達障害専門のカウンセラーです。
+あなたは「Adam」という発達障害専門のカウンセラーです。
 ユーザーの過去ログ(最大200件)を分析し、以下の観点から深い洞察を提供してください：
 
 [分析の観点]
@@ -147,13 +164,13 @@ const SYSTEM_PROMPT_HUMAN_RELATIONSHIP = `
 共感的な態度を保ちつつ、建設的な提案をしてください。
 `;
 
-/**
- * 汎用ヘルパー：mode判定 & limit設定
- */
+//---------------------------------------------------------
+// 8) decide "mode" & "limit" based on user message
+//---------------------------------------------------------
 function determineModeAndLimit(userMessage) {
   const lcMsg = userMessage.toLowerCase();
-  
-  // Analysis-related keywords - all fetch 200 messages
+
+  // "特性" "分析" or synonyms => 200
   if (
     lcMsg.includes('特性') || 
     lcMsg.includes('分析') ||
@@ -164,15 +181,15 @@ function determineModeAndLimit(userMessage) {
     lcMsg.includes('対人関係') ||
     lcMsg.includes('性格')
   ) {
-    return { mode: 'characteristics', limit: 200 };  // Increased to 200
+    return { mode: 'characteristics', limit: 200 };
   }
-  
-  // Memory recall - already at 200
+
+  // "思い出して" => 200
   if (lcMsg.includes('思い出して') || lcMsg.includes('今までの話')) {
     return { mode: 'memoryRecall', limit: 200 };
   }
-  
-  // Human relationship - already at 200
+
+  // "人間関係" "友人" "同僚" "恋愛" "パートナー" => 200
   if (
     lcMsg.includes('人間関係') ||
     lcMsg.includes('友人') ||
@@ -182,19 +199,19 @@ function determineModeAndLimit(userMessage) {
   ) {
     return { mode: 'humanRelationship', limit: 200 };
   }
-  
-  // Career consultation - increased to 200
+
+  // "キャリア" => 200
   if (lcMsg.includes('キャリア')) {
     return { mode: 'career', limit: 200 };
   }
-  
-  // General conversation
+
+  // else => general 10
   return { mode: 'general', limit: 10 };
 }
 
-/**
- * モード別 systemプロンプト取得
- */
+//---------------------------------------------------------
+// 9) pick system prompt
+//---------------------------------------------------------
 function getSystemPromptForMode(mode) {
   switch (mode) {
     case 'characteristics':
@@ -210,9 +227,9 @@ function getSystemPromptForMode(mode) {
   }
 }
 
-/**
- * 8) Store one message in Airtable
- */
+//---------------------------------------------------------
+// 10) store a single interaction in Airtable
+//---------------------------------------------------------
 async function storeInteraction(userId, role, content) {
   try {
     await base(INTERACTIONS_TABLE).create([
@@ -230,9 +247,9 @@ async function storeInteraction(userId, role, content) {
   }
 }
 
-/**
- * 9) Fetch user chat history from Airtable with variable limit
- */
+//---------------------------------------------------------
+// 11) fetch user history from Airtable
+//---------------------------------------------------------
 async function fetchUserHistory(userId, limit) {
   try {
     console.log(`Fetching history for user ${userId}, limit: ${limit}`);
@@ -243,13 +260,13 @@ async function fetchUserHistory(userId, limit) {
         maxRecords: limit,
       })
       .all();
-
     console.log(`Found ${records.length} records for user`);
-    // 逆順にして古い順に
+
+    // Reverse for older -> newer
     const sorted = records.reverse();
     return sorted.map(r => ({
-      role: r.get('Role') === 'assistant' ? 'assistant' : 'user',
-      content: r.get('Content') || '',
+      role: (r.get('Role') === 'assistant') ? 'assistant' : 'user',
+      content: r.get('Content') || ''
     }));
   } catch (error) {
     console.error('Error fetching history:', error);
@@ -257,9 +274,9 @@ async function fetchUserHistory(userId, limit) {
   }
 }
 
-/**
- * 10) Call GPT
- */
+//---------------------------------------------------------
+// 12) call GPT
+//---------------------------------------------------------
 async function processWithAI(systemPrompt, userMessage, history, mode) {
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -268,13 +285,13 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   ];
 
   console.log(`Loaded ${history.length} messages for context in mode=[${mode}]`);
-  console.log(`Calling GPT with ${messages.length} msgs, mode= ${mode}`);
+  console.log(`Calling GPT with ${messages.length} msgs, mode=${mode}`);
 
   try {
     const resp = await openai.chat.completions.create({
       model: 'chatgpt-4o-latest',
       messages,
-      temperature: 0.7,
+      temperature: 0.7
     });
     const reply = resp.choices?.[0]?.message?.content || '（No reply）';
     return reply;
@@ -284,67 +301,70 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   }
 }
 
-/**
- * 11) Main event handler
- */
+//---------------------------------------------------------
+// 13) main LINE event handler
+//---------------------------------------------------------
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
+    // Not a text message => do nothing
     return null;
   }
-  const userId = event.source.userId;
+
+  const userId = event.source?.userId || 'unknown';
   const userMessage = event.message.text.trim();
 
-  // 1) store user msg
+  // Store user message
   await storeInteraction(userId, 'user', userMessage);
 
-  // 2) decide mode & fetch limit
+  // Determine mode & limit
   const { mode, limit } = determineModeAndLimit(userMessage);
 
-  // 3) fetch conversation from Airtable
+  // Fetch conversation
   const history = await fetchUserHistory(userId, limit);
 
-  // 4) pick system prompt
+  // System prompt
   const systemPrompt = getSystemPromptForMode(mode);
 
-  // 5) process AI
+  // Call GPT
   const aiReply = await processWithAI(systemPrompt, userMessage, history, mode);
 
-  // 6) store assistant reply
+  // Store assistant reply
   await storeInteraction(userId, 'assistant', aiReply);
 
-  // 7) reply to user
+  // Return reply to user
   const lineMessage = {
     type: 'text',
-    text: aiReply.slice(0, 2000), // LINE上限対策
+    text: aiReply.slice(0, 2000) // LINE limit safeguard
   };
   await client.replyMessage(event.replyToken, lineMessage);
-  return;
 }
 
-/**
- * 12) GET /
- */
+//---------------------------------------------------------
+// 14) GET / => simple health check
+//---------------------------------------------------------
 app.get('/', (req, res) => {
-  res.send('Adam App is running. Hello from Heroku/Render! (Updated code example)');
+  res.send('Adam App Cloud v2 is running. Ready for LINE requests.');
 });
 
-/**
- * 13) POST /webhook
- */
+//---------------------------------------------------------
+// 15) POST /webhook => line.middleware + handle events
+//---------------------------------------------------------
 app.post('/webhook', line.middleware(config), (req, res) => {
   Promise
     .all(req.body.events.map(handleEvent))
-    .then((result) => res.json(result))
-    .catch((err) => {
-      console.error(err);
-      res.status(500).end();
+    .then(result => res.json(result))
+    .catch(err => {
+      console.error('Webhook error:', err);
+      // Return 200 or 500? If we return 500, LINE will retry.
+      // Usually, returning 200 is safer to avoid repeated attempts.
+      return res.status(200).json({});
     });
 });
 
-/**
- * 14) Listen
- */
+//---------------------------------------------------------
+// 16) Listen
+//---------------------------------------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`listening on ${PORT}`);
+  console.log(`Listening on port ${PORT}`);
 });
