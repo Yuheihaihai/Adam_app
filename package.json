@@ -18,7 +18,8 @@
     "winston": "^3.11.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "16.20.2",
+    "npm": "8.19.4"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"
