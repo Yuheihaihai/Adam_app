@@ -14,126 +14,87 @@ const Airtable = require('airtable');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 
-// 1. Environment Variables & Config
+// Constants
+const INTERACTIONS_TABLE = 'Interactions';
+const MAX_HISTORY_LIMIT = 10;
+
+// LINE config
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET
 };
 
-// Validate environment variables
-const REQUIRED_ENV = [
-  {
-    key: 'CHANNEL_ACCESS_TOKEN',
-    validator: (val) => val?.length >= 20,
-  },
-  {
-    key: 'CHANNEL_SECRET',
-    validator: (val) => val?.length >= 10,
-  },
-  {
-    key: 'OPENAI_API_KEY',
-    validator: (val) => val?.startsWith('sk-'),
-  },
-  {
-    key: 'AIRTABLE_API_KEY',
-    validator: (val) => val?.length >= 10,
-  }
-];
-
-REQUIRED_ENV.forEach(({key, validator}) => {
-  if (!process.env[key] || !validator(process.env[key])) {
-    console.error(`Security: Missing/Invalid env var: ${key}`);
-    process.exit(1);
-  }
-});
-
-// 1. Configure timeouts for external APIs
+// Initialize APIs with shorter timeouts
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  timeout: 8000, // 8s timeout
-  maxRetries: 0  // No retries to speed up
+  timeout: 8000,
+  maxRetries: 0
 });
 
 Airtable.configure({
   apiKey: process.env.AIRTABLE_API_KEY,
-  requestTimeout: 5000  // 5s timeout
+  requestTimeout: 5000
 });
 
 const base = Airtable.base(process.env.AIRTABLE_BASE_ID);
 const client = new line.Client(config);
 
-// 3. Security Utilities
-function sanitizeForLog(content) {
-  if (!content) return '';
-  const str = typeof content === 'string' ? content : JSON.stringify(content);
-  // Remove potential sensitive data patterns
-  return str
-    .replace(/sk-[a-zA-Z0-9]{20,}/g, 'sk-***') // OpenAI key pattern
-    .replace(/key[a-zA-Z0-9]{32,}/g, 'key***') // Airtable key pattern
-    .slice(0, 100) + (str.length > 100 ? '...(truncated)' : '');
+// Helper functions
+function determineModeAndLimit(message) {
+  if (message.includes('特性を分析して')) {
+    return { mode: 'analysis', limit: 5 };
+  }
+  if (message.includes('思い出して')) {
+    return { mode: 'memory', limit: MAX_HISTORY_LIMIT };
+  }
+  return { mode: 'chat', limit: 3 };
 }
 
-function validateUserInput(content) {
-  if (!content || typeof content !== 'string') return false;
-  if (content.length > 1000) return false;
-  // Prevent common injection patterns
-  const dangerousPatterns = [
-    '<script',
-    'javascript:',
-    'data:',
-    'vbscript:',
-    'onclick=',
-    'onerror=',
-    'onload='
-  ];
-  return !dangerousPatterns.some(pattern => 
-    content.toLowerCase().includes(pattern)
-  );
-}
-
-// 4. Rate Limiting
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  message: { error: 'Too many requests' }
-});
-
-// 5. Express Setup with Security
-const app = express();
-app.set('trust proxy', 1);
-app.use(helmet());
-app.use(express.raw({ type: 'application/json' }));
-
-// 6. Secure Storage
-async function storeInteraction(userId, role, content) {
+async function fetchUserHistory(userId, limit = 3) {
   try {
-    // Validate inputs before storage
-    if (!userId || !role || !content) {
-      throw new Error('Missing required fields for storage');
-    }
-    
-    await base(INTERACTIONS_TABLE).create([
-      {
-        fields: {
-          UserID: userId,
-          Role: role,
-          Content: content,
-          Timestamp: new Date().toISOString(),
-          MetaData: JSON.stringify({
-            source: 'LINE',
-            version: '1.0'
-          })
-        },
-      },
-    ]);
-    console.log(`Stored ${role} message for user: ${sanitizeForLog(userId)}`);
+    const records = await base(INTERACTIONS_TABLE)
+      .select({
+        filterByFormula: `{UserID} = '${userId}'`,
+        sort: [{ field: 'Timestamp', direction: 'desc' }],
+        maxRecords: limit
+      })
+      .firstPage();
+    return records.map(record => ({
+      role: record.get('Role'),
+      content: record.get('Content')
+    }));
   } catch (err) {
-    console.error('Storage error:', sanitizeForLog(err.message));
-    throw err; // Re-throw to handle in calling function
+    console.error('History fetch error:', err.message);
+    return [];
   }
 }
 
-// 7. Secure Event Handler
+// Express setup
+const app = express();
+app.set('trust proxy', 1);
+app.use(helmet());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
+
+// Webhook route
+app.post('/webhook',
+  line.middleware(config),
+  async (req, res) => {
+    try {
+      const events = req.body.events || [];
+      await Promise.all(events.map(handleEvent));
+      return res.json({ status: 'ok' });
+    } catch (err) {
+      console.error('Webhook error:', err.message);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// Event handler
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
     return null;
@@ -142,24 +103,14 @@ async function handleEvent(event) {
   const userId = event.source.userId;
   const userMessage = event.message.text.trim();
 
-  if (!validateUserInput(userMessage)) {
-    console.warn(`Rejected invalid input from user: ${sanitizeForLog(userId)}`);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '申し訳ありませんが、そのメッセージは処理できません。'
-    });
-  }
-
   try {
-    // Store user message in background
-    storeInteraction(userId, 'user', userMessage).catch(console.error);
-    
     const { mode, limit } = determineModeAndLimit(userMessage);
     const userHistory = await fetchUserHistory(userId, limit);
     
     const aiReply = await processWithAI(userMessage, userHistory, mode);
 
-    // Store AI reply in background
+    // Store messages in background
+    storeInteraction(userId, 'user', userMessage).catch(console.error);
     storeInteraction(userId, 'assistant', aiReply).catch(console.error);
 
     return client.replyMessage(event.replyToken, {
@@ -174,28 +125,6 @@ async function handleEvent(event) {
     });
   }
 }
-
-// 8. Secure Webhook
-app.post('/webhook',
-  (req, res, next) => {
-    if (req.body) {
-      req.rawBody = req.body;
-      req.body = JSON.parse(req.rawBody);
-    }
-    next();
-  },
-  line.middleware(config),
-  async (req, res) => {
-    try {
-      const events = req.body.events || [];
-      await Promise.all(events.map(handleEvent));
-      return res.json({ status: 'ok' });
-    } catch (err) {
-      console.error('Webhook error:', err.message);
-      return res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
