@@ -3,18 +3,21 @@
   "version": "1.0.0",
   "engines": {
     "node": "18.x",
-    "npm": "9.x"
+    "npm": "9.9.4"
   },
   "dependencies": {
     "@line/bot-sdk": "7.5.0",
     "express": "4.18.2",
-    "form-data": "2.3.3",
+    "form-data": "3.0.1",
     "axios": "0.21.1",
     "helmet": "7.1.0",
     "express-rate-limit": "7.1.5",
     "airtable": "0.12.2",
     "openai": "4.20.1",
-    "dotenv": "16.3.1",
+    "dotenv": "16.3.1"
+  },
+  "peerDependencies": {
+    "form-data": "3.0.1",
     "asynckit": "0.4.0"
   }
 }
