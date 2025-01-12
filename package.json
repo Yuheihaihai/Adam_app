@@ -1,6 +1,11 @@
 {
   "name": "line-openai-voice-chat",
   "version": "1.0.0",
+  "description": "Sample LINE Bot with OpenAI and Express",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
     "@line/bot-sdk": "7.3.0",
     "axios": "^1.6.2",
@@ -9,10 +14,7 @@
     "dotenv": "^16.0.3"
   },
   "engines": {
-    "node": "14.x",
+    "node": "16.x",
     "npm": "6.x"
-  },
-  "scripts": {
-    "start": "node server.js"
   }
 }
