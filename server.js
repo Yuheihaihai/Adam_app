@@ -11,9 +11,12 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const { OpenAI } = require('openai');
 const Airtable = require('airtable');
+const helmet = require('helmet');
 
 // 2) Setup Express app
 const app = express();
+app.set('trust proxy', 1);
+app.use(helmet());
 
 // 3) Basic environment checks
 console.log('Environment check:', {
@@ -327,16 +330,31 @@ app.get('/', (req, res) => {
 /**
  * 13) POST /webhook
  */
-app.post('/webhook', line.middleware(config), async (req, res) => {
-  try {
-    const events = req.body.events || [];
-    await Promise.all(events.map(handleEvent));
-    return res.json({ status: 'ok' });
-  } catch (err) {
-    console.error('Webhook error:', err);
-    return res.status(500).json({ error: err.toString() });
+app.post('/webhook', 
+  express.raw({ type: 'application/json' }), // Important: use raw body parser
+  (req, res, next) => {
+    if (req.body) {
+      req.rawBody = req.body;
+      try {
+        req.body = JSON.parse(req.rawBody);
+      } catch (err) {
+        return res.status(400).send('Invalid JSON');
+      }
+    }
+    next();
+  },
+  line.middleware(config),
+  async (req, res) => {
+    try {
+      const events = req.body.events || [];
+      await Promise.all(events.map(handleEvent));
+      return res.json({ status: 'ok' });
+    } catch (err) {
+      console.error('Webhook error:', err.message);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
   }
-});
+);
 
 /**
  * 14) Listen
