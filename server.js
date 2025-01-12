@@ -50,13 +50,13 @@ REQUIRED_ENV.forEach(({key, validator}) => {
 // 1. Configure timeouts for external APIs
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  timeout: 25000, // 25 second timeout
+  timeout: 20000, // 20s timeout
   maxRetries: 2
 });
 
 Airtable.configure({
   apiKey: process.env.AIRTABLE_API_KEY,
-  requestTimeout: 25000 // 25 second timeout
+  requestTimeout: 20000
 });
 
 const base = Airtable.base(process.env.AIRTABLE_BASE_ID);
@@ -95,14 +95,7 @@ function validateUserInput(content) {
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 30,
-  message: { error: 'Too many requests' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    return req.headers['x-forwarded-for'] || 
-           req.connection.remoteAddress ||
-           req.ip;
-  }
+  message: { error: 'Too many requests' }
 });
 
 // 5. Express Setup with Security
@@ -175,7 +168,7 @@ async function handleEvent(event) {
     const aiReply = await Promise.race([
       processWithAI(userMessage, userHistory, mode),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('AI processing timeout')), 20000)
+        setTimeout(() => reject(new Error('AI timeout')), 15000)
       )
     ]);
 
@@ -186,7 +179,7 @@ async function handleEvent(event) {
       text: aiReply.slice(0, 2000)
     });
   } catch (err) {
-    console.error('Event handling error:', sanitizeForLog(err.message));
+    console.error('Event handling error:', err.message);
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: '申し訳ありません、エラーが発生しました。もう一度お試しください。'
@@ -216,14 +209,20 @@ app.post('/webhook',
   line.middleware(config),
   async (req, res) => {
     try {
-      // Set response timeout
-      res.setTimeout(25000);
-
       const events = req.body.events || [];
-      await Promise.all(events.map(handleEvent));
+      await Promise.all(
+        events.map(event => 
+          Promise.race([
+            handleEvent(event),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Event timeout')), 15000)
+            )
+          ])
+        )
+      );
       return res.json({ status: 'ok' });
     } catch (err) {
-      console.error('Webhook error:', sanitizeForLog(err.message));
+      console.error('Webhook error:', err.message);
       return res.status(500).json({ error: 'Internal server error' });
     }
   }
