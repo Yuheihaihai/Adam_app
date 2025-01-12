@@ -191,14 +191,25 @@ async function handleEvent(event) {
 
 // 8. Secure Webhook
 app.post('/webhook', 
+  express.json(),
   limiter,
+  (req, res, next) => {
+    // Ensure raw body is available for LINE signature validation
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => {
+      data += chunk;
+    });
+    req.on('end', () => {
+      req.rawBody = data;
+      next();
+    });
+  },
   line.middleware(config),
   async (req, res) => {
     try {
-      if (!req.body || !Array.isArray(req.body.events)) {
-        return res.status(400).json({ error: 'Invalid request format' });
-      }
-      await Promise.all(req.body.events.map(handleEvent));
+      const events = req.body.events || [];
+      await Promise.all(events.map(handleEvent));
       res.json({ status: 'ok' });
     } catch (err) {
       console.error('Webhook error:', sanitizeForLog(err.message));
