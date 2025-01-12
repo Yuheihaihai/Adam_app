@@ -47,16 +47,16 @@ REQUIRED_ENV.forEach(({key, validator}) => {
   }
 });
 
-// 2. Initialize APIs with validated credentials
+// 1. Configure timeouts for external APIs
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  timeout: 10000, // 10s timeout
-  maxRetries: 3
+  timeout: 25000, // 25 second timeout
+  maxRetries: 2
 });
 
 Airtable.configure({
   apiKey: process.env.AIRTABLE_API_KEY,
-  requestTimeout: 10000
+  requestTimeout: 25000 // 25 second timeout
 });
 
 const base = Airtable.base(process.env.AIRTABLE_BASE_ID);
@@ -169,10 +169,17 @@ async function handleEvent(event) {
 
   try {
     await storeInteraction(userId, 'user', userMessage);
-
+    
     const { mode, limit } = determineModeAndLimit(userMessage);
     const userHistory = await fetchUserHistory(userId, limit);
-    const aiReply = await processWithAI(userMessage, userHistory, mode);
+    
+    // Add timeout for AI processing
+    const aiReply = await Promise.race([
+      processWithAI(userMessage, userHistory, mode),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('AI processing timeout')), 20000)
+      )
+    ]);
 
     await storeInteraction(userId, 'assistant', aiReply);
 
@@ -184,7 +191,7 @@ async function handleEvent(event) {
     console.error('Event handling error:', sanitizeForLog(err.message));
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '申し訳ありません、エラーが発生しました。'
+      text: '申し訳ありません、処理に時間がかかりすぎました。もう一度お試しください。'
     });
   }
 }
@@ -192,31 +199,30 @@ async function handleEvent(event) {
 // 8. Secure Webhook
 app.post('/webhook', 
   limiter,
-  (req, res, next) => {
-    // Raw body handler for LINE signature validation
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk;
-    });
-    req.on('end', () => {
-      req.rawBody = body;
-      try {
-        req.body = JSON.parse(body);
-        next();
-      } catch (err) {
-        res.status(400).send('Invalid JSON');
-      }
-    });
-  },
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf.toString();
+    }
+  }),
   line.middleware(config),
   async (req, res) => {
     try {
+      // Set response timeout
+      res.setTimeout(27000); // 27 second timeout
+
       const events = req.body.events || [];
-      await Promise.all(events.map(handleEvent));
-      res.json({ status: 'ok' });
+      // Process events with timeout
+      const results = await Promise.race([
+        Promise.all(events.map(handleEvent)),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Processing timeout')), 25000)
+        )
+      ]);
+
+      return res.json({ status: 'ok' });
     } catch (err) {
       console.error('Webhook error:', sanitizeForLog(err.message));
-      res.status(500).json({ error: 'Internal server error' });
+      return res.status(500).json({ error: 'Internal server error' });
     }
   }
 );
