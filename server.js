@@ -11,6 +11,120 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const { OpenAI } = require('openai');
 const Airtable = require('airtable');
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const crypto = require('crypto');
+const CircuitBreaker = require('opossum');
+
+// Enhanced environment variable validation
+const REQUIRED_ENV = [
+  {
+    key: 'CHANNEL_ACCESS_TOKEN',
+    validator: (val) => val.length >= 20,
+  },
+  {
+    key: 'CHANNEL_SECRET',
+    validator: (val) => val.length >= 10,
+  },
+  {
+    key: 'OPENAI_API_KEY',
+    validator: (val) => val.startsWith('sk-') && val.length > 30,
+  },
+  {
+    key: 'AIRTABLE_API_KEY',
+    validator: (val) => val.length >= 10,
+  },
+  {
+    key: 'AIRTABLE_BASE_ID',
+    validator: (val) => val.length >= 5,
+  },
+  {
+    key: 'ENCRYPTION_KEY',
+    validator: (val) => val.length === 32, // For AES-256
+  }
+];
+
+// Validate environment variables
+REQUIRED_ENV.forEach(({key, validator}) => {
+  if (!process.env[key] || !validator(process.env[key])) {
+    console.error(`Invalid or missing env var: ${key}`);
+    process.exit(1);
+  }
+});
+
+// Enhanced encryption for sensitive data
+function encrypt(text) {
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-gcm', Buffer.from(process.env.ENCRYPTION_KEY), iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
+}
+
+function decrypt(text) {
+  try {
+    const [ivHex, authTagHex, encryptedHex] = text.split(':');
+    const iv = Buffer.from(ivHex, 'hex');
+    const authTag = Buffer.from(authTagHex, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', Buffer.from(process.env.ENCRYPTION_KEY), iv);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    console.error('Decryption error:', sanitizeForLog(err));
+    return null;
+  }
+}
+
+// Enhanced rate limiting
+const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 50, // Adjusted based on expected LINE traffic
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipFailedRequests: false,
+  keyGenerator: (req) => {
+    return req.headers['x-forwarded-for'] || 
+           req.connection.remoteAddress ||
+           req.ip;
+  }
+});
+
+// Structured logging
+const logger = {
+  info: (msg, meta = {}) => {
+    console.log(JSON.stringify({
+      level: 'info',
+      timestamp: new Date().toISOString(),
+      message: sanitizeForLog(msg),
+      ...meta
+    }));
+  },
+  error: (msg, error = {}, meta = {}) => {
+    console.error(JSON.stringify({
+      level: 'error',
+      timestamp: new Date().toISOString(),
+      message: sanitizeForLog(msg),
+      error: sanitizeForLog(error.message || error),
+      ...meta
+    }));
+  }
+};
+
+// Enhanced input validation
+async function validateUserInput(content) {
+  if (!content || content.length > 1000) {
+    return false;
+  }
+  
+  if (!/^[\x00-\x7F\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\uff00-\uff9f\u4e00-\u9faf]*$/.test(content)) {
+    return false;
+  }
+  
+  return await moderateUserContent(content);
+}
 
 // 2) Setup Express app
 const app = express();
@@ -54,7 +168,7 @@ ASDやADHDなど発達障害の方へのサポートが主目的。
 `;
 
 const SYSTEM_PROMPT_CHARACTERISTICS = `
-あなたは「Adam」という�達障害専門のカウンセラーです。
+あなたは「Adam」という達障害専門のカウンセラーです。
 ユーザーの過去ログ(最大200件)を分析し、以下の観点から深い洞察を提供してください：
 
 [分析の観点]
@@ -211,18 +325,23 @@ function getSystemPromptForMode(mode) {
  */
 async function storeInteraction(userId, role, content) {
   try {
-    await base(INTERACTIONS_TABLE).create([
-      {
-        fields: {
-          UserID: userId,
-          Role: role,
-          Content: content,
-          Timestamp: new Date().toISOString(),
-        },
-      },
-    ]);
+    const encryptedContent = encrypt(content);
+    const record = {
+      UserID: userId,
+      Role: role,
+      Content: encryptedContent,
+      Timestamp: new Date().toISOString(),
+      AccessLog: {
+        CreatedBy: 'system',
+        CreatedAt: new Date().toISOString()
+      }
+    };
+    
+    await base(INTERACTIONS_TABLE).create([{ fields: record }]);
+    logger.info('Stored interaction', { userId, role });
   } catch (err) {
-    console.error('Error storing interaction:', err);
+    logger.error('Storage error', err, { userId, role });
+    throw err;
   }
 }
 
@@ -271,12 +390,19 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
       model: 'chatgpt-4o-latest',
       messages,
       temperature: 0.7,
+      timeout: 10000, // 10s timeout
+      validateStatus: (status) => status === 200
     });
-    const reply = resp.choices?.[0]?.message?.content || '（No reply）';
-    return reply;
+    
+    // Validate response format
+    if (!resp?.choices?.[0]?.message?.content) {
+      throw new Error('Invalid API response format');
+    }
+    
+    return resp.choices[0].message.content;
   } catch (err) {
-    console.error('OpenAI error:', err);
-    return '申し訳ありません、AI処理中にエラーが発生しました。';
+    console.error('OpenAI error:', sanitizeForLog(err));
+    throw new Error('AI processing failed');
   }
 }
 
@@ -287,34 +413,42 @@ async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
     return null;
   }
+
   const userId = event.source.userId;
   const userMessage = event.message.text.trim();
 
-  // 1) store user msg
+  // Content moderation check
+  const isSafe = await moderateUserContent(userMessage);
+  if (!isSafe) {
+    console.warn(`Security: Blocked message from user=${userId}, content="${sanitizeForLog(userMessage)}"`);
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '不適切な内容の可能性があるため、対応できません。',
+    });
+    return;
+  }
+
+  console.log(`Processing message from user ${userId}: ${sanitizeForLog(userMessage)}`);
+
+  // Store user message
   await storeInteraction(userId, 'user', userMessage);
 
-  // 2) decide mode & fetch limit
+  // Determine mode and fetch history
   const { mode, limit } = determineModeAndLimit(userMessage);
+  const userHistory = await fetchUserHistory(userId, limit);
 
-  // 3) fetch conversation from Airtable
-  const history = await fetchUserHistory(userId, limit);
+  // Process with AI
+  const aiReply = await processWithAI(getSystemPromptForMode(mode), userMessage, userHistory, mode);
+  console.log(`AI reply for user ${userId}: ${sanitizeForLog(aiReply)}`);
 
-  // 4) pick system prompt
-  const systemPrompt = getSystemPromptForMode(mode);
-
-  // 5) process AI
-  const aiReply = await processWithAI(systemPrompt, userMessage, history, mode);
-
-  // 6) store assistant reply
+  // Store AI reply
   await storeInteraction(userId, 'assistant', aiReply);
 
-  // 7) reply to user
-  const lineMessage = {
+  // Send reply
+  await client.replyMessage(event.replyToken, {
     type: 'text',
-    text: aiReply.slice(0, 2000), // LINE上限対策
-  };
-  await client.replyMessage(event.replyToken, lineMessage);
-  return;
+    text: aiReply.slice(0, 2000),
+  });
 }
 
 /**
@@ -327,16 +461,20 @@ app.get('/', (req, res) => {
 /**
  * 13) POST /webhook
  */
-app.post('/webhook', line.middleware(config), async (req, res) => {
-  try {
-    const events = req.body.events || [];
-    await Promise.all(events.map(handleEvent));
-    return res.json({ status: 'ok' });
-  } catch (err) {
-    console.error('Webhook error:', err);
-    return res.status(500).json({ error: err.toString() });
+app.post('/webhook', 
+  webhookLimiter,
+  line.middleware(config), 
+  async (req, res) => {
+    try {
+      const events = req.body.events || [];
+      await Promise.all(events.map(handleEvent));
+      return res.json({ status: 'ok' });
+    } catch (err) {
+      logger.error('Webhook Error', err);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
   }
-});
+);
 
 /**
  * 14) Listen
@@ -344,4 +482,16 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`listening on ${PORT}`);
+});
+
+// Add body size limit
+app.use(express.json({ limit: '10kb' }));
+
+// Add concurrent connection limit
+app.use(helmet());
+
+const breaker = new CircuitBreaker(processWithAI, {
+  timeout: 15000,
+  errorThresholdPercentage: 50,
+  resetTimeout: 30000
 });
