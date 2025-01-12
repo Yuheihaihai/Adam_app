@@ -191,18 +191,21 @@ async function handleEvent(event) {
 
 // 8. Secure Webhook
 app.post('/webhook', 
-  express.json(),
   limiter,
   (req, res, next) => {
-    // Ensure raw body is available for LINE signature validation
-    let data = '';
-    req.setEncoding('utf8');
+    // Raw body handler for LINE signature validation
+    let body = '';
     req.on('data', chunk => {
-      data += chunk;
+      body += chunk;
     });
     req.on('end', () => {
-      req.rawBody = data;
-      next();
+      req.rawBody = body;
+      try {
+        req.body = JSON.parse(body);
+        next();
+      } catch (err) {
+        res.status(400).send('Invalid JSON');
+      }
     });
   },
   line.middleware(config),
