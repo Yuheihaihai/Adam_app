@@ -158,7 +158,6 @@ async function handleEvent(event) {
   const userId = event.source.userId;
   const userMessage = event.message.text.trim();
 
-  // Input validation
   if (!validateUserInput(userMessage)) {
     console.warn(`Rejected invalid input from user: ${sanitizeForLog(userId)}`);
     return client.replyMessage(event.replyToken, {
@@ -173,7 +172,6 @@ async function handleEvent(event) {
     const { mode, limit } = determineModeAndLimit(userMessage);
     const userHistory = await fetchUserHistory(userId, limit);
     
-    // Add timeout for AI processing
     const aiReply = await Promise.race([
       processWithAI(userMessage, userHistory, mode),
       new Promise((_, reject) => 
@@ -191,7 +189,7 @@ async function handleEvent(event) {
     console.error('Event handling error:', sanitizeForLog(err.message));
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '申し訳ありません、処理に時間がかかりすぎました。もう一度お試しください。'
+      text: '申し訳ありません、エラーが発生しました。もう一度お試しください。'
     });
   }
 }
@@ -199,26 +197,30 @@ async function handleEvent(event) {
 // 8. Secure Webhook
 app.post('/webhook', 
   limiter,
-  express.json({
-    verify: (req, res, buf) => {
-      req.rawBody = buf.toString();
-    }
-  }),
+  (req, res, next) => {
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => {
+      data += chunk;
+    });
+    req.on('end', () => {
+      req.rawBody = data;
+      try {
+        req.body = JSON.parse(data);
+        next();
+      } catch (err) {
+        res.status(400).json({ error: 'Invalid JSON' });
+      }
+    });
+  },
   line.middleware(config),
   async (req, res) => {
     try {
       // Set response timeout
-      res.setTimeout(27000); // 27 second timeout
+      res.setTimeout(25000);
 
       const events = req.body.events || [];
-      // Process events with timeout
-      const results = await Promise.race([
-        Promise.all(events.map(handleEvent)),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Processing timeout')), 25000)
-        )
-      ]);
-
+      await Promise.all(events.map(handleEvent));
       return res.json({ status: 'ok' });
     } catch (err) {
       console.error('Webhook error:', sanitizeForLog(err.message));
