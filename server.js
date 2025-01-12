@@ -331,15 +331,15 @@ app.get('/', (req, res) => {
  * 13) POST /webhook
  */
 app.post('/webhook', 
-  express.raw({ type: 'application/json' }), // Important: use raw body parser
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf.toString();
+    }
+  }),
   (req, res, next) => {
-    if (req.body) {
-      req.rawBody = req.body;
-      try {
-        req.body = JSON.parse(req.rawBody);
-      } catch (err) {
-        return res.status(400).send('Invalid JSON');
-      }
+    if (!req.rawBody) {
+      console.error('No raw body available');
+      return res.status(400).send('No raw body');
     }
     next();
   },
