@@ -50,13 +50,13 @@ REQUIRED_ENV.forEach(({key, validator}) => {
 // 1. Configure timeouts for external APIs
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  timeout: 20000, // 20s timeout
-  maxRetries: 2
+  timeout: 8000, // 8s timeout
+  maxRetries: 0  // No retries to speed up
 });
 
 Airtable.configure({
   apiKey: process.env.AIRTABLE_API_KEY,
-  requestTimeout: 20000
+  requestTimeout: 5000  // 5s timeout
 });
 
 const base = Airtable.base(process.env.AIRTABLE_BASE_ID);
@@ -102,16 +102,7 @@ const limiter = rateLimit({
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
-app.use(express.json({ 
-  limit: '10kb',
-  verify: (req, res, buf) => {
-    try {
-      JSON.parse(buf);
-    } catch (e) {
-      throw new Error('Invalid JSON');
-    }
-  }
-}));
+app.use(express.raw({ type: 'application/json' }));
 
 // 6. Secure Storage
 async function storeInteraction(userId, role, content) {
@@ -160,19 +151,16 @@ async function handleEvent(event) {
   }
 
   try {
-    await storeInteraction(userId, 'user', userMessage);
+    // Store user message in background
+    storeInteraction(userId, 'user', userMessage).catch(console.error);
     
     const { mode, limit } = determineModeAndLimit(userMessage);
     const userHistory = await fetchUserHistory(userId, limit);
     
-    const aiReply = await Promise.race([
-      processWithAI(userMessage, userHistory, mode),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('AI timeout')), 15000)
-      )
-    ]);
+    const aiReply = await processWithAI(userMessage, userHistory, mode);
 
-    await storeInteraction(userId, 'assistant', aiReply);
+    // Store AI reply in background
+    storeInteraction(userId, 'assistant', aiReply).catch(console.error);
 
     return client.replyMessage(event.replyToken, {
       type: 'text',
@@ -188,38 +176,19 @@ async function handleEvent(event) {
 }
 
 // 8. Secure Webhook
-app.post('/webhook', 
-  limiter,
+app.post('/webhook',
   (req, res, next) => {
-    let data = '';
-    req.setEncoding('utf8');
-    req.on('data', chunk => {
-      data += chunk;
-    });
-    req.on('end', () => {
-      req.rawBody = data;
-      try {
-        req.body = JSON.parse(data);
-        next();
-      } catch (err) {
-        res.status(400).json({ error: 'Invalid JSON' });
-      }
-    });
+    if (req.body) {
+      req.rawBody = req.body;
+      req.body = JSON.parse(req.rawBody);
+    }
+    next();
   },
   line.middleware(config),
   async (req, res) => {
     try {
       const events = req.body.events || [];
-      await Promise.all(
-        events.map(event => 
-          Promise.race([
-            handleEvent(event),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Event timeout')), 15000)
-            )
-          ])
-        )
-      );
+      await Promise.all(events.map(handleEvent));
       return res.json({ status: 'ok' });
     } catch (err) {
       console.error('Webhook error:', err.message);
