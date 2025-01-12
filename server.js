@@ -331,22 +331,26 @@ app.get('/', (req, res) => {
  * 13) POST /webhook
  */
 app.post('/webhook', 
-  express.raw({ 
-    type: 'application/json',
-    limit: '10mb'
-  }),
   (req, res, next) => {
-    if (!req.body) {
-      return res.status(400).send('No body');
-    }
-    
-    // Convert raw body to string for LINE validation
-    req.rawBody = req.body.toString('utf8');
-    try {
-      req.body = JSON.parse(req.rawBody);
-    } catch (err) {
-      return res.status(400).send('Invalid JSON');
-    }
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      req.rawBody = body;
+      try {
+        req.body = JSON.parse(body);
+        next();
+      } catch (err) {
+        console.error('JSON parse error:', err.message);
+        res.status(400).send('Invalid JSON');
+      }
+    });
+  },
+  (req, res, next) => {
+    // Debug logging
+    console.log('Headers:', req.headers);
+    console.log('Raw body length:', req.rawBody?.length);
     next();
   },
   line.middleware(config),
