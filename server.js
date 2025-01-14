@@ -51,7 +51,7 @@ const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
 const INTERACTIONS_TABLE = 'ConversationHistory';
 
-// 6) Define system prompts for each “mode” (instructions to OpenAI):
+// 6) Define system prompts for each “mode”:
 const SYSTEM_PROMPT_GENERAL = `
 あなたは「Adam」というアシスタントです。
 ASDやADHDなど発達障害の方へのサポートが主目的。
@@ -130,20 +130,24 @@ const SYSTEM_PROMPT_HUMAN_RELATIONSHIP = `
 function determineModeAndLimit(userMessage) {
   const lcMsg = userMessage.toLowerCase();
 
-  // e.g., "特性" / "分析" / "思考" / "傾向" => fetch 100 or 200
+  // "特性" / "分析" => 200
   if (
-    lcMsg.includes('特性') || lcMsg.includes('分析') || lcMsg.includes('思考') ||
-    lcMsg.includes('傾向') || lcMsg.includes('パターン') ||
-    lcMsg.includes('コミュニケーション') || lcMsg.includes('対人関係') ||
+    lcMsg.includes('特性') ||
+    lcMsg.includes('分析') ||
+    lcMsg.includes('思考') ||
+    lcMsg.includes('傾向') ||
+    lcMsg.includes('パターン') ||
+    lcMsg.includes('コミュニケーション') ||
+    lcMsg.includes('対人関係') ||
     lcMsg.includes('性格')
   ) {
-    return { mode: 'characteristics', limit: 100 }; 
+    return { mode: 'characteristics', limit: 200 };
   }
-  // "思い出して" => limit=100 or 200
+  // "思い出して" => 200
   if (lcMsg.includes('思い出して') || lcMsg.includes('今までの話')) {
-    return { mode: 'memoryRecall', limit: 100 };
+    return { mode: 'memoryRecall', limit: 200 };
   }
-  // "人間関係" / "友人" / "同僚" / "恋愛" => limit=100
+  // "人間関係" => 200
   if (
     lcMsg.includes('人間関係') ||
     lcMsg.includes('友人') ||
@@ -151,13 +155,13 @@ function determineModeAndLimit(userMessage) {
     lcMsg.includes('恋愛') ||
     lcMsg.includes('パートナー')
   ) {
-    return { mode: 'humanRelationship', limit: 100 };
+    return { mode: 'humanRelationship', limit: 200 };
   }
-  // "キャリア" => limit=100
+  // "キャリア" => 200
   if (lcMsg.includes('キャリア')) {
-    return { mode: 'career', limit: 100 };
+    return { mode: 'career', limit: 200 };
   }
-  // else => general (limit=10)
+  // Else => general (limit=10)
   return { mode: 'general', limit: 10 };
 }
 
@@ -207,7 +211,6 @@ async function fetchUserHistory(userId, limit) {
       })
       .all();
     console.log(`Found ${records.length} records for user`);
-
     const reversed = records.reverse();
     return reversed.map(r => ({
       role: r.get('Role') === 'assistant' ? 'assistant' : 'user',
@@ -226,16 +229,12 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     ...history.map(item => ({ role: item.role, content: item.content })),
     { role: 'user', content: userMessage },
   ];
-  console.log(
-    `Loaded ${history.length} messages for context in mode=[${mode}]`
-  );
-  console.log(
-    `Calling GPT with ${messages.length} msgs, mode=${mode}`
-  );
+  console.log(`Loaded ${history.length} messages for context in mode=[${mode}]`);
+  console.log(`Calling GPT with ${messages.length} msgs, mode=${mode}`);
 
   try {
     const resp = await openai.chat.completions.create({
-      model: 'chatgpt-4o-latest', 
+      model: 'chatgpt-4o-latest', // or "gpt-3.5-turbo"
       messages,
       temperature: 0.7
     });
@@ -250,30 +249,27 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
 // 12) main LINE event handler
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
+    // Not a text message => do nothing
     return null;
   }
   const userId = event.source?.userId || 'unknown';
   const userMessage = event.message.text.trim();
 
-  // 1) store user's message
+  // Store the user’s incoming message
   await storeInteraction(userId, 'user', userMessage);
 
-  // 2) decide mode & limit
+  // Determine “mode” & “limit”
   const { mode, limit } = determineModeAndLimit(userMessage);
-
-  // 3) fetch conversation
   const history = await fetchUserHistory(userId, limit);
-
-  // 4) system prompt
   const systemPrompt = getSystemPromptForMode(mode);
 
-  // 5) call GPT
+  // Call GPT
   const aiReply = await processWithAI(systemPrompt, userMessage, history, mode);
 
-  // 6) store assistant reply
+  // Store AI’s response
   await storeInteraction(userId, 'assistant', aiReply);
 
-  // 7) respond to user
+  // Return AI’s reply to user
   return client.replyMessage(event.replyToken, {
     type: 'text',
     text: aiReply.slice(0, 2000)
@@ -286,18 +282,16 @@ app.get('/', (req, res) => {
 });
 
 // 14) POST /webhook
-// -> we actually call handleEvent() for each event
-app.post('/webhook', line.middleware(config), (req, res) => {
-  Promise.all(req.body.events.map(handleEvent))
-    .then((result) => {
-      // Return "result" or some status
-      res.json(result);
-    })
-    .catch((err) => {
-      console.error('Webhook error:', err);
-      // Typically respond with 200 so LINE won't keep retrying
-      res.status(200).json({});
-    });
+app.post('/webhook', line.middleware(config), async (req, res) => {
+  try {
+    // Actually call handleEvent for each event
+    const results = await Promise.all(req.body.events.map(handleEvent));
+    res.json(results);
+  } catch (err) {
+    console.error('Webhook error:', err);
+    // Usually 200 to avoid repeated retries from LINE
+    res.status(200).json({});
+  }
 });
 
 // 15) Listen
