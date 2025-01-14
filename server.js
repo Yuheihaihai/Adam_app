@@ -338,15 +338,25 @@ app.get('/', (req, res) => {
 //---------------------------------------------------------
 // 16) POST /webhook => line.middleware + handle events
 //---------------------------------------------------------
-app.post('/webhook', line.middleware(config), (req, res) => {
-  Promise
-    .all(req.body.events.map(handleEvent))
-    .then(result => res.json(result))
-    .catch(err => {
-      console.error('Webhook error:', err);
-      // Return 200 or 500? Usually 200 to avoid repeated attempts from LINE
-      return res.status(200).json({});
-    });
+app.post('/webhook', line.middleware(config), async (req, res) => {
+  try {
+    const events = req.body.events;
+    await Promise.all(
+      events.map(async (event) => {
+        if (event.type === 'message' && event.message.type === 'text') {
+          // Simple echo test
+          return client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: `Echo test: ${event.message.text}`
+          });
+        }
+      })
+    );
+    res.json({ status: 'ok' });
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).end();
+  }
 });
 
 //---------------------------------------------------------
