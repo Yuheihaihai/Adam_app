@@ -340,11 +340,13 @@ app.get('/', (req, res) => {
 //---------------------------------------------------------
 app.post('/webhook', line.middleware(config), async (req, res) => {
   try {
+    console.log('Webhook received:', req.body);
     const events = req.body.events;
     await Promise.all(
       events.map(async (event) => {
+        console.log('Processing event:', event);
         if (event.type === 'message' && event.message.type === 'text') {
-          // Simple echo test
+          console.log('Sending echo for:', event.message.text);
           return client.replyMessage(event.replyToken, {
             type: 'text',
             text: `Echo test: ${event.message.text}`
