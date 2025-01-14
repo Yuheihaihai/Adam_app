@@ -26,8 +26,7 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
 
-// do NOT add express.json() or express.urlencoded() here
-// because line.middleware needs raw body
+// DO NOT add express.json() or urlencoded() here because line.middleware needs raw body
 
 // 3) LINE config & client
 const config = {
@@ -130,7 +129,6 @@ const SYSTEM_PROMPT_HUMAN_RELATIONSHIP = `
 function determineModeAndLimit(userMessage) {
   const lcMsg = userMessage.toLowerCase();
 
-  // "特性" / "分析" => 200
   if (
     lcMsg.includes('特性') ||
     lcMsg.includes('分析') ||
@@ -143,11 +141,9 @@ function determineModeAndLimit(userMessage) {
   ) {
     return { mode: 'characteristics', limit: 200 };
   }
-  // "思い出して" => 200
   if (lcMsg.includes('思い出して') || lcMsg.includes('今までの話')) {
     return { mode: 'memoryRecall', limit: 200 };
   }
-  // "人間関係" => 200
   if (
     lcMsg.includes('人間関係') ||
     lcMsg.includes('友人') ||
@@ -157,11 +153,9 @@ function determineModeAndLimit(userMessage) {
   ) {
     return { mode: 'humanRelationship', limit: 200 };
   }
-  // "キャリア" => 200
   if (lcMsg.includes('キャリア')) {
     return { mode: 'career', limit: 200 };
   }
-  // Else => general (limit=10)
   return { mode: 'general', limit: 10 };
 }
 
@@ -184,15 +178,16 @@ function getSystemPromptForMode(mode) {
 // 9) store single interaction
 async function storeInteraction(userId, role, content) {
   try {
+    console.log(`Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`);
     await base(INTERACTIONS_TABLE).create([
       {
         fields: {
           UserID: userId,
           Role: role,
           Content: content,
-          Timestamp: new Date().toISOString()
-        }
-      }
+          Timestamp: new Date().toISOString(),
+        },
+      },
     ]);
   } catch (err) {
     console.error('Error storing interaction:', err);
@@ -207,14 +202,15 @@ async function fetchUserHistory(userId, limit) {
       .select({
         filterByFormula: `{UserID} = "${userId}"`,
         sort: [{ field: 'Timestamp', direction: 'desc' }],
-        maxRecords: limit
+        maxRecords: limit,
       })
       .all();
     console.log(`Found ${records.length} records for user`);
+
     const reversed = records.reverse();
-    return reversed.map(r => ({
+    return reversed.map((r) => ({
       role: r.get('Role') === 'assistant' ? 'assistant' : 'user',
-      content: r.get('Content') || ''
+      content: r.get('Content') || '',
     }));
   } catch (error) {
     console.error('Error fetching history:', error);
@@ -226,7 +222,7 @@ async function fetchUserHistory(userId, limit) {
 async function processWithAI(systemPrompt, userMessage, history, mode) {
   const messages = [
     { role: 'system', content: systemPrompt },
-    ...history.map(item => ({ role: item.role, content: item.content })),
+    ...history.map((item) => ({ role: item.role, content: item.content })),
     { role: 'user', content: userMessage },
   ];
   console.log(`Loaded ${history.length} messages for context in mode=[${mode}]`);
@@ -236,9 +232,10 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     const resp = await openai.chat.completions.create({
       model: 'chatgpt-4o-latest', // or "gpt-3.5-turbo"
       messages,
-      temperature: 0.7
+      temperature: 0.7,
     });
     const reply = resp.choices?.[0]?.message?.content || '（No reply）';
+    console.log('OpenAI raw reply:', reply);
     return reply;
   } catch (err) {
     console.error('OpenAI error:', err);
@@ -248,32 +245,45 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
 
 // 12) main LINE event handler
 async function handleEvent(event) {
+  console.log('Received LINE event:', JSON.stringify(event, null, 2));
+
   if (event.type !== 'message' || event.message.type !== 'text') {
-    // Not a text message => do nothing
+    console.log('Not a text message, ignoring.');
     return null;
   }
+
   const userId = event.source?.userId || 'unknown';
   const userMessage = event.message.text.trim();
+  console.log(`User ${userId} said: "${userMessage}"`);
 
-  // Store the user’s incoming message
+  // 12a) Store the user’s incoming message
   await storeInteraction(userId, 'user', userMessage);
 
-  // Determine “mode” & “limit”
+  // 12b) Determine “mode” & “limit”
   const { mode, limit } = determineModeAndLimit(userMessage);
+  console.log(`Determined mode=${mode}, limit=${limit}`);
+
+  // 12c) Fetch conversation
   const history = await fetchUserHistory(userId, limit);
+
+  // 12d) Pick system prompt
   const systemPrompt = getSystemPromptForMode(mode);
 
-  // Call GPT
+  // 12e) Call GPT
   const aiReply = await processWithAI(systemPrompt, userMessage, history, mode);
 
-  // Store AI’s response
+  // 12f) Store AI’s response
   await storeInteraction(userId, 'assistant', aiReply);
 
-  // Return AI’s reply to user
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: aiReply.slice(0, 2000)
-  });
+  // 12g) Reply to user
+  const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
+  try {
+    console.log('Replying to LINE user with:', lineMessage.text);
+    return client.replyMessage(event.replyToken, lineMessage);
+  } catch (err) {
+    console.error('Error replying to user:', err);
+    return null;
+  }
 }
 
 // 13) simple health check
@@ -284,12 +294,11 @@ app.get('/', (req, res) => {
 // 14) POST /webhook
 app.post('/webhook', line.middleware(config), async (req, res) => {
   try {
-    // Actually call handleEvent for each event
     const results = await Promise.all(req.body.events.map(handleEvent));
     res.json(results);
   } catch (err) {
     console.error('Webhook error:', err);
-    // Usually 200 to avoid repeated retries from LINE
+    // Return 200 to avoid repeated LINE retries
     res.status(200).json({});
   }
 });
