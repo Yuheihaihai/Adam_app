@@ -3,16 +3,19 @@
  *  - Normal chat => fetch last 10 messages
  *  - “特性” “分析” “キャリア” “思い出して” => fetch last 100 messages
  *  - GPT instructions differ by mode
+ *  - Additional debug logs added step-by-step for troubleshooting
  ********************************************************************/
 
-require('dotenv').config();
+// 1) Import dependencies
+require('dotenv').config();         // .env (Heroku config vars)
 const express = require('express');
 const helmet = require('helmet');
 const line = require('@line/bot-sdk');
 const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 
-// 1) Basic environment checks
+// 2) Check environment variables (debug)
+console.log('--- ENVIRONMENT CHECK ---');
 console.log('Environment check:', {
   hasAccessToken: !!process.env.CHANNEL_ACCESS_TOKEN,
   hasSecret: !!process.env.CHANNEL_SECRET,
@@ -20,37 +23,48 @@ console.log('Environment check:', {
   airtableToken: !!process.env.AIRTABLE_API_KEY,
   airtableBase: !!process.env.AIRTABLE_BASE_ID,
 });
+console.log('-------------------------\n');
 
-// 2) Setup Express app
+// 3) Setup Express
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
 
-// DO NOT add express.json() or urlencoded() here because line.middleware needs raw body
+// IMPORTANT: Do NOT add express.json() or express.urlencoded() here;
+// line.middleware requires raw body for the signature check.
 
-// 3) LINE config & client
+// 4) LINE config & client
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.CHANNEL_SECRET
+  channelSecret: process.env.CHANNEL_SECRET,
 };
+
+console.log('--- LINE CONFIG CHECK ---');
+console.log('Using channelAccessToken length:', config.channelAccessToken?.length || 0);
+console.log('Using channelSecret length:', config.channelSecret?.length || 0);
+console.log('-------------------------\n');
+
 const client = new line.Client(config);
 
-// 4) OpenAI initialization
+// 5) Initialize OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 5) Airtable initialization
+// 6) Initialize Airtable
+console.log('--- AIRTABLE CONFIG CHECK ---');
 console.log('Airtable Configuration Check:', {
   hasApiKey: !!process.env.AIRTABLE_API_KEY,
   baseId: process.env.AIRTABLE_BASE_ID,
-  tableName: 'ConversationHistory'
+  tableName: 'ConversationHistory',
 });
+console.log('----------------------------\n');
+
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
 const INTERACTIONS_TABLE = 'ConversationHistory';
 
-// 6) Define system prompts for each “mode”:
+// 7) System prompts
 const SYSTEM_PROMPT_GENERAL = `
 あなたは「Adam」というアシスタントです。
 ASDやADHDなど発達障害の方へのサポートが主目的。
@@ -61,50 +75,26 @@ ASDやADHDなど発達障害の方へのサポートが主目的。
 const SYSTEM_PROMPT_CHARACTERISTICS = `
 あなたは「Adam」という発達障害専門のカウンセラーです。
 ユーザーの過去ログ(最大200件)を分析し、以下の観点から深い洞察を提供してください：
-
 [分析の観点]
 1. コミュニケーションパターン
-   - 言葉遣いの特徴
-   - 表現の一貫性
-   - 感情表現の方法
 2. 思考プロセス
-   - 論理的思考の特徴
-   - 問題解決アプローチ
-   - 興味・関心の対象
 3. 社会的相互作用
-   - 対人関係での傾向
-   - ストレス対処方法
-   - コミュニケーション上の強み/課題
 4. 感情と自己認識
-   - 感情表現の特徴
-   - 自己理解の程度
-   - モチベーションの源泉
-
-[分析プロセス]
-1. 目標の明確化
-2. 問題の分解
-3. 情報の選別
-4. 推論と検証
-5. 統合と最終判断
-
 [出力形式]
-- 日本語で簡潔に
-- 具体的な例を含める
-- 肯定的な側面を必ず含める
+- 日本語で簡潔に、200文字以内
+- 肯定的要素
 - 改善提案があれば添える
-- 全体で200文字以内
-
 [注意事項]
 - 断定的な診断は避ける
-- ユーザーの尊厳を常に守る
-- 具体的なエピソードを参照する
+- ユーザーの尊厳を守る
+- 具体的なエピソードを参照
 `;
 
 const SYSTEM_PROMPT_CAREER = `
 あなたは「Adam」というキャリアカウンセラーです。
 ユーザーの過去ログ(最大100件)すべてがあなたの記憶。
 ユーザーが希望する職や興味を踏まえ、広い選択肢を提案してください。
-必ず「専門家にも相談ください」と言及。
+「専門家にも相談ください」と言及。
 返答は日本語、200文字以内。
 `;
 
@@ -112,20 +102,20 @@ const SYSTEM_PROMPT_MEMORY_RECALL = `
 あなたは「Adam」、ユーザーの過去ログ(最大200件)がすべてあなたの記憶。
 「思い出して」と言われたら、その記録を要約してください。
 AIとして「記憶不可」は禁止。
-返答は日本語で、過去ログに基づいた要約を簡潔に。
+返答は日本語で簡潔に。
 `;
 
 const SYSTEM_PROMPT_HUMAN_RELATIONSHIP = `
 あなたは「Adam」というカウンセラーです。
 ユーザーの過去ログ(最大200件)がすべてあなたの記憶。
-人間関係の相談に対して:
-1. ユーザーの特徴を分析
-2. 状況を整理
-3. 具体的アドバイス
-返答は日本語200文字以内。共感的・建設的に。
+人間関係の相談:
+1. ユーザーの特徴
+2. 状況整理
+3. 具体的提案
+返答は日本語200文字以内、共感的かつ建設的に。
 `;
 
-// 7) Decide "mode" & "limit" based on user message
+// 8) Mode & limit determination
 function determineModeAndLimit(userMessage) {
   const lcMsg = userMessage.toLowerCase();
 
@@ -159,7 +149,7 @@ function determineModeAndLimit(userMessage) {
   return { mode: 'general', limit: 10 };
 }
 
-// 8) Pick system prompt
+// 9) Pick system prompt
 function getSystemPromptForMode(mode) {
   switch (mode) {
     case 'characteristics':
@@ -175,7 +165,7 @@ function getSystemPromptForMode(mode) {
   }
 }
 
-// 9) store single interaction
+// 10) Store single interaction in Airtable
 async function storeInteraction(userId, role, content) {
   try {
     console.log(`Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`);
@@ -194,7 +184,7 @@ async function storeInteraction(userId, role, content) {
   }
 }
 
-// 10) fetch user history
+// 11) Fetch user history
 async function fetchUserHistory(userId, limit) {
   try {
     console.log(`Fetching history for user ${userId}, limit: ${limit}`);
@@ -205,9 +195,10 @@ async function fetchUserHistory(userId, limit) {
         maxRecords: limit,
       })
       .all();
-    console.log(`Found ${records.length} records for user`);
 
+    console.log(`Found ${records.length} records for user ${userId}`);
     const reversed = records.reverse();
+
     return reversed.map((r) => ({
       role: r.get('Role') === 'assistant' ? 'assistant' : 'user',
       content: r.get('Content') || '',
@@ -218,23 +209,26 @@ async function fetchUserHistory(userId, limit) {
   }
 }
 
-// 11) call GPT
+// 12) Call GPT
 async function processWithAI(systemPrompt, userMessage, history, mode) {
   const messages = [
     { role: 'system', content: systemPrompt },
     ...history.map((item) => ({ role: item.role, content: item.content })),
     { role: 'user', content: userMessage },
   ];
+
   console.log(`Loaded ${history.length} messages for context in mode=[${mode}]`);
   console.log(`Calling GPT with ${messages.length} msgs, mode=${mode}`);
 
   try {
+    // You can switch model to "gpt-3.5-turbo" if "chatgpt-4o-latest" isn't available
     const resp = await openai.chat.completions.create({
-      model: 'chatgpt-4o-latest', // or "gpt-3.5-turbo"
+      model: 'chatgpt-4o-latest',
       messages,
       temperature: 0.7,
     });
     const reply = resp.choices?.[0]?.message?.content || '（No reply）';
+
     console.log('OpenAI raw reply:', reply);
     return reply;
   } catch (err) {
@@ -243,12 +237,14 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   }
 }
 
-// 12) main LINE event handler
+// 13) Handle a single LINE event
 async function handleEvent(event) {
+  console.log('\n--- handleEvent START ---');
   console.log('Received LINE event:', JSON.stringify(event, null, 2));
 
+  // Ignore non-text events
   if (event.type !== 'message' || event.message.type !== 'text') {
-    console.log('Not a text message, ignoring.');
+    console.log('Not a text message event, ignoring.');
     return null;
   }
 
@@ -256,55 +252,70 @@ async function handleEvent(event) {
   const userMessage = event.message.text.trim();
   console.log(`User ${userId} said: "${userMessage}"`);
 
-  // 12a) Store the user’s incoming message
+  // 13a) Store user’s incoming message
   await storeInteraction(userId, 'user', userMessage);
 
-  // 12b) Determine “mode” & “limit”
+  // 13b) Determine “mode” & “limit”
   const { mode, limit } = determineModeAndLimit(userMessage);
-  console.log(`Determined mode=${mode}, limit=${limit}`);
+  console.log(`Mode determined as "${mode}", limit=${limit}`);
 
-  // 12c) Fetch conversation
+  // 13c) Fetch conversation
   const history = await fetchUserHistory(userId, limit);
 
-  // 12d) Pick system prompt
+  // 13d) Pick system prompt
   const systemPrompt = getSystemPromptForMode(mode);
 
-  // 12e) Call GPT
+  // 13e) Call GPT
   const aiReply = await processWithAI(systemPrompt, userMessage, history, mode);
 
-  // 12f) Store AI’s response
+  // 13f) Store AI’s response
   await storeInteraction(userId, 'assistant', aiReply);
 
-  // 12g) Reply to user
-  const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
+  // 13g) Return a text reply to user
+  const lineMessage = {
+    type: 'text',
+    text: aiReply.slice(0, 2000), // guard against oversize
+  };
+
+  console.log('Replying to LINE user with:', lineMessage.text);
+
   try {
-    console.log('Replying to LINE user with:', lineMessage.text);
-    return client.replyMessage(event.replyToken, lineMessage);
+    await client.replyMessage(event.replyToken, lineMessage);
+    console.log('Successfully replied to the user.\n--- handleEvent END ---\n');
+    return true;
   } catch (err) {
     console.error('Error replying to user:', err);
-    return null;
+    console.log('--- handleEvent END (with errors) ---\n');
+    return false;
   }
 }
 
-// 13) simple health check
+// 14) Basic health check endpoint
 app.get('/', (req, res) => {
-  res.send('Adam App Cloud v2 is running. Ready for LINE requests.');
+  res.send('Adam App Cloud v2.2 is running. Ready for LINE requests.');
 });
 
-// 14) POST /webhook
+// 15) POST /webhook => line.middleware + handle events
 app.post('/webhook', line.middleware(config), async (req, res) => {
+  console.log('--- POST /webhook CALLED ---');
+
   try {
-    const results = await Promise.all(req.body.events.map(handleEvent));
-    res.json(results);
+    const promises = req.body.events.map(handleEvent);
+    const results = await Promise.all(promises);
+
+    // Even if some events failed, we typically return 200 so LINE won’t keep retrying
+    res.status(200).json({ results });
   } catch (err) {
-    console.error('Webhook error:', err);
+    console.error('Webhook top-level error:', err);
     // Return 200 to avoid repeated LINE retries
     res.status(200).json({});
   }
 });
 
-// 15) Listen
+// 16) Start listening
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
+  console.log(`\n--- SERVER START ---`);
   console.log(`Listening on port ${PORT}`);
+  console.log(`Visit: http://localhost:${PORT} (if local)\n`);
 });
