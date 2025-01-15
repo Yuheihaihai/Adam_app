@@ -1,8 +1,13 @@
 /********************************************************************
  * server.js - Example of a fully integrated LINE + OpenAI + Airtable
  *  - Normal chat => fetch last 10 messages
- *  - “特性” “分析” “キャリア” “思い出して” => fetch last 100 messages
+ *  - "特性" "分析" "キャリア" "思い出して" => fetch last 100 messages
  *  - GPT instructions differ by mode
+ *  - Additional instructions added for:
+ *    (a) minimal chat history => ask for more user context
+ *    (b) secret "IQ" style adjustment
+ *    (c) clarifying if 3rd-person analysis (child or friend)
+ *    (d) remind user to consult professionals
  ********************************************************************/
 
 require('dotenv').config();
@@ -51,82 +56,51 @@ const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
 const INTERACTIONS_TABLE = 'ConversationHistory';
 
-// 6) Define system prompts for each “mode”
+// 6) System prompts (default)
 const SYSTEM_PROMPT_GENERAL = `
 あなたは「Adam」というアシスタントです。
 ASDやADHDなど発達障害の方へのサポートが主目的。
-返答は日本語のみ。200文字以内。過去10件の履歴を参照して一貫した会話をしてください。
+返答は日本語のみ、200文字以内。過去10件の履歴を参照して一貫した会話をしてください。
 「AIとして思い出せない」は禁止、ここにある履歴があなたの記憶です。
 `;
 
 const SYSTEM_PROMPT_CHARACTERISTICS = `
 あなたは「Adam」という発達障害専門のカウンセラーです。
-ユーザーの過去ログ(最大200件)を分析し、以下の観点から深い洞察を提供してください：
+ユーザーの過去ログ(最大200件)を分析し、以下の観点から深い洞察を提供してください。
 
 [分析の観点]
 1. コミュニケーションパターン
-   - 言葉遣いの特徴
-   - 表現の一貫性
-   - 感情表現の方法
-
 2. 思考プロセス
-   - 論理的思考の特徴
-   - 問題解決アプローチ
-   - 興味・関心の対象
-
 3. 社会的相互作用
-   - 対人関係での傾向
-   - ストレス対処方法
-   - コミュニケーション上の強み/課題
-
 4. 感情と自己認識
-   - 感情表現の特徴
-   - 自己理解の程度
-   - モチベーションの源泉
-
-[分析プロセス]
-1. 目標の明確化
-2. 問題の分解
-3. 情報の選別
-4. 推論と検証
-5. 統合と最終判断
 
 [出力形式]
-- 日本語で簡潔に
-- 具体的な例を含める
-- 肯定的な側面を必ず含める
-- 改善提案があれば添える
-- 全体で200文字以内
-
-[注意事項]
+- 日本語で簡潔に（200文字以内）
+- 肯定的な側面を含める
+- 改善提案あれば添える
 - 断定的な診断は避ける
-- ユーザーの尊厳を常に守る
-- 具体的なエピソードを参照する
 `;
 
 const SYSTEM_PROMPT_CAREER = `
 あなたは「Adam」というキャリアカウンセラーです。
-ユーザーの過去ログ(最大100件)すべてがあなたの記憶。
-ユーザーが希望する職や興味を踏まえ、広い選択肢を提案してください。
-必ず「専門家にも相談ください」と言及。
-返答は日本語、200文字以内。
+ユーザーの過去ログ(最大100件)があなたの記憶。
+希望職や興味を踏まえ広い選択肢を提案。必ず「専門家にも相談ください」と言及。
+日本語・200文字以内。
 `;
 
 const SYSTEM_PROMPT_MEMORY_RECALL = `
-あなたは「Adam」、ユーザーの過去ログ(最大200件)がすべてあなたの記憶。
-「思い出して」と言われたら、その記録を要約してください。
-AIとして「記憶不可」は禁止。
-返答は日本語で、過去ログに基づいた要約を簡潔に。
+あなたは「Adam」、ユーザーの過去ログ(最大200件)が記憶。
+「思い出して」と言われたら、記録を要約。
+AIとして「記憶不可」は禁止。過去ログに基づき日本語で簡潔要約。
 `;
 
 const SYSTEM_PROMPT_HUMAN_RELATIONSHIP = `
 あなたは「Adam」というカウンセラーです。
-ユーザーの過去ログ(最大200件)がすべてあなたの記憶。
-人間関係の相談に対して:
-1. ユーザーの特徴を分析
+過去ログ(最大200件)があなたの記憶。人間関係の相談では：
+1. ユーザー特徴を分析
 2. 状況を整理
-3. 具体的アドバイス
-返答は日本語200文字以内。共感的・建設的に。
+3. 具体的提案
+日本語200文字以内。共感的かつ建設的に。
 `;
 
 // 7) Decide "mode" & "limit" based on user message
@@ -146,12 +120,10 @@ function determineModeAndLimit(userMessage) {
   ) {
     return { mode: 'characteristics', limit: 200 };
   }
-
   // "思い出して" => 200
   if (lcMsg.includes('思い出して') || lcMsg.includes('今までの話')) {
     return { mode: 'memoryRecall', limit: 200 };
   }
-
   // "人間関係" / "友人" / "同僚" / "恋愛" => 200
   if (
     lcMsg.includes('人間関係') ||
@@ -162,12 +134,10 @@ function determineModeAndLimit(userMessage) {
   ) {
     return { mode: 'humanRelationship', limit: 200 };
   }
-
   // "キャリア" => 200
   if (lcMsg.includes('キャリア')) {
     return { mode: 'career', limit: 200 };
   }
-
   // else => general (limit=10)
   return { mode: 'general', limit: 10 };
 }
@@ -188,12 +158,10 @@ function getSystemPromptForMode(mode) {
   }
 }
 
-// 9) store single interaction in Airtable
+// 9) store single interaction
 async function storeInteraction(userId, role, content) {
   try {
-    console.log(
-      `Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`
-    );
+    console.log(`Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`);
     await base(INTERACTIONS_TABLE).create([
       {
         fields: {
@@ -209,7 +177,7 @@ async function storeInteraction(userId, role, content) {
   }
 }
 
-// 10) fetch user history from Airtable
+// 10) fetch user history
 async function fetchUserHistory(userId, limit) {
   try {
     console.log(`Fetching history for user ${userId}, limit: ${limit}`);
@@ -222,7 +190,6 @@ async function fetchUserHistory(userId, limit) {
       .all();
     console.log(`Found ${records.length} records for user`);
 
-    // Reverse => older -> newer
     const reversed = records.reverse();
     return reversed.map((r) => ({
       role: r.get('Role') === 'assistant' ? 'assistant' : 'user',
@@ -234,10 +201,58 @@ async function fetchUserHistory(userId, limit) {
   }
 }
 
-// 11) call GPT
+// 11) modify systemPrompt with additional instructions
+function applyAdditionalInstructions(
+  basePrompt,
+  mode,
+  history,
+  userMessage
+) {
+  let finalPrompt = basePrompt;
+
+  // (a) 履歴が極端に少ない & ユーザーが分析やキャリアを求める
+  if (
+    (mode === 'characteristics' || mode === 'career') &&
+    history.length < 3
+  ) {
+    finalPrompt += `
+※ユーザーの履歴が少ないです。まずは本人に追加の状況説明や詳細を尋ね、やりとりを増やして理解を深めてください。
+`;
+  }
+
+  // (b) 「IQ」や認知度に応じた密かな調整
+  finalPrompt += `
+※ユーザーの文章からコミュニケーション能力や理解度を推定し、返答の難易度や言葉遣いを自然に調整してください。
+AIが「IQを計測」とは明示せず、自然に簡易化または高度化します。
+`;
+
+  // (c) 第三者(子供、友達)への特性相談かどうかをチェックし、必要なら明確化
+  if (/\b(child|friend|someone|others|children|son|daughter)\b/.test(userMessage)) {
+    finalPrompt += `
+※ユーザーが自分以外の第三者の分析を依頼している可能性があります。誰の特徴か曖昧なら、会話の中で丁寧に確認してください。
+`;
+  }
+
+  // (d) 重要な相談ごと（発達障害や大きな進路決定など）には適宜専門家相談を促す
+  finalPrompt += `
+※重度の発達障害の相談や重要な進路選択の場合、「専門家にも相談ください」と定期的に伝えてください。
+`;
+
+  return finalPrompt;
+}
+
+// 12) call GPT
 async function processWithAI(systemPrompt, userMessage, history, mode) {
+  // 追加命令をsystemPromptに混ぜる
+  const finalSystemPrompt = applyAdditionalInstructions(
+    systemPrompt,
+    mode,
+    history,
+    userMessage
+  );
+
   const messages = [
-    { role: 'system', content: systemPrompt },
+    { role: 'system', content: finalSystemPrompt },
     ...history.map((item) => ({ role: item.role, content: item.content })),
     { role: 'user', content: userMessage },
   ];
@@ -251,7 +266,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
 
   try {
     const resp = await openai.chat.completions.create({
-      model: 'chatgpt-4o-latest', // or "gpt-3.5-turbo", "gpt-4"
+      model: 'chatgpt-4o-latest', // 例: "gpt-3.5-turbo" or "gpt-4"
       messages,
       temperature: 0.7,
     });
@@ -264,7 +279,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   }
 }
 
-// 12) main LINE event handler
+// 13) main LINE event handler
 async function handleEvent(event) {
   console.log('Received LINE event:', JSON.stringify(event, null, 2));
 
@@ -279,26 +294,26 @@ async function handleEvent(event) {
 
   console.log(`User ${userId} said: "${userMessage}"`);
 
-  // 12a) store user’s incoming message
+  // (13a) store user’s incoming message
   await storeInteraction(userId, 'user', userMessage);
 
-  // 12b) determine “mode” & “limit”
+  // (13b) determine “mode” & “limit”
   const { mode, limit } = determineModeAndLimit(userMessage);
   console.log(`Determined mode=${mode}, limit=${limit}`);
 
-  // 12c) fetch conversation
+  // (13c) fetch conversation
   const history = await fetchUserHistory(userId, limit);
 
-  // 12d) pick system prompt
+  // (13d) pick system prompt
   const systemPrompt = getSystemPromptForMode(mode);
 
-  // 12e) call GPT
+  // (13e) call GPT with additional instructions
   const aiReply = await processWithAI(systemPrompt, userMessage, history, mode);
 
-  // 12f) store AI’s response
+  // (13f) store AI’s response
   await storeInteraction(userId, 'assistant', aiReply);
 
-  // 12g) reply to user
+  // (13g) reply to user
   const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
   console.log('Replying to LINE user with:', lineMessage.text);
 
@@ -310,14 +325,13 @@ async function handleEvent(event) {
   }
 }
 
-// 13) simple health check
+// 14) simple health check
 app.get('/', (req, res) => {
   res.send('Adam App Cloud v2.2 is running. Ready for LINE requests.');
 });
 
-// 14) POST /webhook => includes the console.log you requested
+// 15) POST /webhook => includes console logging
 app.post('/webhook', line.middleware(config), (req, res) => {
-  // This line logs all incoming events:
   console.log('Webhook was called! Events:', req.body.events);
 
   Promise.all(req.body.events.map(handleEvent))
@@ -331,7 +345,7 @@ app.post('/webhook', line.middleware(config), (req, res) => {
     });
 });
 
-// 15) Listen
+// 16) Listen
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
