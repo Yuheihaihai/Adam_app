@@ -263,6 +263,9 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     selectedModel = 'o1-2024-12-17';
   }
 
+  // (NEW) Provide explicit logging for the chosen model
+  console.log(`Using model: ${selectedModel}`);
+
   const finalSystemPrompt = applyAdditionalInstructions(
     systemPrompt,
     mode,
