@@ -12,7 +12,7 @@
  *  - Architecture/Roadmap/UI (Version 2.3):
  *    * Potential Bing Search integration ("bingIntegration.js")
  *    * Phase updates for user searching flows, cost strategies
- *    * Possible UI changes for LINE Flex messages or carousel 
+ *    * Possible UI changes for LINE Flex messages or carousel
  ********************************************************************/
 
 require('dotenv').config();
@@ -275,7 +275,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     selectedModel = 'o1-2024-12-17';
   }
 
-  // (NEW) Provide explicit logging for the chosen model
+  // Additional logging to show the chosen model
   console.log(`Using model: ${selectedModel}`);
 
   const finalSystemPrompt = applyAdditionalInstructions(
