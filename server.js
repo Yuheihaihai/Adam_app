@@ -238,12 +238,31 @@ AIが「IQを計測」とは明示せず、自然に簡易化または高度化�
 ※重度の発達障害の相談や重要な進路選択の場合、「専門家にも相談ください」と定期的に伝えてください。
 `;
 
+  // ----- (NEW) Additional instructions to AI (English corrected + Japanese added) -----
+  finalPrompt += `
+Please understand if user wants to end a conversation or not by context. Especially when user’s sentiment is strong (positive or negative), do not suspend the conversation at your own.
+ユーザーの障害があまりにも重い場合、状況認識や表情・仕草等の理解が難しいと思われます。その場合、ユーザーに「Adamに直接、長文でいいので全部書いて」とアドバイスし、ユーザーが書き終わったら、Adamが状況を分析し対応策を具体的に指示してください。
+(1) 毎回の会話でAIが相手の状況理解の障害の重さを可能性レベルで判断し、仮説を立てる。 
+(2) 重い可能性が高いと判断したら、ユーザーへの返信時に(1)の仮説を自然かつ尊重的な言い回しで確認（過去の指摘経験など）。 
+(3) ユーザーが仮説を認めたら「整理しようとせず思いつくまま長文で全部書いて」と依頼。 
+(4) 書かれた内容をAIが分析し、必要な支援策や提案を具体的に行う。ただし医療的な診断は行わない。
+`;
+
   return finalPrompt;
 }
 
 // 12) call GPT
 async function processWithAI(systemPrompt, userMessage, history, mode) {
-  // 追加命令をsystemPromptに混ぜる
+  // Decide model name dynamically
+  let selectedModel = 'chatgpt-4o-latest';
+  if (
+    userMessage
+      .toLowerCase()
+      .includes('a request for a deeper exploration of the ai’s thoughts and an even clearer explanation')
+  ) {
+    selectedModel = 'o1-2024-12-17';
+  }
+
   const finalSystemPrompt = applyAdditionalInstructions(
     systemPrompt,
     mode,
@@ -261,12 +280,12 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     `Loaded ${history.length} messages for context in mode=[${mode}]`
   );
   console.log(
-    `Calling GPT with ${messages.length} msgs, mode=${mode}`
+    `Calling GPT with ${messages.length} msgs, mode=${mode}, model=${selectedModel}`
   );
 
   try {
     const resp = await openai.chat.completions.create({
-      model: 'chatgpt-4o-latest', // 例: "gpt-3.5-turbo" or "gpt-4"
+      model: selectedModel, // either "chatgpt-4o-latest" or "o1-2024-12-17"
       messages,
       temperature: 0.7,
     });
