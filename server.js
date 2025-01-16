@@ -254,11 +254,14 @@ Please understand if user wants to end a conversation or not by context. Especia
 // 12) call GPT
 async function processWithAI(systemPrompt, userMessage, history, mode) {
   // Decide model name dynamically
+
   let selectedModel = 'chatgpt-4o-latest';
+  // --- UPDATED: check for Japanese triggers OR the original English phrase.
+  const lowered = userMessage.toLowerCase();
   if (
-    userMessage
-      .toLowerCase()
-      .includes('a request for a deeper exploration of the ai’s thoughts and an even clearer explanation')
+    lowered.includes('a request for a deeper exploration of the ai’s thoughts and an even clearer explanation') ||
+    userMessage.includes('もっと深く') ||
+    userMessage.includes('さらにわかりやすく')
   ) {
     selectedModel = 'o1-2024-12-17';
   }
