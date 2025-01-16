@@ -8,6 +8,11 @@
  *    (b) secret "IQ" style adjustment
  *    (c) clarifying if 3rd-person analysis (child or friend)
  *    (d) remind user to consult professionals
+ *
+ *  - Architecture/Roadmap/UI (Version 2.3):
+ *    * Potential Bing Search integration ("bingIntegration.js")
+ *    * Phase updates for user searching flows, cost strategies
+ *    * Possible UI changes for LINE Flex messages or carousel 
  ********************************************************************/
 
 require('dotenv').config();
@@ -61,6 +66,7 @@ const SYSTEM_PROMPT_GENERAL = `
 あなたは「Adam」というアシスタントです。
 ASDやADHDなど発達障害の方へのサポートが主目的。
 返答は日本語のみ、200文字以内。過去10件の履歴を参照して一貫した会話をしてください。
+医療に関する話については必ず「専門家にも相談ください」と言及。
 「AIとして思い出せない」は禁止、ここにある履歴があなたの記憶です。
 `;
 
@@ -254,14 +260,17 @@ Please understand if user wants to end a conversation or not by context. Especia
 // 12) call GPT
 async function processWithAI(systemPrompt, userMessage, history, mode) {
   // Decide model name dynamically
-
   let selectedModel = 'chatgpt-4o-latest';
-  // --- UPDATED: check for Japanese triggers OR the original English phrase.
+
+  // Lower the message for simpler substring detection
   const lowered = userMessage.toLowerCase();
+
+  // Relaxed substring detection:
+  // Checks for the English phrase or partial Japanese triggers
   if (
-    lowered.includes('a request for a deeper exploration of the ai’s thoughts and an even clearer explanation') ||
-    userMessage.includes('もっと深く') ||
-    userMessage.includes('さらにわかりやすく')
+    lowered.includes('a request for a deeper exploration of the ai’s thoughts and an even clearer explanation')
+    || lowered.includes('もっと深')
+    || lowered.includes('さらにわか')
   ) {
     selectedModel = 'o1-2024-12-17';
   }
@@ -282,12 +291,8 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     { role: 'user', content: userMessage },
   ];
 
-  console.log(
-    `Loaded ${history.length} messages for context in mode=[${mode}]`
-  );
-  console.log(
-    `Calling GPT with ${messages.length} msgs, mode=${mode}, model=${selectedModel}`
-  );
+  console.log(`Loaded ${history.length} messages for context in mode=[${mode}]`);
+  console.log(`Calling GPT with ${messages.length} msgs, mode=${mode}, model=${selectedModel}`);
 
   try {
     const resp = await openai.chat.completions.create({
@@ -352,7 +357,7 @@ async function handleEvent(event) {
 
 // 14) simple health check
 app.get('/', (req, res) => {
-  res.send('Adam App Cloud v2.2 is running. Ready for LINE requests.');
+  res.send('Adam App Cloud v2.3 is running. Ready for LINE requests.');
 });
 
 // 15) POST /webhook => includes console logging
@@ -375,3 +380,15 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
 });
+
+/********************************************************************
+ * Architecture/Roadmap/UI (Version 2.3) references:
+ * - Potential file: bingIntegration.js for Bing Search API
+ * - server.js can parse user queries (e.g., "検索") => call Bing
+ * - Then possibly feed results to OpenAI for summarizing
+ * - Roadmap phases:
+ *   (1) Investigation of Bing API, cost, environment config
+ *   (2) Implementation of "needsSearch" function & searching
+ *   (3) UI with LINE carousel or Flex message for multiple results
+ *   (4) Monitoring usage, refining the design for user engagement
+ ********************************************************************/
