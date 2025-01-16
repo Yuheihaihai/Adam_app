@@ -266,7 +266,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   const lowered = userMessage.toLowerCase();
 
   // Relaxed substring detection:
-  // Checks for the English phrase or partial Japanese triggers
+  // if user says something about "deeper" or "わかりやすく" or the known English phrase
   if (
     lowered.includes('a request for a deeper exploration of the ai’s thoughts and an even clearer explanation')
     || lowered.includes('もっと深')
