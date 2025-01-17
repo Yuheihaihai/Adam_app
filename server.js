@@ -13,6 +13,12 @@
  *    * Potential Bing Search integration ("bingIntegration.js")
  *    * Phase updates for user searching flows, cost strategies
  *    * Possible UI changes for LINE Flex messages or carousel
+ *
+ *  UPDATE NOTE (2025-01-17):
+ *    - Added logic to detect phrases like "もっと深く" or "さらにわかり" in user messages and switch to
+ *      the "o1-preview-2024-09-12" model. Because that model does not support separate "system" role
+ *      or a custom temperature, we flatten the system instructions into a single user role message and
+ *      force temperature=1 to avoid "unsupported_value" errors.
  ********************************************************************/
 
 require('dotenv').config();
@@ -255,10 +261,10 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   const lowered = userMessage.toLowerCase();
   // Relaxed substring detection:
   if (
-    lowered.includes('a request for a deeper exploration of the ai’s thoughts')
-    || lowered.includes('deeper') // partial
-    || lowered.includes('さらにわか')
-    || lowered.includes('もっと深')
+    lowered.includes('a request for a deeper exploration of the ai’s thoughts') ||
+    lowered.includes('deeper') ||
+    lowered.includes('さらにわか') ||
+    lowered.includes('もっと深')
   ) {
     // Attempt a second model
     selectedModel = 'o1-preview-2024-09-12';
@@ -292,22 +298,23 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
       role: 'user',
       content: systemPrefix + ' ' + userMessage,
     });
-    // Optionally incorporate conversation history as user lines
+    // Incorporate conversation history as user lines
     history.forEach((item) => {
       messages.push({
-        // Might do "assistant" => "user" but let’s keep it consistent
-        // so the model sees old Q&A as lines
-        role: item.role === 'assistant' ? 'user' : 'user',
+        // We'll treat both assistant/user as user lines for this model
+        role: 'user',
         content: `(${item.role} said:) ${item.content}`,
       });
     });
   } else {
     // Normal chat style
     messages.push({ role: 'system', content: finalSystemPrompt });
-    messages.push(...history.map((item) => ({
-      role: item.role,
-      content: item.content,
-    })));
+    messages.push(
+      ...history.map((item) => ({
+        role: item.role,
+        content: item.content,
+      }))
+    );
     messages.push({ role: 'user', content: userMessage });
   }
 
