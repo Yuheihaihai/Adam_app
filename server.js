@@ -256,7 +256,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   // Relaxed substring detection:
   if (
     lowered.includes('a request for a deeper exploration of the ai’s thoughts')
-    || lowered.includes('deeper') // English partial
+    || lowered.includes('deeper') // partial
     || lowered.includes('さらにわか')
     || lowered.includes('もっと深')
   ) {
@@ -273,45 +273,55 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     userMessage
   );
 
-  // If the selected model is "o1-preview-2024-09-12", we must remove or flatten the system role
   let messages = [];
+  let gptOptions = {
+    model: selectedModel,
+    messages,
+    // default to 0.7 unless the model disallows it
+    temperature: 0.7,
+  };
+
   if (selectedModel === 'o1-preview-2024-09-12') {
-    // This model doesn't support system role => flatten into user role or prefix
+    // This model doesn't support system role => flatten
+    // Also doesn't support temperature=0.7 => must remove or set =1
+    gptOptions.temperature = 1; // forcibly set to 1
     const systemPrefix = `[System Inst]: ${finalSystemPrompt}\n---\n`;
-    messages = [
-      {
-        role: 'user',
-        content: systemPrefix + ' ' + userMessage,
-      },
-    ];
-    // Also we might want to append the history as user/assistant lines, though this model
-    // might not parse it consistently. For example:
+    // Start with the system instructions + current user message
+    // as a single user content
+    messages.push({
+      role: 'user',
+      content: systemPrefix + ' ' + userMessage,
+    });
+    // Optionally incorporate conversation history as user lines
     history.forEach((item) => {
       messages.push({
-        role: item.role === 'assistant' ? 'user' : 'user', // or "assistant"? 
+        // Might do "assistant" => "user" but let’s keep it consistent
+        // so the model sees old Q&A as lines
+        role: item.role === 'assistant' ? 'user' : 'user',
         content: `(${item.role} said:) ${item.content}`,
       });
     });
   } else {
     // Normal chat style
-    messages = [
-      { role: 'system', content: finalSystemPrompt },
-      ...history.map((item) => ({ role: item.role, content: item.content })),
-      { role: 'user', content: userMessage },
-    ];
+    messages.push({ role: 'system', content: finalSystemPrompt });
+    messages.push(...history.map((item) => ({
+      role: item.role,
+      content: item.content,
+    })));
+    messages.push({ role: 'user', content: userMessage });
   }
+
+  gptOptions.messages = messages;
 
   console.log(
     `Loaded ${history.length} messages for context in mode=[${mode}], model=${selectedModel}`
   );
-  console.log(`Calling GPT with ${messages.length} msgs, mode=${mode}, model=${selectedModel}`);
+  console.log(
+    `Calling GPT with ${messages.length} msgs, mode=${mode}, model=${selectedModel}`
+  );
 
   try {
-    const resp = await openai.chat.completions.create({
-      model: selectedModel,
-      messages,
-      temperature: 0.7,
-    });
+    const resp = await openai.chat.completions.create(gptOptions);
     const reply = resp.choices?.[0]?.message?.content || '（No reply）';
     console.log('OpenAI raw reply:', reply);
     return reply;
