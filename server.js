@@ -113,7 +113,6 @@ const SYSTEM_PROMPT_HUMAN_RELATIONSHIP = `
 function determineModeAndLimit(userMessage) {
   const lcMsg = userMessage.toLowerCase();
 
-  // "特性" / "分析" => 200
   if (
     lcMsg.includes('特性') ||
     lcMsg.includes('分析') ||
@@ -126,11 +125,9 @@ function determineModeAndLimit(userMessage) {
   ) {
     return { mode: 'characteristics', limit: 200 };
   }
-  // "思い出して" => 200
   if (lcMsg.includes('思い出して') || lcMsg.includes('今までの話')) {
     return { mode: 'memoryRecall', limit: 200 };
   }
-  // "人間関係" / "友人" / "同僚" / "恋愛" => 200
   if (
     lcMsg.includes('人間関係') ||
     lcMsg.includes('友人') ||
@@ -140,7 +137,6 @@ function determineModeAndLimit(userMessage) {
   ) {
     return { mode: 'humanRelationship', limit: 200 };
   }
-  // "キャリア" => 200
   if (lcMsg.includes('キャリア')) {
     return { mode: 'career', limit: 200 };
   }
@@ -167,7 +163,9 @@ function getSystemPromptForMode(mode) {
 // 9) store single interaction
 async function storeInteraction(userId, role, content) {
   try {
-    console.log(`Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`);
+    console.log(
+      `Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`
+    );
     await base(INTERACTIONS_TABLE).create([
       {
         fields: {
@@ -208,43 +206,35 @@ async function fetchUserHistory(userId, limit) {
 }
 
 // 11) modify systemPrompt with additional instructions
-function applyAdditionalInstructions(
-  basePrompt,
-  mode,
-  history,
-  userMessage
-) {
+function applyAdditionalInstructions(basePrompt, mode, history, userMessage) {
   let finalPrompt = basePrompt;
 
-  // (a) 履歴が極端に少ない & ユーザーが分析やキャリアを求める
-  if (
-    (mode === 'characteristics' || mode === 'career') &&
-    history.length < 3
-  ) {
+  // (a) If chat history < 3, but user wants analysis/career
+  if ((mode === 'characteristics' || mode === 'career') && history.length < 3) {
     finalPrompt += `
 ※ユーザーの履歴が少ないです。まずは本人に追加の状況説明や詳細を尋ね、やりとりを増やして理解を深めてください。
 `;
   }
 
-  // (b) 「IQ」や認知度に応じた密かな調整
+  // (b) “IQ” subtle adjustment
   finalPrompt += `
 ※ユーザーの文章からコミュニケーション能力や理解度を推定し、返答の難易度や言葉遣いを自然に調整してください。
 AIが「IQを計測」とは明示せず、自然に簡易化または高度化します。
 `;
 
-  // (c) 第三者(子供、友達)への特性相談かどうかをチェックし、必要なら明確化
+  // (c) 3rd-person check
   if (/\b(child|friend|someone|others|children|son|daughter)\b/.test(userMessage)) {
     finalPrompt += `
 ※ユーザーが自分以外の第三者の分析を依頼している可能性があります。誰の特徴か曖昧なら、会話の中で丁寧に確認してください。
 `;
   }
 
-  // (d) 重要な相談ごと（発達障害や大きな進路決定など）には適宜専門家相談を促す
+  // (d) remind about specialists
   finalPrompt += `
 ※重度の発達障害の相談や重要な進路選択の場合、「専門家にも相談ください」と定期的に伝えてください。
 `;
 
-  // ----- (NEW) Additional instructions to AI (English corrected + Japanese added) -----
+  // Additional instructions to AI
   finalPrompt += `
 Please understand if user wants to end a conversation or not by context. Especially when user’s sentiment is strong (positive or negative), do not suspend the conversation at your own.
 ユーザーの障害があまりにも重い場合、状況認識や表情・仕草等の理解が難しいと思われます。その場合、ユーザーに「Adamに直接、長文でいいので全部書いて」とアドバイスし、ユーザーが書き終わったら、Adamが状況を分析し対応策を具体的に指示してください。
@@ -262,20 +252,18 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   // Decide model name dynamically
   let selectedModel = 'chatgpt-4o-latest';
 
-  // Lower the message for simpler substring detection
   const lowered = userMessage.toLowerCase();
-
   // Relaxed substring detection:
-  // if user says something about "deeper" or "わかりやすく" or the known English phrase
   if (
-    lowered.includes('a request for a deeper exploration of the ai’s thoughts and an even clearer explanation')
-    || lowered.includes('もっと深')
+    lowered.includes('a request for a deeper exploration of the ai’s thoughts')
+    || lowered.includes('deeper') // English partial
     || lowered.includes('さらにわか')
+    || lowered.includes('もっと深')
   ) {
+    // Attempt a second model
     selectedModel = 'o1-preview-2024-09-12';
   }
 
-  // Additional logging to show the chosen model
   console.log(`Using model: ${selectedModel}`);
 
   const finalSystemPrompt = applyAdditionalInstructions(
@@ -285,18 +273,42 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     userMessage
   );
 
-  const messages = [
-    { role: 'system', content: finalSystemPrompt },
-    ...history.map((item) => ({ role: item.role, content: item.content })),
-    { role: 'user', content: userMessage },
-  ];
+  // If the selected model is "o1-preview-2024-09-12", we must remove or flatten the system role
+  let messages = [];
+  if (selectedModel === 'o1-preview-2024-09-12') {
+    // This model doesn't support system role => flatten into user role or prefix
+    const systemPrefix = `[System Inst]: ${finalSystemPrompt}\n---\n`;
+    messages = [
+      {
+        role: 'user',
+        content: systemPrefix + ' ' + userMessage,
+      },
+    ];
+    // Also we might want to append the history as user/assistant lines, though this model
+    // might not parse it consistently. For example:
+    history.forEach((item) => {
+      messages.push({
+        role: item.role === 'assistant' ? 'user' : 'user', // or "assistant"? 
+        content: `(${item.role} said:) ${item.content}`,
+      });
+    });
+  } else {
+    // Normal chat style
+    messages = [
+      { role: 'system', content: finalSystemPrompt },
+      ...history.map((item) => ({ role: item.role, content: item.content })),
+      { role: 'user', content: userMessage },
+    ];
+  }
 
-  console.log(`Loaded ${history.length} messages for context in mode=[${mode}]`);
+  console.log(
+    `Loaded ${history.length} messages for context in mode=[${mode}], model=${selectedModel}`
+  );
   console.log(`Calling GPT with ${messages.length} msgs, mode=${mode}, model=${selectedModel}`);
 
   try {
     const resp = await openai.chat.completions.create({
-      model: selectedModel, // either "chatgpt-4o-latest" or "o1-2024-12-17"
+      model: selectedModel,
       messages,
       temperature: 0.7,
     });
@@ -313,7 +325,6 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
 async function handleEvent(event) {
   console.log('Received LINE event:', JSON.stringify(event, null, 2));
 
-  // Only handle text messages
   if (event.type !== 'message' || event.message.type !== 'text') {
     console.log('Not a text message, ignoring.');
     return null;
@@ -337,7 +348,7 @@ async function handleEvent(event) {
   // (13d) pick system prompt
   const systemPrompt = getSystemPromptForMode(mode);
 
-  // (13e) call GPT with additional instructions
+  // (13e) call GPT
   const aiReply = await processWithAI(systemPrompt, userMessage, history, mode);
 
   // (13f) store AI’s response
