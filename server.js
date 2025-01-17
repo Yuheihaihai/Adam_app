@@ -272,7 +272,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     || lowered.includes('もっと深')
     || lowered.includes('さらにわか')
   ) {
-    selectedModel = 'o1-2024-12-17';
+    selectedModel = 'o1-preview-2024-09-12';
   }
 
   // Additional logging to show the chosen model
