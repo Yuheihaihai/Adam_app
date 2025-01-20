@@ -298,9 +298,8 @@ function securityFilterPrompt(userMessage) {
 async function runCriticPass(aiDraft) {
   // Flatten into a user role
   const baseCriticPrompt = `
-あなたは「Critic」という校正AIです。
-以下の文章を読んで、もし非現実的(「『それができたら苦労しない』的な机上の空論」含む。）・失礼・共感性に欠ける記述があれば指摘し、適切な改善文を提案してください。
-文章に問題がない場合は「問題ありません」とだけ返してください。
+以下の文章を読んで、もし非現実的(「『それができたら苦労しない』的な机上の空論」含む。）・失礼・共感性に欠ける記述があれば該当箇所のみを修正してください。
+修正後のメッセージだけをそのまま出力してください。修正版であることは明示しないでください。
 
 --- チェック対象 ---
 ${aiDraft}
