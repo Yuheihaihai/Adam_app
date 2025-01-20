@@ -330,7 +330,7 @@ ${aiDraft}
 
   try {
     const criticResponse = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: 'o1-preview-2024-09-12',
       messages: [{ role: 'system', content: criticPrompt }],
       temperature: 0.5,
     });
