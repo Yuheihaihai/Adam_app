@@ -42,8 +42,7 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
 
-// DO NOT add express.json() or express.urlencoded() here
-// because line.middleware needs the raw body
+// DO NOT add express.json() or express.urlencoded() because line.middleware needs raw body
 
 // 3) LINE config & client
 const config = {
@@ -53,9 +52,7 @@ const config = {
 const client = new line.Client(config);
 
 // 4) OpenAI initialization
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // 5) Airtable initialization
 console.log('Airtable Configuration Check:', {
@@ -115,10 +112,9 @@ const SYSTEM_PROMPT_HUMAN_RELATIONSHIP = `
 日本語200文字以内。共感的かつ建設的に。
 `;
 
-// 7) Decide "mode" & "limit" based on user message
+// 7) Decide mode & limit from user message
 function determineModeAndLimit(userMessage) {
   const lcMsg = userMessage.toLowerCase();
-
   if (
     lcMsg.includes('特性') ||
     lcMsg.includes('分析') ||
@@ -146,11 +142,10 @@ function determineModeAndLimit(userMessage) {
   if (lcMsg.includes('キャリア')) {
     return { mode: 'career', limit: 200 };
   }
-  // else => general (limit=10)
   return { mode: 'general', limit: 10 };
 }
 
-// 8) pick system prompt
+// 8) Get system prompt by mode
 function getSystemPromptForMode(mode) {
   switch (mode) {
     case 'characteristics':
@@ -166,7 +161,7 @@ function getSystemPromptForMode(mode) {
   }
 }
 
-// 9) store single interaction
+// 9) Store user or assistant message in Airtable
 async function storeInteraction(userId, role, content) {
   try {
     console.log(
@@ -187,7 +182,7 @@ async function storeInteraction(userId, role, content) {
   }
 }
 
-// 10) fetch user history
+// 10) Fetch conversation logs from Airtable
 async function fetchUserHistory(userId, limit) {
   try {
     console.log(`Fetching history for user ${userId}, limit: ${limit}`);
@@ -200,7 +195,6 @@ async function fetchUserHistory(userId, limit) {
       .all();
     console.log(`Found ${records.length} records for user`);
 
-    // Reverse so oldest is first
     const reversed = records.reverse();
     return reversed.map((r) => ({
       role: r.get('Role') === 'assistant' ? 'assistant' : 'user',
@@ -212,36 +206,33 @@ async function fetchUserHistory(userId, limit) {
   }
 }
 
-// 11) modify systemPrompt with additional instructions
+// 11) Append extra instructions to the system prompt
 function applyAdditionalInstructions(basePrompt, mode, history, userMessage) {
   let finalPrompt = basePrompt;
 
-  // (a) If chat history < 3, but user wants analysis/career
+  // If chat history < 3 but user wants analysis/career
   if ((mode === 'characteristics' || mode === 'career') && history.length < 3) {
     finalPrompt += `
 ※ユーザーの履歴が少ないです。まずは本人に追加の状況説明や詳細を尋ね、やりとりを増やして理解を深めてください。
 `;
   }
 
-  // (b) “IQ” subtle adjustment
   finalPrompt += `
 ※ユーザーの文章からコミュニケーション能力や理解度を推定し、返答の難易度や言葉遣いを自然に調整してください。
 AIが「IQを計測」とは明示せず、自然に簡易化または高度化します。
 `;
 
-  // (c) 3rd-person check
+  // If user references 3rd person (child/friend)
   if (/\b(child|friend|someone|others|children|son|daughter)\b/.test(userMessage)) {
     finalPrompt += `
 ※ユーザーが自分以外の第三者の分析を依頼している可能性があります。誰の特徴か曖昧なら、会話の中で丁寧に確認してください。
 `;
   }
 
-  // (d) remind about specialists
   finalPrompt += `
 ※重度の発達障害の相談や重要な進路選択の場合、「専門家にも相談ください」と定期的に伝えてください。
 `;
 
-  // Additional instructions to AI
   finalPrompt += `
 Please understand if user wants to end a conversation or not by context. Especially when user’s sentiment is strong (positive or negative), do not suspend the conversation at your own.
 ユーザーの障害があまりにも重い場合、状況認識や表情・仕草等の理解が難しいと思われます。その場合、ユーザーに「Adamに直接、長文でいいので全部書いて」とアドバイスし、ユーザーが書き終わったら、Adamが状況を分析し対応策を具体的に指示してください。
@@ -254,19 +245,13 @@ Please understand if user wants to end a conversation or not by context. Especia
   return finalPrompt;
 }
 
-// ======================================================================
-// (1) Fallback AI Logic
-// ======================================================================
-
-// Primary AI call
+// (1) Fallback AI Calls
 async function callPrimaryModel(gptOptions) {
   const resp = await openai.chat.completions.create(gptOptions);
   return resp.choices?.[0]?.message?.content || '（No reply）';
 }
 
-// Backup AI call
 async function callBackupModel(gptOptions) {
-  // Overwrite model + temperature for fallback
   const backupOptions = {
     ...gptOptions,
     model: 'gpt-3.5-turbo',
@@ -276,10 +261,6 @@ async function callBackupModel(gptOptions) {
   return resp.choices?.[0]?.message?.content || '（No reply）';
 }
 
-/**
- * Attempt the primary model first; if it fails, attempt the backup.
- * If both fail, return a polite error message.
- */
 async function tryPrimaryThenBackup(gptOptions) {
   try {
     console.log('Attempting primary model:', gptOptions.model);
@@ -296,11 +277,8 @@ async function tryPrimaryThenBackup(gptOptions) {
   }
 }
 
-// ======================================================================
-// (2) Simple Security Filter for Prompt Injection
-// ======================================================================
+// (2) Security Filter for injection
 function securityFilterPrompt(userMessage) {
-  // Block certain suspicious patterns for safety
   const suspiciousPatterns = [
     'ignore all previous instructions',
     'system prompt =',
@@ -310,63 +288,48 @@ function securityFilterPrompt(userMessage) {
   ];
   for (const pattern of suspiciousPatterns) {
     if (userMessage.toLowerCase().includes(pattern.toLowerCase())) {
-      return false; // suspicious => reject
+      return false;
     }
   }
   return true;
 }
 
-// ======================================================================
-// (3) Critic Pass (Flatten for "o1-preview-2024-09-12")
-// ======================================================================
+// (3) Critic Pass => Force temperature=1 for "o1-preview..."
 async function runCriticPass(aiDraft) {
-  // We must flatten the Critic prompt if using "o1-preview..."
-  // because "system" role is unsupported on that model.
+  // Flatten into a user role
   const baseCriticPrompt = `
 あなたは「Critic」という校正AIです。
-以下の文章を読んで、もし非現実的(「『それができたら苦労しない』的な机上の空論」含む）・失礼・共感性に欠ける記述があれば指摘し、適切な改善文を提案してください。
+以下の文章を読んで、もし非現実的(「『それができたら苦労しない』的な机上の空論」含む。）・失礼・共感性に欠ける記述があれば指摘し、適切な改善文を提案してください。
 文章に問題がない場合は「問題ありません」とだけ返してください。
 
 --- チェック対象 ---
 ${aiDraft}
 `;
 
-  // We'll always treat "critic" as flattening to a user role.
-  // That way, we avoid "Unsupported value: 'system' role" with "o1-preview..."
-  const messages = [
-    {
-      role: 'user',
-      content: baseCriticPrompt,
-    },
-  ];
+  const messages = [{ role: 'user', content: baseCriticPrompt }];
 
-  let criticOptions = {
-    model: 'o1-preview-2024-09-12', // we want to use this model
+  const criticOptions = {
+    model: 'o1-preview-2024-09-12',
     messages,
-    temperature: 0.5,
+    // Since logs say "temperature=0.5 not supported," we set to 1
+    temperature: 1,
   };
 
-  // Must flatten => no system role
-  // must do temperature=1 if the model doesn't support 0.5, but let's try 0.5
-  // If the logs show "unsupported_value" for temperature,
-  // set it to 1. For now let's keep 0.5 since it might be allowed.
   try {
     const criticResponse = await openai.chat.completions.create(criticOptions);
-    const text = criticResponse.choices?.[0]?.message?.content || '';
-    return text;
+    return criticResponse.choices?.[0]?.message?.content || '';
   } catch (err) {
     console.error('Critic pass error:', err);
     return '';
   }
 }
 
-// 12) Generate final answer => fallback + mandatory Critic
+// 12) Compose final answer => fallback + critic
 async function processWithAI(systemPrompt, userMessage, history, mode) {
-  // Decide main model
   let selectedModel = 'chatgpt-4o-latest';
-
   const lowered = userMessage.toLowerCase();
-  // Check if user requests deeper analysis => use "o1-preview-2024-09-12"
+
+  // Switch to "o1-preview..." if deeper request
   if (
     lowered.includes('a request for a deeper exploration of the ai’s thoughts') ||
     lowered.includes('deeper') ||
@@ -378,7 +341,6 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
 
   console.log(`Using model: ${selectedModel}`);
 
-  // Additional instructions
   const finalSystemPrompt = applyAdditionalInstructions(
     systemPrompt,
     mode,
@@ -387,15 +349,15 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   );
 
   let messages = [];
-  const gptOptions = {
+  let gptOptions = {
     model: selectedModel,
     messages,
     temperature: 0.7,
   };
 
   if (selectedModel === 'o1-preview-2024-09-12') {
-    // Flatten system instructions => single user content
-    gptOptions.temperature = 1; // forced
+    // Flatten => single user content
+    gptOptions.temperature = 1;
     const systemPrefix = `[System Inst]: ${finalSystemPrompt}\n---\n`;
     messages.push({
       role: 'user',
@@ -408,7 +370,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
       });
     });
   } else {
-    // Normal chat style
+    // Normal chat
     messages.push({ role: 'system', content: finalSystemPrompt });
     messages.push(
       ...history.map((item) => ({
@@ -419,40 +381,32 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     messages.push({ role: 'user', content: userMessage });
   }
 
-  console.log(
-    `Loaded ${history.length} messages for context in mode=[${mode}], model=${selectedModel}`
-  );
+  console.log(`Loaded ${history.length} messages in mode=[${mode}], model=${selectedModel}`);
 
-  // 1) Call primary model (or fallback)
   const aiDraft = await tryPrimaryThenBackup(gptOptions);
 
-  // 2) Critic pass => flatten as user role
-  const criticFeedback = await runCriticPass(aiDraft);
-
-  if (criticFeedback && !criticFeedback.includes('問題ありません')) {
-    // Critic suggests improvements
-    return `【修正案】\n${criticFeedback}`;
+  // Critic pass => also force temperature=1
+  const criticOutput = await runCriticPass(aiDraft);
+  if (criticOutput && !criticOutput.includes('問題ありません')) {
+    return `【修正案】\n${criticOutput}`;
   }
-  // Else, keep the original
   return aiDraft;
 }
 
-// 13) main LINE event handler
+// 13) main LINE handler
 async function handleEvent(event) {
   console.log('Received LINE event:', JSON.stringify(event, null, 2));
 
-  // Only handle text messages
   if (event.type !== 'message' || event.message.type !== 'text') {
     console.log('Not a text message, ignoring.');
     return null;
   }
-
   const userId = event.source?.userId || 'unknown';
   const userMessage = event.message.text.trim();
 
   console.log(`User ${userId} said: "${userMessage}"`);
 
-  // (A) Security filter => block injection
+  // A) Security check
   const isSafe = securityFilterPrompt(userMessage);
   if (!isSafe) {
     const refusal = '申し訳ありません。このリクエストには対応できません。';
@@ -461,78 +415,69 @@ async function handleEvent(event) {
     return null;
   }
 
-  // (B) Store user message
+  // B) Store user message
   await storeInteraction(userId, 'user', userMessage);
 
-  // (C) Determine mode & limit
+  // C) Determine mode & limit
   const { mode, limit } = determineModeAndLimit(userMessage);
   console.log(`Determined mode=${mode}, limit=${limit}`);
 
-  // (D) Fetch history
+  // D) Fetch conversation
   const history = await fetchUserHistory(userId, limit);
 
-  // (E) System prompt
+  // E) Pick system prompt
   const systemPrompt = getSystemPromptForMode(mode);
 
-  // (F) AI + Critic pass
+  // F) Generate final (fallback + critic)
   const aiReply = await processWithAI(systemPrompt, userMessage, history, mode);
 
-  // (G) Store final answer
+  // G) Store assistant reply
   await storeInteraction(userId, 'assistant', aiReply);
 
-  // (H) Reply to user
+  // H) Return to user
   const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
   console.log('Replying to LINE user with:', lineMessage.text);
 
   try {
     await client.replyMessage(event.replyToken, lineMessage);
-    console.log('Successfully replied to the user.');
+    console.log('Successfully replied to user.');
   } catch (err) {
     console.error('Error replying to user:', err);
   }
 }
 
-// 14) Simple health check
+// 14) Health check
 app.get('/', (req, res) => {
   res.send('Adam App Cloud v2.3 is running. Ready for LINE requests.');
 });
 
-// 15) POST /webhook => includes console logging
+// 15) /webhook => calls handleEvent for each incoming event
 app.post('/webhook', line.middleware(config), (req, res) => {
   console.log('Webhook was called! Events:', req.body.events);
-
   Promise.all(req.body.events.map(handleEvent))
-    .then((result) => {
-      res.json(result);
-    })
+    .then((result) => res.json(result))
     .catch((err) => {
       console.error('Webhook error:', err);
-      // Return 200 to avoid repeated LINE retries
+      // Return 200 to avoid repeated tries from LINE
       res.status(200).json({});
     });
 });
 
-// 16) Listen
+// 16) Start listening
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
 });
 
 /********************************************************************
- * Architecture/Roadmap/UI (Version 2.3) references:
- *  - Potential file: bingIntegration.js for Bing Search API
- *  - server.js can parse user queries (e.g., "検索") => call Bing
- *  - Then possibly feed results to OpenAI for summarizing
- *  - Roadmap phases:
- *     (1) Investigation of Bing API, cost, environment config
- *     (2) Implementation of "needsSearch" function & searching
- *     (3) UI with LINE carousel / Flex messages
- *     (4) Monitoring usage, refining design for user engagement
+ * Architecture/Roadmap/UI (Version 2.3):
+ *  - Potential Bing integration (bingIntegration.js)
+ *  - Step phases for searching flows, cost strategies
+ *  - UI expansions (Flex messages / carousel)
  *
- *  This version:
- *   - Fallback AI logic (primary => backup)
- *   - Security filter for prompt injection
- *   - Critic pass using "o1-preview-2024-09-12"
- *     => Flattened into "user" role to avoid "system" role errors
- *   - Complies with OpenAI policies & disclaimers
+ * This version:
+ *  - Fallback logic
+ *  - Security filter
+ *  - Critic pass with "o1-preview-2024-09-12" at temperature=1
+ *  - Complies with policy & disclaimers
  ********************************************************************/
