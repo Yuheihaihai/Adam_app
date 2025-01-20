@@ -397,9 +397,9 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   // Critic pass => also force temperature=1
   const criticOutput = await runCriticPass(aiDraft);
   if (criticOutput && !criticOutput.includes('問題ありません')) {
-    return `【修正案】\n${criticOutput}`;
+    return criticOutput; // Return the critic output directly.
   }
-  return aiDraft;
+  return aiDraft; // Return the original draft if no changes are required.
 }
 
 // 13) main LINE handler
