@@ -254,16 +254,16 @@ Please understand if user wants to end a conversation or not by context. Especia
 }
 
 // ======================================================================
-// NEW (1) Fallback AI Logic
+// (1) Fallback AI Logic
 // ======================================================================
 
-// Primary AI call (same as your existing logic, but extracted)
+// Primary AI call
 async function callPrimaryModel(gptOptions) {
   const resp = await openai.chat.completions.create(gptOptions);
   return resp.choices?.[0]?.message?.content || '（No reply）';
 }
 
-// Backup AI call (uses a simpler or different model)
+// Backup AI call
 async function callBackupModel(gptOptions) {
   const backupOptions = {
     ...gptOptions,
@@ -295,7 +295,7 @@ async function tryPrimaryThenBackup(gptOptions) {
 }
 
 // ======================================================================
-// NEW (2) Simple Security Filter for Prompt Injection
+// (2) Simple Security Filter for Prompt Injection
 // ======================================================================
 function securityFilterPrompt(userMessage) {
   // Very naive example: block known injection patterns
@@ -315,13 +315,12 @@ function securityFilterPrompt(userMessage) {
 }
 
 // ======================================================================
-// NEW (3) Optional Critic Pass (Refine or Check the AI's Output)
+// (3) Critic Pass (using "o1-preview-2024-09-12")
 // ======================================================================
 async function runCriticPass(aiDraft) {
-  // If you want the critic to be in Japanese, adjust accordingly.
   const criticPrompt = `
 あなたは「Critic」という校正AIです。
-以下の文章を読んで、もし非現実的・失礼・共感性に欠ける記述があれば指摘し、適切な改善文を提案してください。
+以下の文章を読んで、もし非現実的(「『それができたら苦労しない』的な机上の空論」含む。）・失礼・共感性に欠ける記述があれば指摘し、適切な改善文を提案してください。
 文章に問題がない場合は「問題ありません」とだけ返してください。
 
 --- チェック対象 ---
@@ -329,6 +328,7 @@ ${aiDraft}
 `;
 
   try {
+    // Critic uses o1-preview-2024-09-12
     const criticResponse = await openai.chat.completions.create({
       model: 'o1-preview-2024-09-12',
       messages: [{ role: 'system', content: criticPrompt }],
@@ -341,25 +341,25 @@ ${aiDraft}
   }
 }
 
-// 12) call GPT (MODIFIED) => now uses fallback & optional critic pass
+// 12) call GPT => uses fallback & mandatory critic pass
 async function processWithAI(systemPrompt, userMessage, history, mode) {
   // Decide model name dynamically
   let selectedModel = 'chatgpt-4o-latest';
 
   const lowered = userMessage.toLowerCase();
-  // Relaxed substring detection for "deeper" analysis
+  // Check for "もっと深く" etc. => switch to "o1-preview-2024-09-12"
   if (
     lowered.includes('a request for a deeper exploration of the ai’s thoughts') ||
     lowered.includes('deeper') ||
     lowered.includes('さらにわか') ||
     lowered.includes('もっと深')
   ) {
-    // Attempt a second model
     selectedModel = 'o1-preview-2024-09-12';
   }
 
   console.log(`Using model: ${selectedModel}`);
 
+  // Add additional instructions
   const finalSystemPrompt = applyAdditionalInstructions(
     systemPrompt,
     mode,
@@ -374,14 +374,15 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     temperature: 0.7,
   };
 
+  // If using "o1-preview..." => must flatten system instructions
   if (selectedModel === 'o1-preview-2024-09-12') {
-    // Flatten system prompt + user message for "o1-preview..." model
     gptOptions.temperature = 1; // forcibly set to 1
     const systemPrefix = `[System Inst]: ${finalSystemPrompt}\n---\n`;
     messages.push({
       role: 'user',
       content: systemPrefix + ' ' + userMessage,
     });
+    // Incorporate conversation history (flattened)
     history.forEach((item) => {
       messages.push({
         role: 'user',
@@ -391,31 +392,33 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   } else {
     // Normal chat style
     messages.push({ role: 'system', content: finalSystemPrompt });
-    messages.push(...history.map((item) => ({
-      role: item.role,
-      content: item.content,
-    })));
+    messages.push(
+      ...history.map((item) => ({
+        role: item.role,
+        content: item.content,
+      }))
+    );
     messages.push({ role: 'user', content: userMessage });
   }
 
   gptOptions.messages = messages;
-
   console.log(
     `Loaded ${history.length} messages for context in mode=[${mode}], model=${selectedModel}`
   );
 
-  // === Use fallback logic instead of direct openai call ===
+  // 1) Generate an AI draft with fallback
   const aiDraft = await tryPrimaryThenBackup(gptOptions);
 
-  // === Optionally run a critic pass to refine or warn ===
+  // 2) Mandatory Critic check
   const criticFeedback = await runCriticPass(aiDraft);
 
+  // If critic sees no issue => "問題ありません"
+  // Otherwise, it includes suggested improvements
   if (criticFeedback && !criticFeedback.includes('問題ありません')) {
-    // The critic found some issues or offered improvements
     return `【修正案】\n${criticFeedback}`;
   }
 
-  // If the critic says "問題ありません" or is empty, just return the original
+  // Final answer is the original draft if critic says "no problem"
   return aiDraft;
 }
 
@@ -433,7 +436,7 @@ async function handleEvent(event) {
 
   console.log(`User ${userId} said: "${userMessage}"`);
 
-  // NEW: Security filter to block suspicious injection attempts
+  // (A) Security filter => block suspicious injection attempts
   const isSafe = securityFilterPrompt(userMessage);
   if (!isSafe) {
     const msg = '申し訳ありません。このリクエストには対応できません。';
@@ -442,26 +445,26 @@ async function handleEvent(event) {
     return null;
   }
 
-  // (13a) store user’s incoming message
+  // (B) Store user’s incoming message
   await storeInteraction(userId, 'user', userMessage);
 
-  // (13b) determine “mode” & “limit”
+  // (C) Determine “mode” & “limit”
   const { mode, limit } = determineModeAndLimit(userMessage);
   console.log(`Determined mode=${mode}, limit=${limit}`);
 
-  // (13c) fetch conversation
+  // (D) Fetch conversation history
   const history = await fetchUserHistory(userId, limit);
 
-  // (13d) pick system prompt
+  // (E) Pick system prompt
   const systemPrompt = getSystemPromptForMode(mode);
 
-  // (13e) call GPT (with fallback & critic pass)
+  // (F) Call GPT (with fallback & critic pass)
   const aiReply = await processWithAI(systemPrompt, userMessage, history, mode);
 
-  // (13f) store AI’s response
+  // (G) Store AI’s final response
   await storeInteraction(userId, 'assistant', aiReply);
 
-  // (13g) reply to user (<= 2000 chars for LINE)
+  // (H) Reply to user (<= 2000 chars for LINE)
   const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
   console.log('Replying to LINE user with:', lineMessage.text);
 
@@ -473,7 +476,7 @@ async function handleEvent(event) {
   }
 }
 
-// 14) simple health check
+// 14) Simple health check
 app.get('/', (req, res) => {
   res.send('Adam App Cloud v2.3 is running. Ready for LINE requests.');
 });
@@ -509,4 +512,10 @@ app.listen(PORT, () => {
  *   (2) Implementation of "needsSearch" function & searching
  *   (3) UI with LINE carousel or Flex message for multiple results
  *   (4) Monitoring usage, refining the design for user engagement
+ *
+ * + This file now includes:
+ *   - Fallback AI logic (primary => backup)
+ *   - Security filter for prompt injection
+ *   - Critic pass (using "o1-preview-2024-09-12")
+ *   - Mandatory Critic for all AI answers
  ********************************************************************/
