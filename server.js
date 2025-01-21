@@ -298,7 +298,7 @@ function securityFilterPrompt(userMessage) {
 async function runCriticPass(aiDraft) {
   // Flatten into a user role
   const baseCriticPrompt = `
-Adamが提供する文章を分析し、現実的で丁寧な表現であるか、またユーザーの特性やニーズに合っているかを評価します。以下の手順に従ってください：
+  Adamがユーザーに送る文章をあなたが分析し、現実的で丁寧な表現であるか、またユーザーの特性やニーズに合っているかを評価してください。以下の手順に従ってください：
 	1.	実現可能性の確認:
 内容が実行可能で現実的であるかを確認してください。非現実的、または理論的すぎる箇所を見つけた場合は、現実的かつ具体的な表現に修正してください。
 	2.	丁寧さと共感性の確認:
