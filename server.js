@@ -489,28 +489,29 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   ];
 
   // Add job trends analysis
-  let perplexityContext = null;
+  let perplexityContext = '';
   if (mode === 'career' || careerAssessmentKeywords.some(keyword => userMessage.includes(keyword))) {
     try {
       console.log('Career assessment requested, fetching current job trends...');
-      const jobTrends = await perplexity.getJobTrends();
+      const perplexityResult = await perplexity.getJobTrends();
       
-      if (jobTrends) {
+      if (perplexityResult) {
         console.log('Received current job trends from Perplexity');
         perplexityContext = `
 [現在の求人市場データ]
-${jobTrends}
+${perplexityResult}
 `;
       }
     } catch (err) {
       console.error('Job trends fetch failed:', err.message);
+      perplexityContext = '[現在の求人市場データの取得に失敗しました]';
     }
   }
 
-  // Simply append market data to existing system prompt
-  let finalSystemPrompt = perplexityContext ? 
-    `${SYSTEM_PROMPT_CAREER}\n\n${perplexityContext}` : 
-    SYSTEM_PROMPT_CAREER;
+  // Add enhanced context to existing system prompt
+  const SYSTEM_PROMPT_CAREER_WITH_MARKET = `${SYSTEM_PROMPT_CAREER}
+
+${perplexityContext}`;
 
   // Add ASD awareness instruction as additional context
   const asdAwarenessInstruction = `
@@ -530,7 +531,7 @@ ${jobTrends}
 `;
 
   // Simply append the new instruction to existing system prompt
-  finalSystemPrompt += `\n\n${asdAwarenessInstruction}`;
+  const finalSystemPrompt = perplexityContext || SYSTEM_PROMPT_CAREER_WITH_MARKET;
   console.log('🧠 Added communication awareness instruction');
 
   if (userMessage.includes('天気') || userMessage.includes('スポーツ') || userMessage.includes('試合')) {
