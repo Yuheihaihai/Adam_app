@@ -487,24 +487,31 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   ];
 
   // Add job trends analysis
-  let finalSystemPrompt = systemPrompt;
-  
+  let perplexityContext = null;
   if (mode === 'career' || careerAssessmentKeywords.some(keyword => userMessage.includes(keyword))) {
     try {
       console.log('Career assessment requested, fetching current job trends...');
-      const response = await perplexity.getJobTrends();
+      const jobTrends = await perplexity.getJobTrends();
       
-      if (response) {
+      if (jobTrends) {
         console.log('Received current job trends from Perplexity');
-        finalSystemPrompt = SYSTEM_PROMPT_CAREER_BASE + '\n\n[求人市場データ]\n' + response;
-      } else {
-        finalSystemPrompt = SYSTEM_PROMPT_CAREER_BASE;
+        perplexityContext = `
+[分析時の市場考慮事項]
+${jobTrends}
+
+※上記の市場動向を[分析プロセス]の各ステップで考慮し、
+[出力形式]の要件に厳密に従って回答を作成してください。
+`;
       }
     } catch (err) {
       console.error('Job trends fetch failed:', err.message);
-      finalSystemPrompt = SYSTEM_PROMPT_CAREER_BASE;
     }
   }
+
+  // Add market data while preserving original format
+  let finalSystemPrompt = perplexityContext ? 
+    `${SYSTEM_PROMPT_CAREER}\n\n${perplexityContext}` : 
+    SYSTEM_PROMPT_CAREER;
 
   // Add ASD awareness instruction as additional context
   const asdAwarenessInstruction = `
