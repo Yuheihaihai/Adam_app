@@ -27,12 +27,14 @@ const helmet = require('helmet');
 const line = require('@line/bot-sdk');
 const Airtable = require('airtable');
 const { OpenAI } = require('openai');
+const { Anthropic } = require('@anthropic-ai/sdk');
 
 // 1) Basic environment checks
 console.log('Environment check:', {
   hasAccessToken: !!process.env.CHANNEL_ACCESS_TOKEN,
   hasSecret: !!process.env.CHANNEL_SECRET,
   openAIKey: !!process.env.OPENAI_API_KEY,
+  claudeKey: !!process.env.ANTHROPIC_API_KEY,
   airtableToken: !!process.env.AIRTABLE_API_KEY,
   airtableBase: !!process.env.AIRTABLE_BASE_ID,
 });
@@ -378,7 +380,7 @@ AIが「IQを計測」とは明示せず、自然に簡易化または高度化�
 `;
 
   finalPrompt += `
-Please understand if user wants to end a conversation or not by context. Especially when user’s sentiment is strong (positive or negative), do not suspend the conversation at your own.
+Please understand if user wants to end a conversation or not by context. Especially when user's sentiment is strong (positive or negative), do not suspend the conversation at your own.
 ユーザーの障害があまりにも重い場合、状況認識や表情・仕草等の理解が難しいと思われます。その場合、ユーザーに「Adamに直接、長文でいいので全部書いて」とアドバイスし、ユーザーが書き終わったら、Adamが状況を分析し対応策を具体的に指示してください。
 (1) 毎回の会話でAIが相手の状況理解の障害の重さを可能性レベルで判断し、仮説を立てる。 
 (2) 重い可能性が高いと判断したら、ユーザーへの返信時に(1)の仮説を自然かつ尊重的な言い回しで確認（過去の指摘経験など）。 
@@ -389,34 +391,56 @@ Please understand if user wants to end a conversation or not by context. Especia
   return finalPrompt;
 }
 
-// (1) Fallback AI Calls
+// Add Claude initialization after OpenAI
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY, // Add this to your .env file
+});
+
+// Update the fallback AI calls section
 async function callPrimaryModel(gptOptions) {
   const resp = await openai.chat.completions.create(gptOptions);
   return resp.choices?.[0]?.message?.content || '（No reply）';
 }
 
-async function callBackupModel(gptOptions) {
-  const backupOptions = {
-    ...gptOptions,
-    model: 'gpt-3.5-turbo',
-    temperature: 0.7,
-  };
-  const resp = await openai.chat.completions.create(backupOptions);
-  return resp.choices?.[0]?.message?.content || '（No reply）';
+async function callClaudeModel(messages) {
+  try {
+    // Convert OpenAI format to Claude format
+    let systemPrompt = messages.find(m => m.role === 'system')?.content || '';
+    let userMessages = messages
+      .filter(m => m.role !== 'system')
+      .map(m => m.content)
+      .join('\n\n');
+
+    const response = await anthropic.messages.create({
+      model: 'claude-3-sonnet-20240229',
+      max_tokens: 1024,
+      temperature: 0.7,
+      system: systemPrompt,
+      messages: [{
+        role: 'user',
+        content: userMessages
+      }]
+    });
+
+    return response.content[0].text;
+  } catch (err) {
+    console.error('Claude API error:', err);
+    throw err;
+  }
 }
 
 async function tryPrimaryThenBackup(gptOptions) {
   try {
-    console.log('Attempting primary model:', gptOptions.model);
+    console.log('Attempting primary model (OpenAI):', gptOptions.model);
     return await callPrimaryModel(gptOptions);
   } catch (err) {
-    console.error('Primary model error:', err);
-    console.log('Attempting backup model...');
+    console.error('OpenAI error:', err);
+    console.log('Attempting Claude fallback...');
     try {
-      return await callBackupModel(gptOptions);
-    } catch (backupErr) {
-      console.error('Backup model also failed:', backupErr);
-      return '申し訳ありません。AIが混雑中で回答できません。';
+      return await callClaudeModel(gptOptions.messages);
+    } catch (claudeErr) {
+      console.error('Claude also failed:', claudeErr);
+      return '申し訳ありません。AIサービスが一時的に利用できません。しばらく経ってからお試しください。';
     }
   }
 }
@@ -484,7 +508,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
 
   // Switch to "o1-preview..." if deeper request
   if (
-    lowered.includes('a request for a deeper exploration of the ai’s thoughts') ||
+    lowered.includes('a request for a deeper exploration of the ai's thoughts') ||
     lowered.includes('deeper') ||
     lowered.includes('さらにわか') ||
     lowered.includes('もっと深')
