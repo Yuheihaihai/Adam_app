@@ -479,34 +479,22 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
-  // Add career assessment keywords
-  const careerAssessmentKeywords = [
-    '適職診断', '適職を教えて', '適職分析', '適職アドバイス',
-    'どんな仕事が向いてる', '向いている仕事', '向いてる職業',
-    'キャリア診断', '職業診断', '職業適性'
-  ];
-
-  // Add job trends analysis
-  let finalSystemPrompt = systemPrompt;
+  // For "career" => fetch job trends from perplexity
+  let finalSystemPrompt = systemPrompt;  // Initialize with base prompt
   
-  if (mode === 'career' || careerAssessmentKeywords.some(keyword => userMessage.includes(keyword))) {
+  if (mode === 'career' || lowered.includes('適職診断') || lowered.includes('適職を教えて')) {
     try {
-      console.log('Career assessment requested, fetching current job trends...');
-      const response = await perplexity.getJobTrends();
-      
-      if (response) {
-        console.log('Received current job trends from Perplexity');
-        finalSystemPrompt = `${SYSTEM_PROMPT_CAREER}
+      console.log('Career assessment => retrieving job market data from Perplexity...');
+      const data = await perplexity.getJobTrends();
+      if (data) {
+        console.log('Got job trends:', data.slice(0,100) + '...');
+        finalSystemPrompt = `${systemPrompt}
 
 [求人市場データ]
-${response}
-`;
-      } else {
-        finalSystemPrompt = SYSTEM_PROMPT_CAREER;
+${data}`;
       }
     } catch (err) {
-      console.error('Job trends fetch failed:', err.message);
-      finalSystemPrompt = SYSTEM_PROMPT_CAREER;
+      console.error('Perplexity job trends fetch failed:', err);
     }
   }
 
@@ -527,22 +515,10 @@ ${response}
 この特性は自然な認知プロセスの結果であり、意図的なものではありません。
 `;
 
-  // Simply append the new instruction to existing system prompt
-  const finalSystemPromptWithInstruction = finalSystemPrompt;
-  console.log('🧠 Added communication awareness instruction');
+  finalSystemPrompt = finalSystemPrompt + asdAwarenessInstruction;
 
-  if (userMessage.includes('天気') || userMessage.includes('スポーツ') || userMessage.includes('試合')) {
-    try {
-      console.log('Using Perplexity for weather/sports query');
-      return await perplexity.handleAllowedQuery(userMessage);
-    } catch (err) {
-      console.error('Perplexity error, falling back to OpenAI:', err);
-    }
-  }
-
-  finalSystemPromptWithInstruction = finalSystemPrompt;
-  console.log('📤 Final System Prompt Length:', finalSystemPromptWithInstruction.length);
-  console.log('📤 Final System Prompt Preview:', finalSystemPromptWithInstruction.substring(0, 200) + '...');
+  console.log('📤 Final System Prompt Length:', finalSystemPrompt.length);
+  console.log('📤 Final System Prompt Preview:', finalSystemPrompt.substring(0, 200) + '...');
 
   if (
     lowered.includes('deeper') ||
@@ -555,7 +531,7 @@ ${response}
   console.log(`🤖 Using model: ${selectedModel}`);
 
   const finalPrompt = applyAdditionalInstructions(
-    finalSystemPromptWithInstruction,
+    finalSystemPrompt,
     mode,
     history,
     userMessage
