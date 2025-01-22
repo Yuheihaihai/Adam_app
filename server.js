@@ -57,6 +57,10 @@ const client = new line.Client(config);
 // 4) OpenAI initialization
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// Add Perplexity initialization
+const PerplexitySearch = require('./perplexitySearch');
+const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
+
 // 5) Airtable initialization
 console.log('Airtable Configuration Check:', {
   hasApiKey: !!process.env.AIRTABLE_API_KEY,
@@ -66,10 +70,6 @@ console.log('Airtable Configuration Check:', {
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
 const INTERACTIONS_TABLE = 'ConversationHistory';
-
-// Add Perplexity initialization
-const PerplexitySearch = require('./perplexitySearch');
-const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
 
 // 6) System prompts (default)
 const SYSTEM_PROMPT_GENERAL = `
@@ -543,7 +543,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
-  // Handle weather/sports with Perplexity
+  // Add Perplexity for weather/sports
   if (userMessage.includes('天気') || 
       userMessage.includes('スポーツ') || 
       userMessage.includes('試合')) {
@@ -552,19 +552,42 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
       return await perplexity.handleAllowedQuery(userMessage);
     } catch (err) {
       console.error('Perplexity error, falling back to OpenAI:', err);
-      // Continue with normal OpenAI processing if Perplexity fails
     }
   }
 
-  // Enhance knowledge if needed
+  // Add interest analysis and knowledge enhancement
   let enhancedContext = null;
-  try {
-    enhancedContext = await perplexity.enhanceKnowledge(history, userMessage);
-  } catch (err) {
-    console.error('Knowledge enhancement failed:', err);
+  if (history.length > 0) {
+    try {
+      const interestAnalysis = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: `ユーザーの会話履歴から興味・関心のある話題を抽出してください。
+            出力は「topic:reason」の形式で、複数の場合は改行で区切ってください。`
+          },
+          ...history.map(h => ({
+            role: h.role,
+            content: h.content
+          }))
+        ],
+        temperature: 0.3,
+        max_tokens: 100
+      });
+      
+      if (interestAnalysis.choices[0]?.message?.content) {
+        enhancedContext = await perplexity.enhanceKnowledge(
+          history, 
+          interestAnalysis.choices[0].message.content
+        );
+      }
+    } catch (err) {
+      console.error('Knowledge enhancement failed:', err);
+    }
   }
 
-  // Add enhanced context to system prompt if available
+  // Add enhanced context to existing system prompt if available
   let systemPromptWithContext = systemPrompt;
   if (enhancedContext) {
     systemPromptWithContext += `\n\n参考情報：${enhancedContext}`;
