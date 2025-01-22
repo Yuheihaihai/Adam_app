@@ -498,18 +498,25 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
       if (jobTrends) {
         console.log('Received job trends from Perplexity:', jobTrends.substring(0, 100) + '...');
         perplexityContext = `
-[最新の求人市場データ]
+あなたは最新の求人市場データに基づいてアドバイスを提供するキャリアカウンセラーです。
+
+[市場の現状]
 ${jobTrends}
 
-[回答時の重要指示]
-1. 上記の最新の求人市場データを必ず参照してください
-2. 具体的な数値（求人倍率など）を含めて説明してください
-3. 業界別の傾向を明確に言及してください
-4. 現在特に需要が高い職種を優先的に提案してください
-5. スキルニーズの変化も必ず含めてください
+[アドバイス方針]
+• 必ず上記の市場データを引用してください
+• 「現在の市場では〜」という形で言及してください
+• 具体的な業界の求人動向を示してください
+• データに基づいた理由付けを行ってください
 
-[データの有効期限]
-このデータは${new Date().toISOString().split('T')[0]}時点の最新情報です。
+[回答構造]
+1. 現在の市場概況
+2. 特に需要の高い職種・業界
+3. 具体的なキャリア提案
+4. 必要なスキルと準備
+
+[データ基準日]
+${new Date().toISOString().split('T')[0]}
 `;
       }
     } catch (err) {
@@ -518,11 +525,8 @@ ${jobTrends}
     }
   }
 
-  let finalSystemPrompt = systemPrompt;
-  if (perplexityContext) {
-    finalSystemPrompt = `${systemPrompt}\n\n${perplexityContext}`;
-    console.log('Enhanced system prompt with structured job trends data');
-  }
+  let finalSystemPrompt = perplexityContext || systemPrompt;
+  console.log('Using system prompt with length:', finalSystemPrompt.length);
 
   if (
     lowered.includes('deeper') ||
@@ -533,7 +537,6 @@ ${jobTrends}
   }
 
   console.log(`Using model: ${selectedModel}`);
-  console.log('System prompt length:', finalSystemPrompt.length);
 
   const finalPrompt = applyAdditionalInstructions(
     finalSystemPrompt,
