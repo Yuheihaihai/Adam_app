@@ -489,7 +489,8 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   ];
 
   // Add job trends analysis
-  let perplexityContext = '';
+  let finalSystemPrompt = systemPrompt;
+  
   if (mode === 'career' || careerAssessmentKeywords.some(keyword => userMessage.includes(keyword))) {
     try {
       console.log('Career assessment requested, fetching current job trends...');
@@ -497,21 +498,17 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
       
       if (perplexityData) {
         console.log('Received current job trends from Perplexity');
-        perplexityContext = `
+        const perplexityContext = `
 [現在の求人市場データ]
 ${perplexityData}
 `;
+        finalSystemPrompt = `${SYSTEM_PROMPT_CAREER_BASE}\n\n${perplexityContext}`;
       }
     } catch (err) {
       console.error('Job trends fetch failed:', err.message);
-      perplexityContext = '[現在の求人市場データの取得に失敗しました]';
+      finalSystemPrompt = SYSTEM_PROMPT_CAREER_BASE;
     }
   }
-
-  // Add enhanced context to existing system prompt
-  const finalSystemPrompt = mode === 'career' ? 
-    `${SYSTEM_PROMPT_CAREER_BASE}${perplexityContext}` : 
-    systemPrompt;
 
   // Add ASD awareness instruction as additional context
   const asdAwarenessInstruction = `
@@ -531,7 +528,7 @@ ${perplexityData}
 `;
 
   // Simply append the new instruction to existing system prompt
-  const finalSystemPromptWithInstruction = perplexityContext || finalSystemPrompt;
+  const finalSystemPromptWithInstruction = finalSystemPrompt;
   console.log('🧠 Added communication awareness instruction');
 
   if (userMessage.includes('天気') || userMessage.includes('スポーツ') || userMessage.includes('試合')) {
@@ -543,7 +540,7 @@ ${perplexityData}
     }
   }
 
-  finalSystemPromptWithInstruction = perplexityContext || finalSystemPromptWithInstruction;
+  finalSystemPromptWithInstruction = finalSystemPrompt;
   console.log('📤 Final System Prompt Length:', finalSystemPromptWithInstruction.length);
   console.log('📤 Final System Prompt Preview:', finalSystemPromptWithInstruction.substring(0, 200) + '...');
 
