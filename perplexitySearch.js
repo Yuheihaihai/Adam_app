@@ -9,7 +9,9 @@ class PerplexitySearch {
     
     this.client = new OpenAI({ 
       apiKey: apiKey,
-      baseURL: "https://api.perplexity.ai"
+      baseURL: "https://api.perplexity.ai",
+      timeout: 25000,  // 25 second timeout (below Heroku's 30s limit)
+      maxRetries: 2    // Allow 2 retries
     });
   }
 
@@ -137,13 +139,17 @@ class PerplexitySearch {
           role: 'user',
           content: '現在の日本の求人市場と業界トレンドを教えてください。'
         }],
-        max_tokens: 256,
-        temperature: 0.7
+        max_tokens: 150,     // Reduced from 256
+        temperature: 0.7,
+        timeout: 20000      // 20 second timeout for this specific request
       });
 
       return response.choices[0]?.message?.content;
     } catch (error) {
       console.error('Perplexity job trends error:', error);
+      if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+        console.log('Perplexity timeout, returning null');
+      }
       return null;
     }
   }
