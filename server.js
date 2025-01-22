@@ -479,6 +479,27 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
+  // Add ASD awareness instruction as additional context
+  const asdAwarenessInstruction = `
+[追加コミュニケーション配慮事項]
+• ユーザーの内部思考と実際の発言の区別が曖昧な場合があります
+• 部分的な発言で全体を説明したと考える場合があります
+• 文脈の解釈や適用に独特の特徴がある場合があります
+• メッセージの重要な部分が無意識に省略される可能性があります
+
+[確認のポイント]
+1. 発言の背景にある文脈を丁寧に確認
+2. 「〜についてお話しされましたか？」と具体的に確認
+3. 理解した内容を明確に言語化して確認
+4. 必要に応じて詳細な説明を優しく依頼
+
+この特性は自然な認知プロセスの結果であり、意図的なものではありません。
+`;
+
+  // Simply append the new instruction to existing system prompt
+  let finalSystemPrompt = `${systemPrompt}\n\n${asdAwarenessInstruction}`;
+  console.log('🧠 Added communication awareness instruction');
+
   if (userMessage.includes('天気') || userMessage.includes('スポーツ') || userMessage.includes('試合')) {
     try {
       console.log('Using Perplexity for weather/sports query');
@@ -526,7 +547,7 @@ ${new Date().toISOString().split('T')[0]}
     }
   }
 
-  let finalSystemPrompt = perplexityContext || systemPrompt;
+  let finalSystemPrompt = perplexityContext || finalSystemPrompt;
   console.log('📤 Final System Prompt Length:', finalSystemPrompt.length);
   console.log('📤 Final System Prompt Preview:', finalSystemPrompt.substring(0, 200) + '...');
 
