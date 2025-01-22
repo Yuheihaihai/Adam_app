@@ -20,9 +20,7 @@ const client = new line.Client(config);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const OpenAI = require('openai');
-
-const perplexity = new OpenAI({
+const perplexityAI = new OpenAI({
   apiKey: process.env.PERPLEXITY_API_KEY,
   baseURL: 'https://api.perplexity.ai'
 });
@@ -502,7 +500,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId) {
       history = await fetchUserHistory(userId, 200);
       
       console.log('Fetching Perplexity job market data...');
-      const response = await perplexity.chat.completions.create({
+      const response = await perplexityAI.chat.completions.create({
         model: 'mistral-7b-instruct',
         messages: [{
           role: 'user',
@@ -527,7 +525,6 @@ ${marketData}`;
       }
     } catch (err) {
       console.error('Career analysis preparation failed:', err);
-      // Fallback to regular career counseling without market data
       systemPrompt = SYSTEM_PROMPT_CAREER;
     }
   }
