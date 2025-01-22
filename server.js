@@ -37,6 +37,7 @@ console.log('Environment check:', {
   claudeKey: !!process.env.ANTHROPIC_API_KEY,
   airtableToken: !!process.env.AIRTABLE_API_KEY,
   airtableBase: !!process.env.AIRTABLE_BASE_ID,
+  perplexityKey: !!process.env.PERPLEXITY_API_KEY
 });
 
 // 2) Setup Express app
@@ -65,6 +66,10 @@ console.log('Airtable Configuration Check:', {
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
 const INTERACTIONS_TABLE = 'ConversationHistory';
+
+// Add Perplexity initialization
+const PerplexitySearch = require('./perplexitySearch');
+const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
 
 // 6) System prompts (default)
 const SYSTEM_PROMPT_GENERAL = `
@@ -538,9 +543,28 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
+  // Handle test queries (weather/sports)
+  if (userMessage.includes('天気') || userMessage.includes('スポーツ')) {
+    return await perplexity.handleAllowedQuery(userMessage);
+  }
+
+  // Enhance knowledge if needed
+  let enhancedContext = null;
+  try {
+    enhancedContext = await perplexity.enhanceKnowledge(history, userMessage);
+  } catch (err) {
+    console.error('Knowledge enhancement failed:', err);
+    // Continue without enhancement
+  }
+
+  // Add enhanced context to system prompt if available
+  let finalSystemPrompt = systemPrompt;
+  if (enhancedContext) {
+    finalSystemPrompt += `\n\n参考情報：${enhancedContext}`;
+  }
+
   // Switch to "o1-preview..." if deeper request
   if (
-    lowered.includes('a request for a deeper exploration of the thoughts ai has') ||
     lowered.includes('deeper') ||
     lowered.includes('さらにわか') ||
     lowered.includes('もっと深')
@@ -551,7 +575,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   console.log(`Using model: ${selectedModel}`);
 
   const finalSystemPrompt = applyAdditionalInstructions(
-    systemPrompt,
+    finalSystemPrompt,
     mode,
     history,
     userMessage
