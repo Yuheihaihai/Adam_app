@@ -479,6 +479,32 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
+  // Add career planning keywords (keeping existing career keywords)
+  const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界'];
+  const careerPlanningKeywords = [
+    'キャリアプラン', 'キャリア設計', '将来設計', 'キャリア相談',
+    'キャリアパス', '今後のキャリア', 'キャリア分析', '職業選択',
+    'キャリア形成', '将来の仕事', 'キャリアチェンジ', '転職プラン'
+  ];
+
+  // Add job trends analysis (keeping existing checks)
+  let perplexityContext = null;
+  if (mode === 'career' || 
+      careerKeywords.some(keyword => userMessage.includes(keyword)) ||
+      careerPlanningKeywords.some(keyword => userMessage.includes(keyword))) {
+    try {
+      console.log('Career-related query detected, fetching job trends...');
+      const jobTrends = await perplexity.getJobTrends();
+      
+      if (jobTrends) {
+        console.log('Received job trends from Perplexity');
+        perplexityContext = `${jobTrends}`;
+      }
+    } catch (err) {
+      console.error('Job trends fetch failed:', err.message);
+    }
+  }
+
   // Add ASD awareness instruction as additional context
   const asdAwarenessInstruction = `
 [追加コミュニケーション配慮事項]
@@ -506,44 +532,6 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
       return await perplexity.handleAllowedQuery(userMessage);
     } catch (err) {
       console.error('Perplexity error, falling back to OpenAI:', err);
-    }
-  }
-
-  let perplexityContext = null;
-  const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界'];
-  if (mode === 'career' || careerKeywords.some(keyword => userMessage.includes(keyword))) {
-    try {
-      console.log('🔍 Career-related query detected:', userMessage);
-      const jobTrends = await perplexity.getJobTrends();
-      
-      if (jobTrends) {
-        console.log('📊 Perplexity Data Received:', jobTrends.substring(0, 100) + '...');
-        perplexityContext = `
-あなたは最新の求人市場データに基づいてアドバイスを提供するキャリアカウンセラーです。
-
-[市場の現状]
-${jobTrends}
-
-[アドバイス方針]
-• 必ず上記の市場データを引用してください
-• 「現在の市場では〜」という形で言及してください
-• 具体的な業界の求人動向を示してください
-• データに基づいた理由付けを行ってください
-
-[回答構造]
-1. 現在の市場概況
-2. 特に需要の高い職種・業界
-3. 具体的なキャリア提案
-4. 必要なスキルと準備
-
-[データ基準日]
-${new Date().toISOString().split('T')[0]}
-`;
-        console.log('📝 Enhanced Context Created:', perplexityContext.substring(0, 100) + '...');
-      }
-    } catch (err) {
-      console.error('❌ Job trends fetch failed:', err.message);
-      console.log('Continuing with base system prompt');
     }
   }
 
