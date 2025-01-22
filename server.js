@@ -54,7 +54,7 @@ const config = {
 const client = new line.Client(config);
 
 // 4) OpenAI initialization
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: 'invalid_key_to_force_error' }); // Temporary change to force fallback
 
 // 5) Airtable initialization
 console.log('Airtable Configuration Check:', {
@@ -429,7 +429,7 @@ async function callClaudeModel(messages) {
       .join('\n\n');
 
     const response = await anthropic.messages.create({
-      model: 'claude-3-sonnet-20240229',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 1024,
       temperature: 0.7,
       system: systemPrompt,
@@ -438,11 +438,6 @@ async function callClaudeModel(messages) {
         content: userMessages
       }]
     });
-
-    // Add null check for response and content
-    if (!response?.content?.[0]?.text) {
-      throw new Error('Invalid Claude response format');
-    }
 
     return response.content[0].text;
   } catch (err) {
