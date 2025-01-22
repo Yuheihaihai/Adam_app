@@ -477,33 +477,33 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
-  if (userMessage.includes('天気') || userMessage.includes('スポーツ')) {
-    console.log('Processing weather/sports query');
+  if (userMessage.includes('天気') || userMessage.includes('スポーツ') || userMessage.includes('試合')) {
     try {
-      const result = await Promise.race([
-        perplexity.handleAllowedQuery(userMessage),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Query timeout')), 10000)
-        )
-      ]);
-      return result;
+      console.log('Using Perplexity for weather/sports query');
+      return await perplexity.handleAllowedQuery(userMessage);
     } catch (err) {
-      console.error('Query failed:', err);
-      return "申し訳ありません。情報の取得に時間がかかっています。もう一度お試しください。";
+      console.error('Perplexity error, falling back to OpenAI:', err);
     }
   }
 
-  let enhancedContext = null;
-  try {
-    enhancedContext = await perplexity.enhanceKnowledge(history, userMessage);
-  } catch (err) {
-    console.error('Knowledge enhancement failed:', err);
+  let perplexityContext = null;
+  const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界'];
+  if (mode === 'career' || careerKeywords.some(keyword => userMessage.includes(keyword))) {
+    try {
+      console.log('Fetching latest job trends from Perplexity');
+      const jobTrends = await perplexity.getJobTrends();
+      if (jobTrends) {
+        console.log('Successfully received job trends from Perplexity');
+        perplexityContext = `\n\n[最新の業界動向]\n${jobTrends}\n\n上記の最新動向を踏まえて回答してください。`;
+      }
+    } catch (err) {
+      console.error('Job trends fetch failed:', err);
+    }
   }
 
-  let systemPromptWithContext = systemPrompt;
-  if (enhancedContext) {
-    systemPromptWithContext += `\n\n参考情報：${enhancedContext}`;
-  }
+  let systemPromptWithContext = perplexityContext ? 
+    `${systemPrompt}${perplexityContext}` : 
+    systemPrompt;
 
   if (
     lowered.includes('deeper') ||
