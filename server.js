@@ -543,9 +543,17 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
-  // Handle test queries (weather/sports)
-  if (userMessage.includes('天気') || userMessage.includes('スポーツ')) {
-    return await perplexity.handleAllowedQuery(userMessage);
+  // Handle weather/sports with Perplexity
+  if (userMessage.includes('天気') || 
+      userMessage.includes('スポーツ') || 
+      userMessage.includes('試合')) {
+    try {
+      console.log('Using Perplexity for weather/sports query');
+      return await perplexity.handleAllowedQuery(userMessage);
+    } catch (err) {
+      console.error('Perplexity error, falling back to OpenAI:', err);
+      // Continue with normal OpenAI processing if Perplexity fails
+    }
   }
 
   // Enhance knowledge if needed
