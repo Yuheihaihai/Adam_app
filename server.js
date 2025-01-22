@@ -490,20 +490,38 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界'];
   if (mode === 'career' || careerKeywords.some(keyword => userMessage.includes(keyword))) {
     try {
-      console.log('Fetching latest job trends from Perplexity');
-      const jobTrends = await perplexity.getJobTrends();
+      console.log('Career-related query detected, fetching job trends...');
+      const jobTrendsPromise = perplexity.getJobTrends();
+      
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Perplexity timeout')), 15000)
+      );
+      
+      const jobTrends = await Promise.race([jobTrendsPromise, timeoutPromise]);
+      
       if (jobTrends) {
-        console.log('Successfully received job trends from Perplexity');
-        perplexityContext = `\n\n[最新の業界動向]\n${jobTrends}\n\n上記の最新動向を踏まえて回答してください。`;
+        console.log('Received job trends from Perplexity:', jobTrends.substring(0, 100) + '...');
+        perplexityContext = `
+[最新の業界動向と求人トレンド]
+${jobTrends}
+
+[分析指示]
+1. 上記の最新動向を考慮して回答を作成してください
+2. 特に新しい職種や成長分野に注目してください
+3. スキルニーズの変化も含めてください
+`;
       }
     } catch (err) {
-      console.error('Job trends fetch failed:', err);
+      console.error('Job trends fetch failed:', err.message);
+      console.log('Continuing with base system prompt');
     }
   }
 
-  let systemPromptWithContext = perplexityContext ? 
-    `${systemPrompt}${perplexityContext}` : 
-    systemPrompt;
+  let finalSystemPrompt = systemPrompt;
+  if (perplexityContext) {
+    finalSystemPrompt = `${systemPrompt}\n\n${perplexityContext}`;
+    console.log('Enhanced system prompt with job trends data');
+  }
 
   if (
     lowered.includes('deeper') ||
@@ -513,8 +531,11 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     selectedModel = 'o1-preview-2024-09-12';
   }
 
-  const finalSystemPrompt = applyAdditionalInstructions(
-    systemPromptWithContext,
+  console.log(`Using model: ${selectedModel}`);
+  console.log('System prompt length:', finalSystemPrompt.length);
+
+  const finalPrompt = applyAdditionalInstructions(
+    finalSystemPrompt,
     mode,
     history,
     userMessage
@@ -529,7 +550,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
 
   if (selectedModel === 'o1-preview-2024-09-12') {
     gptOptions.temperature = 1;
-    const systemPrefix = `[System Inst]: ${finalSystemPrompt}\n---\n`;
+    const systemPrefix = `[System Inst]: ${finalPrompt}\n---\n`;
     messages.push({
       role: 'user',
       content: systemPrefix + ' ' + userMessage,
@@ -541,7 +562,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
       });
     });
   } else {
-    messages.push({ role: 'system', content: finalSystemPrompt });
+    messages.push({ role: 'system', content: finalPrompt });
     messages.push(
       ...history.map((item) => ({
         role: item.role,
