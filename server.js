@@ -93,7 +93,7 @@ const SYSTEM_PROMPT_CHARACTERISTICS = `
 - 断定的な診断は避ける
 `;
 
-const SYSTEM_PROMPT_CAREER = `
+const SYSTEM_PROMPT_CAREER_BASE = `
 あなたは「Adam」というキャリアカウンセラーです。
 ユーザーの過去ログ(最大200件)を分析し、下記の観点に則って希望職や興味を踏まえ広い選択肢を提案してください。
 
@@ -272,7 +272,7 @@ function getSystemPromptForMode(mode) {
     case 'characteristics':
       return SYSTEM_PROMPT_CHARACTERISTICS;
     case 'career':
-      return SYSTEM_PROMPT_CAREER;
+      return SYSTEM_PROMPT_CAREER_BASE;
     case 'memoryRecall':
       return SYSTEM_PROMPT_MEMORY_RECALL;
     case 'humanRelationship':
@@ -493,13 +493,13 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   if (mode === 'career' || careerAssessmentKeywords.some(keyword => userMessage.includes(keyword))) {
     try {
       console.log('Career assessment requested, fetching current job trends...');
-      const perplexityResult = await perplexity.getJobTrends();
+      const perplexityData = await perplexity.getJobTrends();
       
-      if (perplexityResult) {
+      if (perplexityData) {
         console.log('Received current job trends from Perplexity');
         perplexityContext = `
 [現在の求人市場データ]
-${perplexityResult}
+${perplexityData}
 `;
       }
     } catch (err) {
@@ -509,12 +509,9 @@ ${perplexityResult}
   }
 
   // Add enhanced context to existing system prompt
-  const SYSTEM_PROMPT_CAREER_WITH_MARKET = `${SYSTEM_PROMPT_CAREER}
-
-${perplexityContext}`;
-
-  // Use the enhanced prompt
-  const finalSystemPrompt = mode === 'career' ? SYSTEM_PROMPT_CAREER_WITH_MARKET : systemPrompt;
+  const finalSystemPrompt = mode === 'career' ? 
+    `${SYSTEM_PROMPT_CAREER_BASE}${perplexityContext}` : 
+    systemPrompt;
 
   // Add ASD awareness instruction as additional context
   const asdAwarenessInstruction = `
