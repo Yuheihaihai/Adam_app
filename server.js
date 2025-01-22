@@ -479,31 +479,42 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
-  // Add career planning keywords (keeping existing career keywords)
-  const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職'];
-  const careerPlanningKeywords = [
-    'キャリアプラン', 'キャリア設計', '将来設計', 'キャリア相談',
-    'キャリアパス', '今後のキャリア', 'キャリア分析', '職業選択',
-    'キャリア形成', '将来の仕事', 'キャリアチェンジ', '転職プラン', '適職'
+  // Add career assessment keywords
+  const careerAssessmentKeywords = [
+    '適職診断', '適職を教えて', '適職分析', '適職アドバイス',
+    'どんな仕事が向いてる', '向いている仕事', '向いてる職業',
+    'キャリア診断', '職業診断', '職業適性'
   ];
 
-  // Add job trends analysis (keeping existing checks)
+  // Add job trends analysis
   let perplexityContext = null;
-  if (mode === 'career' || 
-      careerKeywords.some(keyword => userMessage.includes(keyword)) ||
-      careerPlanningKeywords.some(keyword => userMessage.includes(keyword))) {
+  if (mode === 'career' || careerAssessmentKeywords.some(keyword => userMessage.includes(keyword))) {
     try {
-      console.log('Career-related query detected, fetching job trends...');
+      console.log('Career assessment requested, fetching current job trends...');
       const jobTrends = await perplexity.getJobTrends();
       
       if (jobTrends) {
-        console.log('Received job trends from Perplexity');
-        perplexityContext = `${jobTrends}`;
+        console.log('Received current job trends from Perplexity');
+        perplexityContext = `
+[現在の求人市場動向]
+${jobTrends}
+
+[市場動向を踏まえた分析指示]
+• 上記の最新市場データを考慮して適職を提案
+• 現在の求人動向と個人特性のマッチング
+• 成長産業・職種の考慮
+• 必要なスキル要件の明示
+`;
       }
     } catch (err) {
       console.error('Job trends fetch failed:', err.message);
     }
   }
+
+  // Add enhanced context to existing system prompt
+  let finalSystemPrompt = perplexityContext ? 
+    `${SYSTEM_PROMPT_CAREER}\n\n${perplexityContext}` : 
+    SYSTEM_PROMPT_CAREER;
 
   // Add ASD awareness instruction as additional context
   const asdAwarenessInstruction = `
@@ -523,7 +534,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
 `;
 
   // Simply append the new instruction to existing system prompt
-  let finalSystemPrompt = `${systemPrompt}\n\n${asdAwarenessInstruction}`;
+  finalSystemPrompt += `\n\n${asdAwarenessInstruction}`;
   console.log('🧠 Added communication awareness instruction');
 
   if (userMessage.includes('天気') || userMessage.includes('スポーツ') || userMessage.includes('試合')) {
