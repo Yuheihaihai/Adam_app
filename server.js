@@ -5,10 +5,12 @@ const line = require('@line/bot-sdk');
 const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
+const timeout = require('connect-timeout');
 
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
+app.use(timeout('60s'));
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
@@ -656,3 +658,11 @@ setInterval(() => {
     }
   }
 }, RATE_LIMIT_CLEANUP_INTERVAL);
+
+app.use((err, req, res, next) => {
+  if (err.timeout) {
+    console.error('Request timeout:', err);
+    res.status(200).json({});
+  }
+  next();
+});
