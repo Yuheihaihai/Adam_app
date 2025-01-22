@@ -543,10 +543,9 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
-  // Add Perplexity for weather/sports
-  if (userMessage.includes('天気') || 
-      userMessage.includes('スポーツ') || 
-      userMessage.includes('試合')) {
+  // Add Perplexity for weather/sports/jobs
+  let perplexityContext = null;
+  if (userMessage.includes('天気') || userMessage.includes('スポーツ') || userMessage.includes('試合')) {
     try {
       console.log('Using Perplexity for weather/sports query');
       return await perplexity.handleAllowedQuery(userMessage);
@@ -555,42 +554,20 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     }
   }
 
-  // Add interest analysis and knowledge enhancement
-  let enhancedContext = null;
-  if (history.length > 0) {
+  // Add job trends analysis
+  if (mode === 'career' || userMessage.includes('仕事') || userMessage.includes('キャリア')) {
     try {
-      const interestAnalysis = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'system',
-            content: `ユーザーの会話履歴から興味・関心のある話題を抽出してください。
-            出力は「topic:reason」の形式で、複数の場合は改行で区切ってください。`
-          },
-          ...history.map(h => ({
-            role: h.role,
-            content: h.content
-          }))
-        ],
-        temperature: 0.3,
-        max_tokens: 100
-      });
-      
-      if (interestAnalysis.choices[0]?.message?.content) {
-        enhancedContext = await perplexity.enhanceKnowledge(
-          history, 
-          interestAnalysis.choices[0].message.content
-        );
-      }
+      console.log('Fetching latest job trends from Perplexity');
+      perplexityContext = await perplexity.getJobTrends();
     } catch (err) {
-      console.error('Knowledge enhancement failed:', err);
+      console.error('Job trends fetch failed:', err);
     }
   }
 
-  // Add enhanced context to existing system prompt if available
+  // Keep all existing code and add enhanced context
   let systemPromptWithContext = systemPrompt;
-  if (enhancedContext) {
-    systemPromptWithContext += `\n\n参考情報：${enhancedContext}`;
+  if (perplexityContext) {
+    systemPromptWithContext += `\n\n最新の業界動向：${perplexityContext}`;
   }
 
   // Switch to "o1-preview..." if deeper request

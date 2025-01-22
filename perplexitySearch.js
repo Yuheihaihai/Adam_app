@@ -124,6 +124,29 @@ class PerplexitySearch {
            query.includes('スポーツ') ||
            query.includes('sports');
   }
+
+  async getJobTrends() {
+    try {
+      console.log('Fetching job market trends');
+      const response = await this.client.chat.completions.create({
+        model: "sonar",
+        messages: [{
+          role: 'system',
+          content: '最新の求人動向、業界トレンド、必要なスキル、新しい職種について簡潔に説明してください。'
+        }, {
+          role: 'user',
+          content: '現在の日本の求人市場と業界トレンドを教えてください。'
+        }],
+        max_tokens: 256,
+        temperature: 0.7
+      });
+
+      return response.choices[0]?.message?.content;
+    } catch (error) {
+      console.error('Perplexity job trends error:', error);
+      return null;
+    }
+  }
 }
 
 module.exports = PerplexitySearch; 
