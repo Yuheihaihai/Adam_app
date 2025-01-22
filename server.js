@@ -20,10 +20,8 @@ const client = new line.Client(config);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const perplexityAI = new OpenAI({
-  apiKey: process.env.PERPLEXITY_API_KEY,
-  baseURL: 'https://api.perplexity.ai'
-});
+const PerplexitySearch = require('./perplexitySearch');
+const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
 
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
@@ -96,64 +94,32 @@ const SYSTEM_PROMPT_CHARACTERISTICS = `
 `;
 
 const SYSTEM_PROMPT_CAREER = `
-あなたは「Adam」というキャリアカウンセラーです。
-ユーザーの過去ログ(最大200件)を分析し、下記の観点に則って希望職や興味を踏まえ広い選択肢を提案してください。
+あなたは「Adam」という発達障害専門のキャリアカウンセラーです。
+ユーザーの過去ログと最新の求人市場データを統合し、以下の観点から分析してください：
 
 [分析の観点]
-1. コミュニケーションパターン
-   - 言葉遣いの特徴
-   - 表現の一貫性
-   - 感情表現の方法
+1. ユーザーの特性
+   - コミュニケーションパターン
+   - 思考プロセス
+   - 興味・関心分野
 
-2. 思考プロセス
-   - 論理的思考の特徴
-   - 問題解決アプローチ
-   - 興味・関心の対象
+2. 市場適合性
+   - 現在の求人動向との整合
+   - 成長が期待される分野
+   - 必要なスキルと準備
 
-3. 社会的相互作用
-   - 対人関係での傾向
-   - ストレス対処方法
-   - コミュニケーション上の強み/課題
-
-4. 感情と自己認識
-   - 感情表現の特徴
-   - 自己理解の程度
-   - モチベーションの源泉
-
-[分析プロセス]
-1. 目標の明確化
-   - 分析における目的を定義
-   - 対象となる行動や特性の範囲を明確化
-   - 分析の成功基準を設定
-
-2. 問題の分解
-   - 観察された行動を要素ごとに分解
-   - 各要素の重要度を評価
-   - 短期・長期の影響を分類
-
-3. 情報の選別
-   - 過去の会話から重要なパターンを抽出
-   - 偶発的な要素を除外
-   - 一貫した行動傾向に注目
-
-4. 推論と検証
-   - 行動パターンから仮説を構築
-   - 複数の会話履歴での検証
-   - 必要に応じて仮説を修正
-
-5. 統合と最終判断
-   - 分析結果を下記の求人市場データを参考にした上で統合し、一貫性のある特性像を提示
-   - 具体的な強みと課題を特定
-   - 改善のための具体的な提案を含める
+3. キャリア提案
+   - 具体的な職種
+   - 準備すべきスキル
+   - 段階的なステップ
 
 [出力形式]
--適職を理由と共に短く簡潔にまとめてください。（必ず日本語で100文字以内）
--必ず「専門家にも相談ください」と言及してください。
--提案内容には下記を必ず全て例外なく明記してください。（必ず日本語で100文字以内。）
-＜下記＞
-「ユーザーに向いている職場環境と具体的な選び方」
-「ユーザーにとって好ましい/避けるべき社内カルチャーと具体的な選び方」
-「ユーザーにとって好ましい/避けるべき人間関係と具体的な選び方」
+- 日本語で簡潔に（200文字以内）
+- 市場データの引用を含める
+- 具体的な行動提案を示す
+- 専門家への相談も推奨
+
+※医療的な診断は避け、必要に応じて専門家への相談を促してください。
 `;
 
 const SYSTEM_PROMPT_MEMORY_RECALL = `
@@ -238,14 +204,6 @@ function checkRateLimit(userId) {
 function determineModeAndLimit(userMessage) {
   const lcMsg = userMessage.toLowerCase();
   if (
-    lcMsg.includes('適職') ||
-    lcMsg.includes('キャリア') ||
-    lcMsg.includes('仕事') ||
-    lcMsg.includes('職業')
-  ) {
-    return { mode: 'career', limit: 200 };
-  }
-  if (
     lcMsg.includes('特性') ||
     lcMsg.includes('分析') ||
     lcMsg.includes('思考') ||
@@ -268,6 +226,9 @@ function determineModeAndLimit(userMessage) {
     lcMsg.includes('パートナー')
   ) {
     return { mode: 'humanRelationship', limit: 200 };
+  }
+  if (lcMsg.includes('キャリア')) {
+    return { mode: 'career', limit: 200 };
   }
   return { mode: 'general', limit: 10 };
 }
@@ -482,74 +443,58 @@ function validateMessageLength(message) {
   return message;
 }
 
-async function processWithAI(systemPrompt, userMessage, history, mode, userId) {
+async function processWithAI(systemPrompt, userMessage, history, mode) {
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
-  // Career assessment keywords
-  const careerAssessmentKeywords = [
-    '適職診断', '適職を教えて', '適職分析', '適職アドバイス',
-    'どんな仕事が向いてる', '向いている仕事', '向いてる職業',
-    'キャリア診断', '職業診断', '職業適性'
-  ];
-
-  // For career counseling mode
-  if (mode === 'career' || careerAssessmentKeywords.some(keyword => lowered.includes(keyword))) {
+  if (userMessage.includes('天気') || userMessage.includes('スポーツ') || userMessage.includes('試合')) {
     try {
-      console.log('Career counseling mode activated with 200 message history...');
-      history = await fetchUserHistory(userId, 200);
-      
-      console.log('Fetching Perplexity job market data...');
-      const response = await perplexityAI.chat.completions.create({
-        model: 'sonar',
-        messages: [{
-          role: 'user',
-          content: `
-最新の求人市場動向について：
-1. 成長している職種
-2. 必要とされるスキル
-3. 今後の展望
-を具体的に教えてください。`
-        }],
-        max_tokens: 1000
-      });
-
-      const marketData = response.choices[0].message.content;
-      
-      if (marketData) {
-        console.log('Integrating market data with career analysis...');
-        systemPrompt = `${SYSTEM_PROMPT_CAREER}
-
-[現在の求人市場の特徴と傾向]
-${marketData}`;
-      }
+      console.log('Using Perplexity for weather/sports query');
+      return await perplexity.handleAllowedQuery(userMessage);
     } catch (err) {
-      console.error('Career analysis preparation failed:', err);
-      systemPrompt = SYSTEM_PROMPT_CAREER;
+      console.error('Perplexity error, falling back to OpenAI:', err);
     }
   }
 
-  // Add ASD awareness instruction as additional context
-  const asdAwarenessInstruction = `
-[追加コミュニケーション配慮事項]
-• ユーザーの内部思考と実際の発言の区別が曖昧な場合があります
-• 部分的な発言で全体を説明したと考える場合があります
-• 文脈の解釈や適用に独特の特徴がある場合があります
-• メッセージの重要な部分が無意識に省略される可能性があります
+  let perplexityContext = null;
+  const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界'];
+  if (mode === 'career' || careerKeywords.some(keyword => userMessage.includes(keyword))) {
+    try {
+      console.log('Career-related query detected, fetching job trends...');
+      const jobTrends = await perplexity.getJobTrends();
+      
+      if (jobTrends) {
+        console.log('Received job trends from Perplexity:', jobTrends.substring(0, 100) + '...');
+        perplexityContext = `
+あなたは最新の求人市場データに基づいてアドバイスを提供するキャリアカウンセラーです。
 
-[確認のポイント]
-1. 発言の背景にある文脈を丁寧に確認
-2. 「〜についてお話しされましたか？」と具体的に確認
-3. 理解した内容を明確に言語化して確認
-4. 必要に応じて詳細な説明を優しく依頼
+[市場の現状]
+${jobTrends}
 
-この特性は自然な認知プロセスの結果であり、意図的なものではありません。
+[アドバイス方針]
+• 必ず上記の市場データを引用してください
+• 「現在の市場では〜」という形で言及してください
+• 具体的な業界の求人動向を示してください
+• データに基づいた理由付けを行ってください
+
+[回答構造]
+1. 現在の市場概況
+2. 特に需要の高い職種・業界
+3. 具体的なキャリア提案
+4. 必要なスキルと準備
+
+[データ基準日]
+${new Date().toISOString().split('T')[0]}
 `;
+      }
+    } catch (err) {
+      console.error('Job trends fetch failed:', err.message);
+      console.log('Continuing with base system prompt');
+    }
+  }
 
-  systemPrompt = systemPrompt + asdAwarenessInstruction;
-
-  console.log('📤 Final System Prompt Length:', systemPrompt.length);
-  console.log('📤 Final System Prompt Preview:', systemPrompt.substring(0, 200) + '...');
+  let finalSystemPrompt = perplexityContext || systemPrompt;
+  console.log('Using system prompt with length:', finalSystemPrompt.length);
 
   if (
     lowered.includes('deeper') ||
@@ -559,17 +504,14 @@ ${marketData}`;
     selectedModel = 'o1-preview-2024-09-12';
   }
 
-  console.log(`🤖 Using model: ${selectedModel}`);
+  console.log(`Using model: ${selectedModel}`);
 
   const finalPrompt = applyAdditionalInstructions(
-    systemPrompt,
+    finalSystemPrompt,
     mode,
     history,
     userMessage
   );
-
-  console.log('🚀 Sending to OpenAI - Final Prompt Preview:', 
-    finalPrompt.substring(0, 200) + '...');
 
   let messages = [];
   let gptOptions = {
@@ -639,9 +581,10 @@ async function handleEvent(event) {
   console.log(`Determined mode=${mode}, limit=${limit}`);
 
   const history = await fetchUserHistory(userId, limit);
+
   const systemPrompt = getSystemPromptForMode(mode);
 
-  const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId);
+  const aiReply = await processWithAI(systemPrompt, userMessage, history, mode);
 
   await storeInteraction(userId, 'assistant', aiReply);
 
