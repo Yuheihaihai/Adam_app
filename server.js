@@ -513,6 +513,9 @@ ${perplexityResult}
 
 ${perplexityContext}`;
 
+  // Use the enhanced prompt
+  const finalSystemPrompt = mode === 'career' ? SYSTEM_PROMPT_CAREER_WITH_MARKET : systemPrompt;
+
   // Add ASD awareness instruction as additional context
   const asdAwarenessInstruction = `
 [追加コミュニケーション配慮事項]
@@ -531,7 +534,7 @@ ${perplexityContext}`;
 `;
 
   // Simply append the new instruction to existing system prompt
-  const finalSystemPrompt = perplexityContext || SYSTEM_PROMPT_CAREER_WITH_MARKET;
+  const finalSystemPromptWithInstruction = perplexityContext || finalSystemPrompt;
   console.log('🧠 Added communication awareness instruction');
 
   if (userMessage.includes('天気') || userMessage.includes('スポーツ') || userMessage.includes('試合')) {
@@ -543,9 +546,9 @@ ${perplexityContext}`;
     }
   }
 
-  finalSystemPrompt = perplexityContext || finalSystemPrompt;
-  console.log('📤 Final System Prompt Length:', finalSystemPrompt.length);
-  console.log('📤 Final System Prompt Preview:', finalSystemPrompt.substring(0, 200) + '...');
+  finalSystemPromptWithInstruction = perplexityContext || finalSystemPromptWithInstruction;
+  console.log('📤 Final System Prompt Length:', finalSystemPromptWithInstruction.length);
+  console.log('📤 Final System Prompt Preview:', finalSystemPromptWithInstruction.substring(0, 200) + '...');
 
   if (
     lowered.includes('deeper') ||
@@ -558,7 +561,7 @@ ${perplexityContext}`;
   console.log(`🤖 Using model: ${selectedModel}`);
 
   const finalPrompt = applyAdditionalInstructions(
-    finalSystemPrompt,
+    finalSystemPromptWithInstruction,
     mode,
     history,
     userMessage
