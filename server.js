@@ -154,7 +154,7 @@ const SYSTEM_PROMPT_CAREER = `
 「ユーザーにとって好ましい/避けるべき人間関係と具体的な選び方」
 
 [求人市場データ]
-${jobTrends}`;
+${perplexityResult}`;
 
 const SYSTEM_PROMPT_MEMORY_RECALL = `
 あなたは「Adam」、ユーザーの過去ログ(最大200件)が記憶。
