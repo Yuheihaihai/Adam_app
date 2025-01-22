@@ -501,7 +501,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId) {
       
       console.log('Fetching Perplexity job market data...');
       const response = await perplexityAI.chat.completions.create({
-        model: 'mistral-7b-instruct',
+        model: 'sonar',
         messages: [{
           role: 'user',
           content: `
