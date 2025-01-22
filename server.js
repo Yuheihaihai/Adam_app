@@ -492,11 +492,11 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界'];
   if (mode === 'career' || careerKeywords.some(keyword => userMessage.includes(keyword))) {
     try {
-      console.log('Career-related query detected, fetching job trends...');
+      console.log('🔍 Career-related query detected:', userMessage);
       const jobTrends = await perplexity.getJobTrends();
       
       if (jobTrends) {
-        console.log('Received job trends from Perplexity:', jobTrends.substring(0, 100) + '...');
+        console.log('📊 Perplexity Data Received:', jobTrends.substring(0, 100) + '...');
         perplexityContext = `
 あなたは最新の求人市場データに基づいてアドバイスを提供するキャリアカウンセラーです。
 
@@ -518,15 +518,17 @@ ${jobTrends}
 [データ基準日]
 ${new Date().toISOString().split('T')[0]}
 `;
+        console.log('📝 Enhanced Context Created:', perplexityContext.substring(0, 100) + '...');
       }
     } catch (err) {
-      console.error('Job trends fetch failed:', err.message);
+      console.error('❌ Job trends fetch failed:', err.message);
       console.log('Continuing with base system prompt');
     }
   }
 
   let finalSystemPrompt = perplexityContext || systemPrompt;
-  console.log('Using system prompt with length:', finalSystemPrompt.length);
+  console.log('📤 Final System Prompt Length:', finalSystemPrompt.length);
+  console.log('📤 Final System Prompt Preview:', finalSystemPrompt.substring(0, 200) + '...');
 
   if (
     lowered.includes('deeper') ||
@@ -536,7 +538,7 @@ ${new Date().toISOString().split('T')[0]}
     selectedModel = 'o1-preview-2024-09-12';
   }
 
-  console.log(`Using model: ${selectedModel}`);
+  console.log(`🤖 Using model: ${selectedModel}`);
 
   const finalPrompt = applyAdditionalInstructions(
     finalSystemPrompt,
@@ -544,6 +546,9 @@ ${new Date().toISOString().split('T')[0]}
     history,
     userMessage
   );
+
+  console.log('🚀 Sending to OpenAI - Final Prompt Preview:', 
+    finalPrompt.substring(0, 200) + '...');
 
   let messages = [];
   let gptOptions = {
