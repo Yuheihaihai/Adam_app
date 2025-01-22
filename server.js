@@ -20,8 +20,12 @@ const client = new line.Client(config);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const PerplexitySearch = require('./perplexitySearch');
-const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
+const OpenAI = require('openai');
+
+const perplexity = new OpenAI({
+  apiKey: process.env.PERPLEXITY_API_KEY,
+  baseURL: 'https://api.perplexity.ai'
+});
 
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
@@ -498,30 +502,28 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId) {
       history = await fetchUserHistory(userId, 200);
       
       console.log('Fetching Perplexity job market data...');
-      const perplexityQuery = `
-        最新の求人市場動向について：
-        1. 成長している職種
-        2. 必要とされるスキル
-        3. 今後の展望
-        を具体的に教えてください。
-      `;
-      
-      // Use perplexity.query instead of search
-      const marketData = await perplexity.query(perplexityQuery);
+      const response = await perplexity.chat.completions.create({
+        model: 'mistral-7b-instruct',
+        messages: [{
+          role: 'user',
+          content: `
+最新の求人市場動向について：
+1. 成長している職種
+2. 必要とされるスキル
+3. 今後の展望
+を具体的に教えてください。`
+        }],
+        max_tokens: 1000
+      });
+
+      const marketData = response.choices[0].message.content;
       
       if (marketData) {
         console.log('Integrating market data with career analysis...');
         systemPrompt = `${SYSTEM_PROMPT_CAREER}
 
 [現在の求人市場の特徴と傾向]
-${marketData}
-
-[分析指示]
-上記の市場動向データを踏まえた上で、ユーザーの特性分析を行い、以下の点に注目して分析と提案を行ってください：
-1. 現在の市場ニーズとユーザーの特性のマッチング
-2. 成長が見込める職種とユーザーの適性
-3. 市場変化に対するユーザーの強み/課題
-`;
+${marketData}`;
       }
     } catch (err) {
       console.error('Career analysis preparation failed:', err);
