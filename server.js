@@ -554,13 +554,12 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     enhancedContext = await perplexity.enhanceKnowledge(history, userMessage);
   } catch (err) {
     console.error('Knowledge enhancement failed:', err);
-    // Continue without enhancement
   }
 
   // Add enhanced context to system prompt if available
-  let finalSystemPrompt = systemPrompt;
+  let systemPromptWithContext = systemPrompt;
   if (enhancedContext) {
-    finalSystemPrompt += `\n\n参考情報：${enhancedContext}`;
+    systemPromptWithContext += `\n\n参考情報：${enhancedContext}`;
   }
 
   // Switch to "o1-preview..." if deeper request
@@ -575,7 +574,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   console.log(`Using model: ${selectedModel}`);
 
   const finalSystemPrompt = applyAdditionalInstructions(
-    finalSystemPrompt,
+    systemPromptWithContext,
     mode,
     history,
     userMessage
