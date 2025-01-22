@@ -93,7 +93,7 @@ const SYSTEM_PROMPT_CHARACTERISTICS = `
 - 断定的な診断は避ける
 `;
 
-const SYSTEM_PROMPT_CAREER_BASE = `
+const SYSTEM_PROMPT_CAREER = `
 あなたは「Adam」というキャリアカウンセラーです。
 ユーザーの過去ログ(最大200件)を分析し、下記の観点に則って希望職や興味を踏まえ広い選択肢を提案してください。
 
@@ -270,7 +270,7 @@ function getSystemPromptForMode(mode) {
     case 'characteristics':
       return SYSTEM_PROMPT_CHARACTERISTICS;
     case 'career':
-      return SYSTEM_PROMPT_CAREER_BASE;
+      return SYSTEM_PROMPT_CAREER;
     case 'memoryRecall':
       return SYSTEM_PROMPT_MEMORY_RECALL;
     case 'humanRelationship':
@@ -487,31 +487,28 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   ];
 
   // Add job trends analysis
-  let perplexityContext = null;
+  let finalSystemPrompt = systemPrompt;
+  
   if (mode === 'career' || careerAssessmentKeywords.some(keyword => userMessage.includes(keyword))) {
     try {
       console.log('Career assessment requested, fetching current job trends...');
-      const jobTrends = await perplexity.getJobTrends();
+      const response = await perplexity.getJobTrends();
       
-      if (jobTrends) {
+      if (response) {
         console.log('Received current job trends from Perplexity');
-        perplexityContext = `
-[分析時の市場考慮事項]
-${jobTrends}
+        finalSystemPrompt = `${SYSTEM_PROMPT_CAREER}
 
-※上記の市場動向を[分析プロセス]の各ステップで考慮し、
-[出力形式]の要件に厳密に従って回答を作成してください。
+[求人市場データ]
+${response}
 `;
+      } else {
+        finalSystemPrompt = SYSTEM_PROMPT_CAREER;
       }
     } catch (err) {
       console.error('Job trends fetch failed:', err.message);
+      finalSystemPrompt = SYSTEM_PROMPT_CAREER;
     }
   }
-
-  // Add market data while preserving original format
-  let finalSystemPrompt = perplexityContext ? 
-    `${SYSTEM_PROMPT_CAREER}\n\n${perplexityContext}` : 
-    SYSTEM_PROMPT_CAREER;
 
   // Add ASD awareness instruction as additional context
   const asdAwarenessInstruction = `
