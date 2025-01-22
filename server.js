@@ -498,13 +498,16 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId) {
       history = await fetchUserHistory(userId, 200);
       
       console.log('Fetching Perplexity job market data...');
-      const marketData = await perplexity.search(`
+      const perplexityQuery = `
         最新の求人市場動向について：
         1. 成長している職種
         2. 必要とされるスキル
         3. 今後の展望
         を具体的に教えてください。
-      `);
+      `;
+      
+      // Use perplexity.query instead of search
+      const marketData = await perplexity.query(perplexityQuery);
       
       if (marketData) {
         console.log('Integrating market data with career analysis...');
