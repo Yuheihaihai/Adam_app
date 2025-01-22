@@ -494,15 +494,11 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   if (mode === 'career' || careerAssessmentKeywords.some(keyword => userMessage.includes(keyword))) {
     try {
       console.log('Career assessment requested, fetching current job trends...');
-      const perplexityData = await perplexity.getJobTrends();
+      const response = await perplexity.getJobTrends();
       
-      if (perplexityData) {
+      if (response) {
         console.log('Received current job trends from Perplexity');
-        finalSystemPrompt = `${SYSTEM_PROMPT_CAREER_BASE}
-
-[現在の求人市場データ]
-${perplexityData}
-`;
+        finalSystemPrompt = SYSTEM_PROMPT_CAREER_BASE + '\n\n[求人市場データ]\n' + response;
       } else {
         finalSystemPrompt = SYSTEM_PROMPT_CAREER_BASE;
       }
