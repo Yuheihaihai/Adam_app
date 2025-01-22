@@ -236,6 +236,14 @@ function checkRateLimit(userId) {
 function determineModeAndLimit(userMessage) {
   const lcMsg = userMessage.toLowerCase();
   if (
+    lcMsg.includes('適職') ||
+    lcMsg.includes('キャリア') ||
+    lcMsg.includes('仕事') ||
+    lcMsg.includes('職業')
+  ) {
+    return { mode: 'career', limit: 200 };
+  }
+  if (
     lcMsg.includes('特性') ||
     lcMsg.includes('分析') ||
     lcMsg.includes('思考') ||
@@ -258,9 +266,6 @@ function determineModeAndLimit(userMessage) {
     lcMsg.includes('パートナー')
   ) {
     return { mode: 'humanRelationship', limit: 200 };
-  }
-  if (lcMsg.includes('キャリア')) {
-    return { mode: 'career', limit: 200 };
   }
   return { mode: 'general', limit: 10 };
 }
@@ -479,48 +484,26 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
-  // Career assessment keywords
-  const careerAssessmentKeywords = [
-    '適職診断', '適職を教えて', '適職分析', '適職アドバイス',
-    'どんな仕事が向いてる', '向いている仕事', '向いてる職業',
-    'キャリア診断', '職業診断', '職業適性'
-  ];
-
   // For career counseling mode
-  if (mode === 'career' || careerAssessmentKeywords.some(keyword => lowered.includes(keyword))) {
+  if (mode === 'career' || lowered.includes('適職診断') || lowered.includes('キャリア')) {
     try {
-      console.log('Career counseling mode activated...');
-      const marketData = await perplexity.getJobTrends();
+      console.log('Career counseling mode activated with 200 message history...');
+      // Re-fetch with 200 messages if we're in career mode
+      history = await fetchUserHistory(userId, 200);
       
+      const marketData = await perplexity.getJobTrends();
       if (marketData) {
         console.log('Integrating market data with career analysis...');
-        const careerPrompt = `
-${SYSTEM_PROMPT_CAREER}
+        systemPrompt = SYSTEM_PROMPT_CAREER;  // Use career counselor prompt
+        
+        // Add market data to the prompt
+        systemPrompt = `${systemPrompt}
 
 [現在の求人市場の特徴と傾向]
-${marketData}
-
-[分析指示]
-1. 上記の市場動向データを踏まえた上で、ユーザーの特性分析を行ってください
-2. 特に以下の点に注目して分析と提案を行ってください：
-   - 現在の市場ニーズとユーザーの特性のマッチング
-   - 成長が見込める職種とユーザーの適性
-   - 市場変化に対するユーザーの強み/課題
-
-[出力形式]
-上記を踏まえて、以下の内容を必ず含めて回答してください：
-1. 適職提案（市場動向と個人特性を踏まえて）（100文字以内）
-2. 向いている職場環境の選び方（100文字以内）
-3. 好ましい社内カルチャーの選び方（100文字以内）
-4. 好ましい人間関係の選び方（100文字以内）
-5. 「専門家にも相談ください」
-`;
-        systemPrompt = careerPrompt;
+${marketData}`;
       }
     } catch (err) {
-      console.error('Job market data fetch failed:', err);
-      // Fallback to regular career counseling without market data
-      systemPrompt = SYSTEM_PROMPT_CAREER;
+      console.error('Career analysis preparation failed:', err);
     }
   }
 
