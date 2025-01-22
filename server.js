@@ -54,7 +54,7 @@ const config = {
 const client = new line.Client(config);
 
 // 4) OpenAI initialization
-const openai = new OpenAI({ apiKey: 'invalid_key_to_force_error' }); // Temporary change to force fallback
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // 5) Airtable initialization
 console.log('Airtable Configuration Check:', {
