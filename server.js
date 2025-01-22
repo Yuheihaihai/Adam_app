@@ -140,7 +140,7 @@ const SYSTEM_PROMPT_CAREER = `
    - 必要に応じて仮説を修正
 
 5. 統合と最終判断
-   - 分析結果を統合し、一貫性のある特性像を提示
+   - 分析結果を下記の求人市場データを参考にした上で統合し、一貫性のある特性像を提示
    - 具体的な強みと課題を特定
    - 改善のための具体的な提案を含める
 
@@ -152,7 +152,9 @@ const SYSTEM_PROMPT_CAREER = `
 「ユーザーに向いている職場環境と具体的な選び方」
 「ユーザーにとって好ましい/避けるべき社内カルチャーと具体的な選び方」
 「ユーザーにとって好ましい/避けるべき人間関係と具体的な選び方」
-`;
+
+[求人市場データ]
+${jobTrends}`;
 
 const SYSTEM_PROMPT_MEMORY_RECALL = `
 あなたは「Adam」、ユーザーの過去ログ(最大200件)が記憶。
@@ -496,14 +498,8 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
       if (jobTrends) {
         console.log('Received current job trends from Perplexity');
         perplexityContext = `
-[現在の求人市場動向]
+[現在の求人市場データ]
 ${jobTrends}
-
-[市場動向を踏まえた分析指示]
-• 上記の最新市場データを考慮して適職を提案
-• 現在の求人動向と個人特性のマッチング
-• 成長産業・職種の考慮
-• 必要なスキル要件の明示
 `;
       }
     } catch (err) {
@@ -511,7 +507,7 @@ ${jobTrends}
     }
   }
 
-  // Add enhanced context to existing system prompt
+  // Simply append market data to existing system prompt
   let finalSystemPrompt = perplexityContext ? 
     `${SYSTEM_PROMPT_CAREER}\n\n${perplexityContext}` : 
     SYSTEM_PROMPT_CAREER;
