@@ -476,6 +476,7 @@ ${jobTrends}
 上記の市場データを考慮しながら、以下の点について分析してください：
 `;
         systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
+        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
       }
     } catch (err) {
       console.error('Error fetching job trends:', err);
