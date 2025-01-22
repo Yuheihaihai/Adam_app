@@ -258,6 +258,23 @@ const SYSTEM_PROMPT_HUMAN_RELATIONSHIP = `
 日本語200文字以内。共感的かつ建設的に。
 `;
 
+// Add near the top of the file
+const rateLimit = new Map();
+
+// Add before processing messages
+function checkRateLimit(userId) {
+  const now = Date.now();
+  const cooldown = 1000; // 1 second between messages
+  const lastRequest = rateLimit.get(userId) || 0;
+  
+  if (now - lastRequest < cooldown) {
+    return false;
+  }
+  
+  rateLimit.set(userId, now);
+  return true;
+}
+
 // 7) Decide mode & limit from user message
 function determineModeAndLimit(userMessage) {
   const lcMsg = userMessage.toLowerCase();
@@ -422,6 +439,11 @@ async function callClaudeModel(messages) {
       }]
     });
 
+    // Add null check for response and content
+    if (!response?.content?.[0]?.text) {
+      throw new Error('Invalid Claude response format');
+    }
+
     return response.content[0].text;
   } catch (err) {
     console.error('Claude API error:', err);
@@ -440,6 +462,12 @@ async function tryPrimaryThenBackup(gptOptions) {
       return await callClaudeModel(gptOptions.messages);
     } catch (claudeErr) {
       console.error('Claude also failed:', claudeErr);
+      // More specific error messages based on error type
+      if (err.code === 'rate_limit_exceeded' || claudeErr.code === 'rate_limit_exceeded') {
+        return 'アクセスが集中しています。しばらく待ってから試してください。';
+      } else if (err.code === 'context_length_exceeded' || claudeErr.code === 'context_length_exceeded') {
+        return 'メッセージが長すぎます。短く分けて送信してください。';
+      }
       return '申し訳ありません。AIサービスが一時的に利用できません。しばらく経ってからお試しください。';
     }
   }
@@ -501,6 +529,15 @@ ${aiDraft}
   }
 }
 
+// Add before processing with AI
+function validateMessageLength(message) {
+  const MAX_LENGTH = 4000; // Adjust based on model limits
+  if (message.length > MAX_LENGTH) {
+    return message.slice(0, MAX_LENGTH) + '...';
+  }
+  return message;
+}
+
 // 12) Compose final answer => fallback + critic
 async function processWithAI(systemPrompt, userMessage, history, mode) {
   let selectedModel = 'chatgpt-4o-latest';
@@ -508,7 +545,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
 
   // Switch to "o1-preview..." if deeper request
   if (
-    lowered.includes('a request for a deeper exploration of the ai's thoughts') ||
+    lowered.includes('a request for a deeper exploration of the thoughts ai has') ||
     lowered.includes('deeper') ||
     lowered.includes('さらにわか') ||
     lowered.includes('もっと深')
@@ -579,7 +616,7 @@ async function handleEvent(event) {
     return null;
   }
   const userId = event.source?.userId || 'unknown';
-  const userMessage = event.message.text.trim();
+  const userMessage = validateMessageLength(event.message.text.trim());
 
   console.log(`User ${userId} said: "${userMessage}"`);
 
@@ -658,3 +695,15 @@ app.listen(PORT, () => {
  *  - Critic pass with "o1-preview-2024-09-12" at temperature=1
  *  - Complies with policy & disclaimers
  ********************************************************************/
+
+// Add cleanup for rate limit map
+const RATE_LIMIT_CLEANUP_INTERVAL = 1000 * 60 * 60; // 1 hour
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, timestamp] of rateLimit.entries()) {
+    if (now - timestamp > RATE_LIMIT_CLEANUP_INTERVAL) {
+      rateLimit.delete(userId);
+    }
+  }
+}, RATE_LIMIT_CLEANUP_INTERVAL);
