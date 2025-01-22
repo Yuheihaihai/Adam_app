@@ -20,7 +20,7 @@ class PerplexitySearch {
       console.log('Enhancing knowledge with Perplexity for:', userMessage);
       
       const response = await this.client.chat.completions.create({
-        model: "sonar-medium-online",
+        model: "sonar",
         messages: [{
           role: 'system',
           content: `あなたは「Adam」というカウンセラーです。
@@ -72,23 +72,21 @@ class PerplexitySearch {
     try {
       console.log('Processing allowed query:', query);
       const response = await this.client.chat.completions.create({
-        model: "sonar-medium-online",
-        messages: [{
-          role: 'system',
-          content: '天気予報とスポーツの結果のみ、簡潔に回答してください。'
-        }, {
-          role: 'user',
-          content: query
-        }],
-        max_tokens: 256,
+        model: 'sonar',
+        messages: [
+          {
+            role: 'user',
+            content: `天気予報について: ${query}`
+          }
+        ],
         temperature: 0.7,
-        timeout: 10000
+        max_tokens: 150
       });
 
-      return response.choices[0].message.content;
+      return response.choices[0]?.message?.content || '情報を取得できませんでした。';
     } catch (error) {
       console.error('Perplexity query error:', error);
-      return "申し訳ありません。情報を取得できませんでした。";
+      return '申し訳ありません。情報を取得できませんでした。';
     }
   }
 
