@@ -547,7 +547,7 @@ ${new Date().toISOString().split('T')[0]}
     }
   }
 
-  let finalSystemPrompt = perplexityContext || finalSystemPrompt;
+  finalSystemPrompt = perplexityContext || finalSystemPrompt;
   console.log('📤 Final System Prompt Length:', finalSystemPrompt.length);
   console.log('📤 Final System Prompt Preview:', finalSystemPrompt.substring(0, 200) + '...');
 
