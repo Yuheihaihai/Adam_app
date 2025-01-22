@@ -493,24 +493,23 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   if (mode === 'career' || careerKeywords.some(keyword => userMessage.includes(keyword))) {
     try {
       console.log('Career-related query detected, fetching job trends...');
-      const jobTrendsPromise = perplexity.getJobTrends();
-      
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Perplexity timeout')), 15000)
-      );
-      
-      const jobTrends = await Promise.race([jobTrendsPromise, timeoutPromise]);
+      const jobTrends = await perplexity.getJobTrends();
       
       if (jobTrends) {
         console.log('Received job trends from Perplexity:', jobTrends.substring(0, 100) + '...');
         perplexityContext = `
-[最新の業界動向と求人トレンド]
+[最新の求人市場データ]
 ${jobTrends}
 
-[分析指示]
-1. 上記の最新動向を考慮して回答を作成してください
-2. 特に新しい職種や成長分野に注目してください
-3. スキルニーズの変化も含めてください
+[回答時の重要指示]
+1. 上記の最新の求人市場データを必ず参照してください
+2. 具体的な数値（求人倍率など）を含めて説明してください
+3. 業界別の傾向を明確に言及してください
+4. 現在特に需要が高い職種を優先的に提案してください
+5. スキルニーズの変化も必ず含めてください
+
+[データの有効期限]
+このデータは${new Date().toISOString().split('T')[0]}時点の最新情報です。
 `;
       }
     } catch (err) {
@@ -522,7 +521,7 @@ ${jobTrends}
   let finalSystemPrompt = systemPrompt;
   if (perplexityContext) {
     finalSystemPrompt = `${systemPrompt}\n\n${perplexityContext}`;
-    console.log('Enhanced system prompt with job trends data');
+    console.log('Enhanced system prompt with structured job trends data');
   }
 
   if (
