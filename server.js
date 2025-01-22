@@ -201,7 +201,24 @@ function checkRateLimit(userId) {
   return true;
 }
 
+const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職診断'];
+
 function determineModeAndLimit(userMessage) {
+  console.log('Checking message for career keywords:', userMessage);
+  
+  const hasCareerKeyword = careerKeywords.some(keyword => {
+    const includes = userMessage.includes(keyword);
+    if (includes) {
+      console.log(`Career keyword detected: ${keyword}`);
+    }
+    return includes;
+  });
+
+  if (hasCareerKeyword) {
+    console.log('Setting career mode');
+    return { mode: 'career', limit: 200 };
+  }
+
   const lcMsg = userMessage.toLowerCase();
   if (
     lcMsg.includes('特性') ||
@@ -226,9 +243,6 @@ function determineModeAndLimit(userMessage) {
     lcMsg.includes('パートナー')
   ) {
     return { mode: 'humanRelationship', limit: 200 };
-  }
-  if (lcMsg.includes('キャリア')) {
-    return { mode: 'career', limit: 200 };
   }
   return { mode: 'general', limit: 10 };
 }
@@ -444,6 +458,30 @@ function validateMessageLength(message) {
 }
 
 async function processWithAI(systemPrompt, userMessage, history, mode) {
+  console.log(`Processing message in mode: ${mode}`);
+  
+  let perplexityContext = '';
+  
+  if (mode === 'career' || careerKeywords.some(keyword => userMessage.includes(keyword))) {
+    try {
+      console.log('Career-related query detected, fetching job trends...');
+      const jobTrends = await perplexity.getJobTrends();
+      if (jobTrends) {
+        console.log('Successfully received job trends data');
+        perplexityContext = `
+[最新の求人市場データ]
+${jobTrends}
+
+[分析の観点]
+上記の市場データを考慮しながら、以下の点について分析してください：
+`;
+        systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
+      }
+    } catch (err) {
+      console.error('Error fetching job trends:', err);
+    }
+  }
+
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
@@ -456,46 +494,6 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
     }
   }
 
-  let perplexityContext = null;
-  const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界'];
-  if (mode === 'career' || careerKeywords.some(keyword => userMessage.includes(keyword))) {
-    try {
-      console.log('Career-related query detected, fetching job trends...');
-      const jobTrends = await perplexity.getJobTrends();
-      
-      if (jobTrends) {
-        console.log('Received job trends from Perplexity:', jobTrends.substring(0, 100) + '...');
-        perplexityContext = `
-あなたは最新の求人市場データに基づいてアドバイスを提供するキャリアカウンセラーです。
-
-[市場の現状]
-${jobTrends}
-
-[アドバイス方針]
-• 必ず上記の市場データを引用してください
-• 「現在の市場では〜」という形で言及してください
-• 具体的な業界の求人動向を示してください
-• データに基づいた理由付けを行ってください
-
-[回答構造]
-1. 現在の市場概況
-2. 特に需要の高い職種・業界
-3. 具体的なキャリア提案
-4. 必要なスキルと準備
-
-[データ基準日]
-${new Date().toISOString().split('T')[0]}
-`;
-      }
-    } catch (err) {
-      console.error('Job trends fetch failed:', err.message);
-      console.log('Continuing with base system prompt');
-    }
-  }
-
-  let finalSystemPrompt = perplexityContext || systemPrompt;
-  console.log('Using system prompt with length:', finalSystemPrompt.length);
-
   if (
     lowered.includes('deeper') ||
     lowered.includes('さらにわか') ||
@@ -507,7 +505,7 @@ ${new Date().toISOString().split('T')[0]}
   console.log(`Using model: ${selectedModel}`);
 
   const finalPrompt = applyAdditionalInstructions(
-    finalSystemPrompt,
+    systemPrompt,
     mode,
     history,
     userMessage
