@@ -498,11 +498,13 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
       
       if (perplexityData) {
         console.log('Received current job trends from Perplexity');
-        const perplexityContext = `
+        finalSystemPrompt = `${SYSTEM_PROMPT_CAREER_BASE}
+
 [現在の求人市場データ]
 ${perplexityData}
 `;
-        finalSystemPrompt = `${SYSTEM_PROMPT_CAREER_BASE}\n\n${perplexityContext}`;
+      } else {
+        finalSystemPrompt = SYSTEM_PROMPT_CAREER_BASE;
       }
     } catch (err) {
       console.error('Job trends fetch failed:', err.message);
