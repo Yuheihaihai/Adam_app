@@ -479,22 +479,48 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
-  // For "career" => fetch job trends from perplexity
-  let finalSystemPrompt = systemPrompt;  // Initialize with base prompt
-  
-  if (mode === 'career' || lowered.includes('適職診断') || lowered.includes('適職を教えて')) {
-    try {
-      console.log('Career assessment => retrieving job market data from Perplexity...');
-      const data = await perplexity.getJobTrends();
-      if (data) {
-        console.log('Got job trends:', data.slice(0,100) + '...');
-        finalSystemPrompt = `${systemPrompt}
+  // Career assessment keywords
+  const careerAssessmentKeywords = [
+    '適職診断', '適職を教えて', '適職分析', '適職アドバイス',
+    'どんな仕事が向いてる', '向いている仕事', '向いてる職業',
+    'キャリア診断', '職業診断', '職業適性'
+  ];
 
-[求人市場データ]
-${data}`;
+  // For career counseling mode
+  if (mode === 'career' || careerAssessmentKeywords.some(keyword => lowered.includes(keyword))) {
+    try {
+      console.log('Career counseling mode activated...');
+      const marketData = await perplexity.getJobTrends();
+      
+      if (marketData) {
+        console.log('Integrating market data with career analysis...');
+        const careerPrompt = `
+${SYSTEM_PROMPT_CAREER}
+
+[現在の求人市場の特徴と傾向]
+${marketData}
+
+[分析指示]
+1. 上記の市場動向データを踏まえた上で、ユーザーの特性分析を行ってください
+2. 特に以下の点に注目して分析と提案を行ってください：
+   - 現在の市場ニーズとユーザーの特性のマッチング
+   - 成長が見込める職種とユーザーの適性
+   - 市場変化に対するユーザーの強み/課題
+
+[出力形式]
+上記を踏まえて、以下の内容を必ず含めて回答してください：
+1. 適職提案（市場動向と個人特性を踏まえて）（100文字以内）
+2. 向いている職場環境の選び方（100文字以内）
+3. 好ましい社内カルチャーの選び方（100文字以内）
+4. 好ましい人間関係の選び方（100文字以内）
+5. 「専門家にも相談ください」
+`;
+        systemPrompt = careerPrompt;
       }
     } catch (err) {
-      console.error('Perplexity job trends fetch failed:', err);
+      console.error('Job market data fetch failed:', err);
+      // Fallback to regular career counseling without market data
+      systemPrompt = SYSTEM_PROMPT_CAREER;
     }
   }
 
@@ -515,10 +541,10 @@ ${data}`;
 この特性は自然な認知プロセスの結果であり、意図的なものではありません。
 `;
 
-  finalSystemPrompt = finalSystemPrompt + asdAwarenessInstruction;
+  systemPrompt = systemPrompt + asdAwarenessInstruction;
 
-  console.log('📤 Final System Prompt Length:', finalSystemPrompt.length);
-  console.log('📤 Final System Prompt Preview:', finalSystemPrompt.substring(0, 200) + '...');
+  console.log('📤 Final System Prompt Length:', systemPrompt.length);
+  console.log('📤 Final System Prompt Preview:', systemPrompt.substring(0, 200) + '...');
 
   if (
     lowered.includes('deeper') ||
@@ -531,7 +557,7 @@ ${data}`;
   console.log(`🤖 Using model: ${selectedModel}`);
 
   const finalPrompt = applyAdditionalInstructions(
-    finalSystemPrompt,
+    systemPrompt,
     mode,
     history,
     userMessage
