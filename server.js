@@ -480,30 +480,50 @@ function validateMessageLength(message) {
   return message;
 }
 
-async function processWithAI(systemPrompt, userMessage, history, mode) {
+async function processWithAI(systemPrompt, userMessage, history, mode, userId) {
   let selectedModel = 'chatgpt-4o-latest';
   const lowered = userMessage.toLowerCase();
 
+  // Career assessment keywords
+  const careerAssessmentKeywords = [
+    '適職診断', '適職を教えて', '適職分析', '適職アドバイス',
+    'どんな仕事が向いてる', '向いている仕事', '向いてる職業',
+    'キャリア診断', '職業診断', '職業適性'
+  ];
+
   // For career counseling mode
-  if (mode === 'career' || lowered.includes('適職診断') || lowered.includes('キャリア')) {
+  if (mode === 'career' || careerAssessmentKeywords.some(keyword => lowered.includes(keyword))) {
     try {
       console.log('Career counseling mode activated with 200 message history...');
-      // Re-fetch with 200 messages if we're in career mode
       history = await fetchUserHistory(userId, 200);
       
-      const marketData = await perplexity.getJobTrends();
+      console.log('Fetching Perplexity job market data...');
+      const marketData = await perplexity.search(`
+        最新の求人市場動向について：
+        1. 成長している職種
+        2. 必要とされるスキル
+        3. 今後の展望
+        を具体的に教えてください。
+      `);
+      
       if (marketData) {
         console.log('Integrating market data with career analysis...');
-        systemPrompt = SYSTEM_PROMPT_CAREER;  // Use career counselor prompt
-        
-        // Add market data to the prompt
-        systemPrompt = `${systemPrompt}
+        systemPrompt = `${SYSTEM_PROMPT_CAREER}
 
 [現在の求人市場の特徴と傾向]
-${marketData}`;
+${marketData}
+
+[分析指示]
+上記の市場動向データを踏まえた上で、ユーザーの特性分析を行い、以下の点に注目して分析と提案を行ってください：
+1. 現在の市場ニーズとユーザーの特性のマッチング
+2. 成長が見込める職種とユーザーの適性
+3. 市場変化に対するユーザーの強み/課題
+`;
       }
     } catch (err) {
       console.error('Career analysis preparation failed:', err);
+      // Fallback to regular career counseling without market data
+      systemPrompt = SYSTEM_PROMPT_CAREER;
     }
   }
 
@@ -617,10 +637,9 @@ async function handleEvent(event) {
   console.log(`Determined mode=${mode}, limit=${limit}`);
 
   const history = await fetchUserHistory(userId, limit);
-
   const systemPrompt = getSystemPromptForMode(mode);
 
-  const aiReply = await processWithAI(systemPrompt, userMessage, history, mode);
+  const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId);
 
   await storeInteraction(userId, 'assistant', aiReply);
 
