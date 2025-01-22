@@ -480,11 +480,11 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   const lowered = userMessage.toLowerCase();
 
   // Add career planning keywords (keeping existing career keywords)
-  const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界'];
+  const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職'];
   const careerPlanningKeywords = [
     'キャリアプラン', 'キャリア設計', '将来設計', 'キャリア相談',
     'キャリアパス', '今後のキャリア', 'キャリア分析', '職業選択',
-    'キャリア形成', '将来の仕事', 'キャリアチェンジ', '転職プラン'
+    'キャリア形成', '将来の仕事', 'キャリアチェンジ', '転職プラン', '適職'
   ];
 
   // Add job trends analysis (keeping existing checks)
