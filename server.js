@@ -308,6 +308,12 @@ async function fetchUserHistory(userId, limit) {
 function applyAdditionalInstructions(basePrompt, mode, history, userMessage) {
   let finalPrompt = basePrompt;
 
+  // Add character limit instruction (add this at the very beginning)
+  finalPrompt = `
+※重要: すべての返答は必ず500文字以内に収めてください。
+
+${finalPrompt}`;
+
   // Add summarization instruction
   finalPrompt += `
 ※ユーザーが長文を送信した場合、それが明示的な要求がなくても、以下のように対応してください：
@@ -336,6 +342,7 @@ function applyAdditionalInstructions(basePrompt, mode, history, userMessage) {
 1. 必ずデータを分析に活用する
 2. 「現在の市場では〜」という形で言及する
 3. データに基づいた具体的な提案をする
+4. すべての返答を500文字以内に収める
 `;
   }
 
