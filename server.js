@@ -93,9 +93,7 @@ const SYSTEM_PROMPT_CHARACTERISTICS = `
 - 断定的な診断は避ける
 `;
 
-const SYSTEM_PROMPT_CAREER = `
-あなたは「Adam」という発達障害専門のキャリアカウンセラーです。
-ユーザーの過去ログと最新の求人市場データを統合し、以下の観点から分析してください：
+const SYSTEM_PROMPT_CAREER = `あなたは優秀なキャリアカウンセラーです。以下の指示に従って回答してください：
 
 [分析の観点]
 1. ユーザーの特性
@@ -496,9 +494,9 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   const lowered = userMessage.toLowerCase();
   let perplexityContext = '';
   
-  if (userMessage === '私の適職診断お願いします🤲') {  // Only trigger on exact match
+  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {  // Updated trigger
     try {
-      console.log('Career-related query detected, fetching emerging jobs...');
+      console.log('Career-related query detected, fetching job market trends...');
       
       // Get user characteristics from history
       const userTraits = history
@@ -516,11 +514,11 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       const jobTrendsData = await perplexity.getJobTrends(searchQuery);
       
       if (jobTrendsData?.analysis) {
-        console.log('✨ Perplexity emerging jobs data successfully integrated with career counselor mode ✨');
+        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
         
         await client.pushMessage(userId, {
           type: 'text',
-          text: '📊 新興職種の提案：\n' + jobTrendsData.analysis
+          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
         });
 
         if (jobTrendsData.urls) {
@@ -531,7 +529,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         }
 
         perplexityContext = `
-[新興職種の提案]
+[あなたの特性と市場分析に基づいた検索結果]
 ${jobTrendsData.analysis}
 
 [分析の観点]
