@@ -134,14 +134,14 @@ class PerplexitySearch {
         model: "sonar",
         messages: [{
           role: 'system',
-          content: '最新の求人動向、業界トレンド、必要なスキル、新しい職種について簡潔に説明してください。'
+          content: '最新の求人動向、業界トレンド、必要なスキル、新しい職種について簡潔に説明してください。また、Indeed、Wantedly、type.jpなどの具体的な求人情報のURLを必ず含めてください。'
         }, {
           role: 'user',
-          content: '現在の日本の求人市場と業界トレンドを教えてください。'
+          content: '現在の日本の求人市場と業界トレンドを教えてください。※URLを除く本文は500文字以内でお願いします。'
         }],
-        max_tokens: 150,     // Reduced from 256
-        temperature: 0.7,
-        timeout: 20000      // 20 second timeout for this specific request
+        max_tokens: 150,     // Keep existing value
+        temperature: 0.7,    // Keep existing value
+        timeout: 20000      // Keep existing timeout
       });
 
       return response.choices[0]?.message?.content;
