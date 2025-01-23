@@ -508,7 +508,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
       });
 
-      const searchQuery = `最新の求人市場データに基づいて、${userCharacteristics}に最適な職種を提案してください。また、参考となるウェブページのURLも含めて教えてください。`;
+      const searchQuery = `最新の求人市場データに基づいて、${userCharacteristics}に最適な職種を提案してください。また、参考となるウェブページのURLも含めて教えてください。\n\n※URLを除く本文は500文字以内でお願いします。`;
       console.log('Using personalized search query:', searchQuery);
       
       const jobTrends = await perplexity.handleAllowedQuery(searchQuery);
@@ -521,6 +521,8 @@ ${jobTrends}
 
 [分析の観点]
 上記の市場データを考慮しながら、以下の点について分析してください：
+
+※URLを除く本文は500文字以内でお願いします。
 `;
         systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
       }
