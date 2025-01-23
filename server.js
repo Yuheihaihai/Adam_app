@@ -496,10 +496,19 @@ async function processWithAI(systemPrompt, userMessage, history, mode) {
   
   if (mode === 'career' || careerKeywords.some(keyword => userMessage.includes(keyword))) {
     try {
-      console.log('Career-related query detected, fetching job trends...');
-      const jobTrends = await perplexity.getJobTrends();
+      // Add user notification about Perplexity search
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '🔍 Perplexityで最新の求人市場データを検索しています...'
+      });
+
+      const searchQuery = `最新の求人市場データに基づいて、${userCharacteristics}に最適な職種を提案してください。`;
+      console.log('Using personalized search query:', searchQuery);
+      
+      const jobTrends = await perplexity.handleAllowedQuery(searchQuery);  // Use existing method
+      
       if (jobTrends) {
-        console.log('Successfully received job trends data');
+        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
         perplexityContext = `
 [最新の求人市場データ]
 ${jobTrends}
@@ -508,10 +517,9 @@ ${jobTrends}
 上記の市場データを考慮しながら、以下の点について分析してください：
 `;
         systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
-        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
       }
     } catch (err) {
-      console.error('Error fetching job trends:', err);
+      console.error('Perplexity search error:', err);
     }
   }
 
