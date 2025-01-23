@@ -127,7 +127,7 @@ class PerplexitySearch {
            query.includes('sports');
   }
 
-  async getJobTrends() {
+  async getJobTrends(searchQuery = '現在の日本の求人市場と業界トレンドを教えてください。') {
     try {
       console.log('Fetching job market trends');
       const response = await this.client.chat.completions.create({
@@ -137,11 +137,11 @@ class PerplexitySearch {
           content: '以下の2つの情報を分けて提供してください：\n\n[市場分析]\n最新の求人動向、業界トレンド、必要なスキル、新しい職種について（1000文字以内で簡潔に）\n\n[求人情報]\nIndeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度）'
         }, {
           role: 'user',
-          content: '現在の日本の求人市場と業界トレンドを教えてください。'
+          content: searchQuery
         }],
-        max_tokens: 1000,    // Adjusted for 1000 characters
-        temperature: 0.7,    // Keep existing value
-        timeout: 20000      // Keep existing timeout
+        max_tokens: 1000,
+        temperature: 0.7,
+        timeout: 20000
       });
 
       const content = response.choices[0]?.message?.content || '';

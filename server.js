@@ -496,30 +496,33 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   const lowered = userMessage.toLowerCase();
   let perplexityContext = '';
   
-  if (mode === 'career' || careerKeywords.some(keyword => userMessage.includes(keyword))) {
+  if (userMessage === '私の適職診断お願いします🤲') {  // Only trigger on exact match
     try {
       console.log('Career-related query detected, fetching job trends...');
       
-      const userCharacteristics = history.length > 0 ? 
-        '過去の会話から分析された特性を持つユーザー' : 'キャリアについて相談したいユーザー';
+      // Get user characteristics from history
+      const userTraits = history
+        .filter(h => h.role === 'assistant' && h.content.includes('あなたの特徴：'))
+        .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
       
       await client.pushMessage(userId, {
         type: 'text',
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
       });
 
-      const jobTrendsData = await perplexity.getJobTrends();
+      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な、最新の求人動向、業界トレンド、必要なスキル、新しい職種について（1000文字以内で簡潔に）教えてください。また、Indeed、Wantedly、type.jpなどの具体的な求人情報のURLも含めてください。`;
+      console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
+      
+      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
       
       if (jobTrendsData?.analysis) {
         console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
         
-        // Send market analysis
         await client.pushMessage(userId, {
           type: 'text',
           text: '📊 市場分析：\n' + jobTrendsData.analysis
         });
 
-        // Send URLs if available
         if (jobTrendsData.urls) {
           await client.pushMessage(userId, {
             type: 'text',
