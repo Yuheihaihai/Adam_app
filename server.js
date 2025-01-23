@@ -505,7 +505,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       
       await client.pushMessage(userId, {
         type: 'text',
-        text: '🔍 Perplexityで最新の求人市場データを検索しています...'
+        text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
       });
 
       const searchQuery = `最新の求人市場データに基づいて、${userCharacteristics}に最適な職種を提案してください。また、Indeed、Wantedly、type.jpなどの具体的な求人情報も教えてください。`;
