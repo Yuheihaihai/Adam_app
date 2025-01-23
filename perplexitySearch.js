@@ -127,14 +127,14 @@ class PerplexitySearch {
            query.includes('sports');
   }
 
-  async getJobTrends(searchQuery = '現在の日本の求人市場と業界トレンドを教えてください。') {
+  async getJobTrends(searchQuery = '新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。') {
     try {
       console.log('Fetching job market trends');
       const response = await this.client.chat.completions.create({
         model: "sonar",
         messages: [{
           role: 'system',
-          content: '以下の2つの情報を分けて提供してください：\n\n[市場分析]\n最新の求人動向、業界トレンド、必要なスキル、新しい職種について（1000文字以内で簡潔に）\n\n[求人情報]\nIndeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度）'
+          content: '以下の2つの情報を分けて提供してください：\n\n[市場分析]\n新興職種について、必要なスキル、将来性、具体的な事例を含めて（1000文字以内で簡潔に）\n\n[求人情報]\nIndeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度）'
         }, {
           role: 'user',
           content: searchQuery

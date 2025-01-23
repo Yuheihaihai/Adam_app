@@ -498,7 +498,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   
   if (userMessage === '私の適職診断お願いします🤲') {  // Only trigger on exact match
     try {
-      console.log('Career-related query detected, fetching job trends...');
+      console.log('Career-related query detected, fetching emerging jobs...');
       
       // Get user characteristics from history
       const userTraits = history
@@ -510,17 +510,17 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
       });
 
-      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な、最新の求人動向、業界トレンド、必要なスキル、新しい職種について（1000文字以内で簡潔に）教えてください。また、Indeed、Wantedly、type.jpなどの具体的な求人情報のURLも含めてください。`;
+      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
       console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
       
       const jobTrendsData = await perplexity.getJobTrends(searchQuery);
       
       if (jobTrendsData?.analysis) {
-        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
+        console.log('✨ Perplexity emerging jobs data successfully integrated with career counselor mode ✨');
         
         await client.pushMessage(userId, {
           type: 'text',
-          text: '📊 市場分析：\n' + jobTrendsData.analysis
+          text: '📊 新興職種の提案：\n' + jobTrendsData.analysis
         });
 
         if (jobTrendsData.urls) {
@@ -531,11 +531,11 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         }
 
         perplexityContext = `
-[最新の求人市場データ]
+[新興職種の提案]
 ${jobTrendsData.analysis}
 
 [分析の観点]
-上記の市場データを考慮しながら、以下の点について分析してください：
+上記の職種提案を考慮しながら、以下の点について分析してください：
 `;
         systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
       }
