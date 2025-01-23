@@ -134,17 +134,23 @@ class PerplexitySearch {
         model: "sonar",
         messages: [{
           role: 'system',
-          content: '最新の求人動向、業界トレンド、必要なスキル、新しい職種について簡潔に説明してください。また、Indeed、Wantedly、type.jpなどの具体的な求人情報のURLを必ず含めてください。'
+          content: '以下の2つの情報を分けて提供してください：\n\n[市場分析]\n最新の求人動向、業界トレンド、必要なスキル、新しい職種について（500文字以内）\n\n[求人情報]\nIndeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度）'
         }, {
           role: 'user',
-          content: '現在の日本の求人市場と業界トレンドを教えてください。※URLを除く本文は500文字以内でお願いします。'
+          content: '現在の日本の求人市場と業界トレンドを教えてください。'
         }],
         max_tokens: 150,     // Keep existing value
         temperature: 0.7,    // Keep existing value
         timeout: 20000      // Keep existing timeout
       });
 
-      return response.choices[0]?.message?.content;
+      const content = response.choices[0]?.message?.content || '';
+      const [mainText, urlSection] = content.split('[求人情報]');
+      
+      return {
+        analysis: mainText?.replace('[市場分析]', '').trim() || null,
+        urls: urlSection?.trim() || null
+      };
     } catch (error) {
       console.error('Perplexity job trends error:', error);
       if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
