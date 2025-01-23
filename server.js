@@ -489,7 +489,7 @@ function validateMessageLength(message) {
   return message;
 }
 
-async function processWithAI(systemPrompt, userMessage, history, mode, userId) {
+async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   console.log(`Processing message in mode: ${mode}`);
   
   let perplexityContext = '';
@@ -498,7 +498,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId) {
     try {
       console.log('Career-related query detected, fetching job trends...');
       
-      await lineClient.pushMessage(userId, {
+      await client.pushMessage(userId, {
         type: 'text',
         text: '🔍 Perplexityで最新の求人市場データを検索しています...'
       });
@@ -624,7 +624,7 @@ async function handleEvent(event) {
 
   const systemPrompt = getSystemPromptForMode(mode);
 
-  const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId);
+  const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId, client);
 
   await storeInteraction(userId, 'assistant', aiReply);
 
