@@ -508,23 +508,31 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
       });
 
-      const searchQuery = `最新の求人市場データに基づいて、${userCharacteristics}に最適な職種を提案してください。また、Indeed、Wantedly、type.jpなどの具体的な求人情報のURLを必ず含めてください。
-
-※URLを除く本文は500文字以内でお願いします。`;
-      console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
+      const jobTrendsData = await perplexity.getJobTrends();
       
-      const jobTrends = await perplexity.handleAllowedQuery(searchQuery);
-      
-      if (jobTrends) {
+      if (jobTrendsData?.analysis) {
         console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
+        
+        // Send market analysis
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: '📊 市場分析：\n' + jobTrendsData.analysis
+        });
+
+        // Send URLs if available
+        if (jobTrendsData.urls) {
+          await client.pushMessage(userId, {
+            type: 'text',
+            text: '📎 参考求人情報：\n' + jobTrendsData.urls
+          });
+        }
+
         perplexityContext = `
 [最新の求人市場データ]
-${jobTrends}
+${jobTrendsData.analysis}
 
 [分析の観点]
 上記の市場データを考慮しながら、以下の点について分析してください：
-
-※URLを除く本文は500文字以内でお願いします。
 `;
         systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
       }
