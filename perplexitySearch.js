@@ -134,12 +134,12 @@ class PerplexitySearch {
         model: "sonar",
         messages: [{
           role: 'system',
-          content: '以下の2つの情報を分けて提供してください：\n\n[市場分析]\n最新の求人動向、業界トレンド、必要なスキル、新しい職種について（150文字以内で簡潔に）\n\n[求人情報]\nIndeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度）'
+          content: '以下の2つの情報を分けて提供してください：\n\n[市場分析]\n最新の求人動向、業界トレンド、必要なスキル、新しい職種について（1000文字以内で簡潔に）\n\n[求人情報]\nIndeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度）'
         }, {
           role: 'user',
           content: '現在の日本の求人市場と業界トレンドを教えてください。'
         }],
-        max_tokens: 300,     // Adjusted for message length
+        max_tokens: 1000,    // Adjusted for 1000 characters
         temperature: 0.7,    // Keep existing value
         timeout: 20000      // Keep existing timeout
       });
