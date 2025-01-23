@@ -134,7 +134,7 @@ class PerplexitySearch {
         model: "sonar",
         messages: [{
           role: 'system',
-          content: '以下の2つの情報を分けて提供してください：\n\n[市場分析]\n新興職種について、必要なスキル、将来性、具体的な事例を含めて（1000文字以内で簡潔に）\n\n[求人情報]\nIndeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度）'
+          content: '以下の2つの情報を分けて提供してください：\n\n[あなたの特性と市場分析に基づいた検索結果]\n新興職種について、必要なスキル、将来性、具体的な事例を含めて（1000文字以内で簡潔に）\n\n[求人情報]\nIndeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度）'
         }, {
           role: 'user',
           content: searchQuery
@@ -148,7 +148,7 @@ class PerplexitySearch {
       const [mainText, urlSection] = content.split('[求人情報]');
       
       return {
-        analysis: mainText?.replace('[市場分析]', '').trim() || null,
+        analysis: mainText?.replace('[あなたの特性と市場分析に基づいた検索結果]', '').trim() || null,
         urls: urlSection?.trim() || null
       };
     } catch (error) {
