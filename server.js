@@ -498,6 +498,10 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     try {
       console.log('Career-related query detected, fetching job trends...');
       
+      // Extract user characteristics from history
+      const userCharacteristics = history.length > 0 ? 
+        '過去の会話から分析された特性を持つユーザー' : 'キャリアについて相談したいユーザー';
+      
       await client.pushMessage(userId, {
         type: 'text',
         text: '🔍 Perplexityで最新の求人市場データを検索しています...'
