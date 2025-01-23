@@ -492,13 +492,14 @@ function validateMessageLength(message) {
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   console.log(`Processing message in mode: ${mode}`);
   
+  let selectedModel = 'chatgpt-4o-latest';
+  const lowered = userMessage.toLowerCase();
   let perplexityContext = '';
   
   if (mode === 'career' || careerKeywords.some(keyword => userMessage.includes(keyword))) {
     try {
       console.log('Career-related query detected, fetching job trends...');
       
-      // Extract user characteristics from history
       const userCharacteristics = history.length > 0 ? 
         '過去の会話から分析された特性を持つユーザー' : 'キャリアについて相談したいユーザー';
       
@@ -507,7 +508,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         text: '🔍 Perplexityで最新の求人市場データを検索しています...'
       });
 
-      const searchQuery = `最新の求人市場データに基づいて、${userCharacteristics}に最適な職種を提案してください。`;
+      const searchQuery = `最新の求人市場データに基づいて、${userCharacteristics}に最適な職種を提案してください。また、Indeed、Wantedly、type.jpなどの具体的な求人情報も教えてください。`;
       console.log('Using personalized search query:', searchQuery);
       
       const jobTrends = await perplexity.handleAllowedQuery(searchQuery);
@@ -527,9 +528,6 @@ ${jobTrends}
       console.error('Perplexity search error:', err);
     }
   }
-
-  let selectedModel = 'chatgpt-4o-latest';
-  const lowered = userMessage.toLowerCase();
 
   if (userMessage.includes('天気') || userMessage.includes('スポーツ') || userMessage.includes('試合')) {
     try {
