@@ -308,9 +308,34 @@ async function fetchUserHistory(userId, limit) {
 function applyAdditionalInstructions(basePrompt, mode, history, userMessage) {
   let finalPrompt = basePrompt;
 
+  // Add summarization instruction
+  finalPrompt += `
+※ユーザーが長文を送信した場合、それが明示的な要求がなくても、以下のように対応してください：
+1. まず内容を簡潔に要約する（「要約すると：」などの前置きは不要）
+2. その後で、具体的なアドバイスや質問をする
+3. 特に200文字以上の投稿は必ず要約してから返答する
+`;
+
+  // If chat history < 3 but user wants analysis/career
   if ((mode === 'characteristics' || mode === 'career') && history.length < 3) {
     finalPrompt += `
 ※ユーザーの履歴が少ないです。まずは本人に追加の状況説明や詳細を尋ね、やりとりを増やして理解を深めてください。
+
+[質問例]
+• 現在の職種や経験について
+• 興味のある分野や得意なこと
+• 働く上で大切にしたい価値観
+• 具体的なキャリアの悩みや課題
+`;
+  }
+
+  // Add Perplexity data handling instruction for career mode
+  if (mode === 'career') {
+    finalPrompt += `
+※Perplexityから取得した最新の市場データが含まれている場合：
+1. 必ずデータを分析に活用する
+2. 「現在の市場では〜」という形で言及する
+3. データに基づいた具体的な提案をする
 `;
   }
 
