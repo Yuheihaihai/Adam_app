@@ -207,7 +207,7 @@ const SYSTEM_PROMPT_CONSULTANT = `あなたは優秀な「Adam」という非常
 2. 具体的な事実やデータに基づいて説明する
 3. 推測や憶測を避け、「かもしれない」などの曖昧な表現は使用しない
 4. 追加情報が必要な場合は、具体的に質問する
-5. 話題が完全に変わるまでコンサルタントモードを維持する
+5. 必ずユーザーに回答に満足いただけたか確認する
 
 [回答形式]
 • 現状認識：（質問の背景と理解）
@@ -216,10 +216,28 @@ const SYSTEM_PROMPT_CONSULTANT = `あなたは優秀な「Adam」という非常
 • 実行ステップ：（具体的なアクション）
 • 期待効果：（具体的な成果）
 • 留意点：（実践時の注意事項）
-• 必ず短く簡潔でわかりやすい（平たい表現）を使ってまとめる。（必ず200字以内）
+• 確認：ご説明は十分でしたでしょうか？さらに詳しい説明や、別の観点からの説明が必要でしたら、お申し付けください。`;
 
-[継続確認]
-この話題について追加の質問やお悩みがありましたら、お気軽にお申し付けください。`;
+const SYSTEM_PROMPT_COUNSELING = `あなたは共感的なカウンセラーです。以下の指示に従って回答してください：
+
+[重要な注意事項]
+• 診断や医学的判断は絶対に行わないでください
+• 「病んでいる」などの判断的な表現は使用しないでください
+• 必要に応じて専門家への相談を推奨してください
+• 緊急性が感じられる場合は、すぐに専門家に相談するよう促してください
+
+[応答の基本方針]
+1. まず相手の気持ちに寄り添い、話を丁寧に聴きます
+2. 投げかけられた言葉の背景にある感情や状況を探ります
+3. 必要に応じて、具体的な質問をします
+4. 相手のペースを尊重します
+5. 必ずユーザーに回答に満足いただけたか確認する
+
+[回答形式]
+• 共感：（相手の気持ちに寄り添う言葉）
+• 質問：（状況をより理解するための質問）
+• 提案：（必要な場合のみ、具体的なアドバイスや専門家相談の推奨）
+• 確認：お話を聞かせていただき、ありがとうございます。私の理解や応答は、あなたのお気持ちに寄り添えていましたでしょうか？`;
 
 const rateLimit = new Map();
 
@@ -294,6 +312,8 @@ function getSystemPromptForMode(mode) {
       return SYSTEM_PROMPT_HUMAN_RELATIONSHIP;
     case 'consultant':
       return SYSTEM_PROMPT_CONSULTANT;
+    case 'counseling':
+      return SYSTEM_PROMPT_COUNSELING;
     default:
       return SYSTEM_PROMPT_GENERAL;
   }
@@ -529,121 +549,82 @@ function validateMessageLength(message) {
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   let selectedModel = 'chatgpt-4o-latest';
   
-  // Check for topics and context that should trigger consultant mode
-  const consultantTopics = [
-    'ビジネス', '仕事', '悩み', '問題', 'キャリア', 
-    'メンタル', '心理', '法律', '医療', '健康',
-    '境界', '関係', 'ストレス', '不安', '自己',
-    'トラウマ', 'コミュニケーション'
+  // Dissatisfaction indicators
+  const unsatisfactionPhrases = [
+    'わからない', '違う', 'ちがう', '違います', 'ちがいます',
+    '理解できない', '納得できない', '違うと思う', 'そうじゃない',
+    'もっと', '物足りない', '不十分', '不満', '期待してない'
   ];
-  
-  // Topic check
-  const hasTriggerTopic = consultantTopics.some(topic => 
-    userMessage.includes(topic)
+
+  // Check for dissatisfaction
+  const isUnsatisfied = unsatisfactionPhrases.some(phrase => 
+    userMessage.includes(phrase)
   );
 
-  // Context check from recent conversation
-  const recentMessages = history.slice(-3);
-  const hasConsultContext = recentMessages.some(msg => 
-    msg.role === 'assistant' && 
-    (msg.content.includes('アドバイス：') || 
-     msg.content.includes('解決策：') ||
-     consultantTopics.some(topic => msg.content.includes(topic)))
-  );
-
-  // Career counseling mode check (existing)
-  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
-    try {
-      console.log('Career-related query detected, fetching job market trends...');
-      
-      // Get user characteristics from history
-      const userTraits = history
-        .filter(h => h.role === 'assistant' && h.content.includes('あなたの特徴：'))
-        .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
-      
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
-      });
-
-      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
-      console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
-      
-      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
-      
-      if (jobTrendsData?.analysis) {
-        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
-        
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
-        });
-
-        if (jobTrendsData.urls) {
-          await client.pushMessage(userId, {
-            type: 'text',
-            text: '📎 参考求人情報：\n' + jobTrendsData.urls
-          });
-        }
-
-        perplexityContext = `
-[あなたの特性と市場分析に基づいた検索結果]
-${jobTrendsData.analysis}
-
-[分析の観点]
-上記の職種提案を考慮しながら、以下の点について分析してください：
-`;
-        systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
-      }
-    } catch (err) {
-      console.error('Perplexity search error:', err);
+  // Silent mode switch logic for dissatisfaction
+  if (isUnsatisfied && (mode === 'counseling' || mode === 'consultant')) {
+    const currentMode = mode;
+    const newMode = currentMode === 'counseling' ? 'consultant' : 'counseling';
+    
+    if (newMode === 'consultant') {
+      selectedModel = 'o1-preview-2024-09-12';
+      systemPrompt = SYSTEM_PROMPT_CONSULTANT;
+      mode = 'consultant';
+    } else {
+      systemPrompt = SYSTEM_PROMPT_CAREER;
+      mode = 'counseling';
     }
   }
+  // Existing mode detection logic continues...
+  else if (isPersonalQuestion || mode === 'counseling') {
+    mode = 'counseling';
+    systemPrompt = SYSTEM_PROMPT_CAREER + `
 
-  // Consultant mode check with automatic switching
-  else if (hasTriggerTopic || hasConsultContext || mode === 'consultant') {
+[注意事項]
+• 話題が仕事や経営の相談に移った場合は、コンサルタントモードへの切り替えを提案してください
+• 話題が一般的な内容になった場合は、チャットモードへの切り替えを提案してください`;
+    
+    if (isPersonalQuestion && history[history.length - 1]?.role === 'user') {
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '💭 お気持ちに寄り添ってお話をうかがわせていただきます。'
+      });
+    }
+  }
+  else if (isKnowledgeQuestion || mode === 'consultant') {
     selectedModel = 'o1-preview-2024-09-12';
-    systemPrompt = SYSTEM_PROMPT_CONSULTANT;
+    systemPrompt = SYSTEM_PROMPT_CONSULTANT + `
+
+[知識提供の注意点]
+• 確実な情報のみを提供する
+• 一般的な定義や説明を心がける
+• 個人の状況に踏み込まない
+• 必要に応じて専門家への相談を推奨する`;
     mode = 'consultant';
     
-    // Notify user of mode switch if it was automatic
-    if ((hasTriggerTopic || hasConsultContext) && history[history.length - 1]?.role === 'user') {
+    if (isKnowledgeQuestion && history[history.length - 1]?.role === 'user') {
       await client.pushMessage(userId, {
         type: 'text',
-        text: '💡 より詳しくサポートするため、コンサルタントモードに切り替えさせていただきました。'
+        text: '💡 専門的な説明をさせていただきます。'
       });
     }
   }
-  
-  // General chat mode (existing)
   else {
     mode = 'chat';
     systemPrompt = `あなたは親しみやすいチャットボットです。
 
 [対応可能な話題]
 • 日常的な会話や雑談
-• 質問への回答やアドバイス
-  - 趣味や娯楽について
-  - 料理やレシピについて
-  - 旅行先や観光スポットについて
-  - 映画や音楽の感想
-  - 季節のイベントについて
-  - 一般的な生活の知恵
-• 一般的な情報提供
-
-[対応しない話題]
-• ビジネスや仕事の相談
-• 個人的な悩みや問題解決
-• キャリアに関する相談
-• メンタルヘルスに関する相談
-• 法律や医療に関する相談
+• 趣味や娯楽について
+• 料理やレシピについて
+• 旅行先や観光スポットについて
+• 映画や音楽の感想
+• 季節のイベントについて
 
 [注意事項]
 1. フレンドリーに会話してください
 2. 簡潔に回答してください
-3. 確実な情報のみを提供してください
-4. 専門的な相談には、コンサルタントモードへの切り替えを提案してください
-5. 対応できない話題の場合は、その旨を明確に伝えてください`;
+3. 専門的な質問には、コンサルタントモードへの切り替えを提案してください`;
   }
 
   console.log(`Using model: ${selectedModel}`);
