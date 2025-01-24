@@ -562,25 +562,31 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     userMessage.includes(phrase)
   );
 
-  // Get Perplexity data for career or consultant modes
+  // Get job trends data for career or consultant modes
   if (mode === 'career' || mode === 'consultant') {
     try {
-      console.log('Fetching job trends with Perplexity');
+      console.log('Starting personalized job trends fetch...');
       const jobTrendsResponse = await getJobTrends(userMessage);
       
       if (jobTrendsResponse) {
-        // Send job trends search results
+        // Send search results first
         await client.pushMessage(userId, {
           type: 'text',
-          text: '🔍 求人市場の最新動向:\n' + jobTrendsResponse
+          text: '🔍 求人市場の検索結果:\n' + jobTrendsResponse
         });
         
-        // Add to context for AI
+        // Then send analysis message
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: '💡 この情報を基に、詳しくアドバイスさせていただきます。'
+        });
+        
+        // Add to context for AI response
         perplexityData = `\n\n[市場データ]\n${jobTrendsResponse}`;
-        console.log('Added job trends to response');
+        console.log('Added job trends data to response');
       }
     } catch (error) {
-      console.error('Job trends search error:', error);
+      console.error('Job trends fetch error:', error);
     }
   }
 
