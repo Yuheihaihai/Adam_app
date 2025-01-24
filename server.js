@@ -565,35 +565,22 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   // Get Perplexity data for career or consultant modes
   if (mode === 'career' || mode === 'consultant') {
     try {
-      console.log('Attempting to enhance knowledge with Perplexity');
-      const perplexityResponse = await perplexity.enhanceKnowledge(history, userMessage);
+      console.log('Fetching job trends with Perplexity');
+      const jobTrendsResponse = await getJobTrends(userMessage);
       
-      if (perplexityResponse) {
-        // Send search results first
-        const searchResults = perplexityResponse.split('\n')
-          .filter(line => line.includes('http'))
-          .join('\n');
-          
-        if (searchResults) {
-          await client.pushMessage(userId, {
-            type: 'text',
-            text: '🔍 参考情報:\n' + searchResults
-          });
-          console.log('Sent search results');
-        }
-
-        // Then send analysis
+      if (jobTrendsResponse) {
+        // Send job trends search results
         await client.pushMessage(userId, {
           type: 'text',
-          text: '📊 市場調査結果:\n' + perplexityResponse.replace(/http\S+/g, '')
+          text: '🔍 求人市場の最新動向:\n' + jobTrendsResponse
         });
         
         // Add to context for AI
-        perplexityData = `\n\n[市場データ]\n${perplexityResponse}`;
-        console.log('Added enhanced knowledge to response');
+        perplexityData = `\n\n[市場データ]\n${jobTrendsResponse}`;
+        console.log('Added job trends to response');
       }
     } catch (error) {
-      console.error('Perplexity enhancement error:', error);
+      console.error('Job trends search error:', error);
     }
   }
 
