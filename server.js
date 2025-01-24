@@ -561,6 +561,29 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     userMessage.includes(phrase)
   );
 
+  // Personal experience indicators
+  const personalPhrases = [
+    '私は', '私が', '私の', '自分は', '自分が', '自分の',
+    '病む', '病ん', '辛い', 'つらい', '苦しい', '疲れ', 'しんどい'
+  ];
+
+  // Knowledge/professional topics
+  const consultantPhrases = [
+    'とは', 'って', 'について', '違い', '定義', '意味',
+    'どういう', 'どんな', 'どうやって', 'どうすれば',
+    'ビジネス', '仕事', 'キャリア', '法律', '医療', '健康',
+    'メンタル', '心理', '不安', '自己', 'トラウマ', '境界', '関係'
+  ];
+
+  // Check context and question type
+  const isPersonalQuestion = personalPhrases.some(topic => 
+    userMessage.includes(topic)
+  );
+
+  const isKnowledgeQuestion = consultantPhrases.some(topic => 
+    userMessage.includes(topic)
+  );
+
   // Silent mode switch logic for dissatisfaction
   if (isUnsatisfied && (mode === 'counseling' || mode === 'consultant')) {
     const currentMode = mode;
@@ -759,3 +782,33 @@ app.use((err, req, res, next) => {
   }
   next();
 });
+
+async function getJobTrends(userCharacteristics) {
+  try {
+    console.log('Starting personalized job trends fetch...');
+    const searchQuery = `最新の求人市場データに基づいて、${userCharacteristics}に最適な職種を提案してください。`;
+    
+    console.log('Using personalized search query:', searchQuery);
+    
+    const response = await this.client.chat.completions.create({
+      model: "perplexity/sonar-medium-online",
+      messages: [{
+        role: 'system',
+        content: '最新の求人市場データに基づいて具体的な職種を提案してください。'
+      }, {
+        role: 'user',
+        content: searchQuery
+      }],
+      max_tokens: 150,
+      temperature: 0.7
+    });
+
+    if (response.choices && response.choices[0]?.message?.content) {
+      return response.choices[0].message.content;
+    }
+    return null;
+  } catch (error) {
+    console.error('Perplexity search error:', error);
+    return null;
+  }
+}
