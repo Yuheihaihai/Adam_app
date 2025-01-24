@@ -567,14 +567,28 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     try {
       console.log('Attempting to enhance knowledge with Perplexity');
       const perplexityResponse = await perplexity.enhanceKnowledge(history, userMessage);
+      
       if (perplexityResponse) {
-        // Send market data as separate message
+        // Send search results first
+        const searchResults = perplexityResponse.split('\n')
+          .filter(line => line.includes('http'))
+          .join('\n');
+          
+        if (searchResults) {
+          await client.pushMessage(userId, {
+            type: 'text',
+            text: '🔍 参考情報:\n' + searchResults
+          });
+          console.log('Sent search results');
+        }
+
+        // Then send analysis
         await client.pushMessage(userId, {
           type: 'text',
-          text: '🔍 市場調査結果:\n' + perplexityResponse
+          text: '📊 市場調査結果:\n' + perplexityResponse.replace(/http\S+/g, '')
         });
         
-        // Add to context for AI response
+        // Add to context for AI
         perplexityData = `\n\n[市場データ]\n${perplexityResponse}`;
         console.log('Added enhanced knowledge to response');
       }
