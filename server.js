@@ -565,8 +565,8 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   // Get Perplexity data for career or consultant modes
   if (mode === 'career' || mode === 'consultant') {
     try {
-      // Use the correct method from your PerplexitySearch class
-      const perplexityResponse = await perplexity.askQuestion(userMessage);
+      // Use the standard ask method
+      const perplexityResponse = await perplexity.ask(userMessage);
       if (perplexityResponse) {
         perplexityData = `\n\n[最新の市場データ]\n${perplexityResponse}`;
       }
@@ -821,3 +821,5 @@ async function getJobTrends(userCharacteristics) {
     return null;
   }
 }
+
+console.log('Available Perplexity methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(perplexity)));
