@@ -566,11 +566,18 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   if (mode === 'career' || mode === 'consultant') {
     try {
       console.log('Checking career/consultant mode with Perplexity:', mode);
-      const perplexityResponse = await perplexity.enhanceKnowledge(history, userMessage);
-      console.log('Got Perplexity response:', perplexityResponse ? 'yes' : 'no');
-      if (perplexityResponse) {
-        perplexityData = `\n\n[最新の市場データ]\n${perplexityResponse}`;
-        console.log('Added market data to response');
+      // Use getJobTrends for career-related queries
+      const jobTrends = await perplexity.getJobTrends(userMessage);
+      if (jobTrends) {
+        perplexityData = `\n\n[最新の市場データ]\n${jobTrends}`;
+        console.log('Added job trends data');
+      }
+      
+      // Use enhanceKnowledge for additional context
+      const enhancedData = await perplexity.enhanceKnowledge(history, userMessage);
+      if (enhancedData) {
+        perplexityData += `\n\n[追加情報]\n${enhancedData}`;
+        console.log('Added enhanced knowledge');
       }
     } catch (error) {
       console.error('Perplexity search error:', error);
