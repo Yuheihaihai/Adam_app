@@ -563,11 +563,14 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   );
 
   // Get Perplexity data for career or consultant modes
-  if (mode === 'career' || mode === 'consultant') {
+  if ((mode === 'career' || mode === 'consultant') && process.env.PERPLEXITY_API_KEY) {
     try {
-      const perplexityResponse = await perplexity.searchWithContext(userMessage, 'career and business trends');
-      if (perplexityResponse) {
-        perplexityData = `\n\n[最新の市場データ]\n${perplexityResponse}`;
+      const perplexityResponse = await perplexity.searchWithContext(
+        userMessage,
+        'career trends, job market, business insights'
+      );
+      if (perplexityResponse && perplexityResponse.answer) {
+        perplexityData = `\n\n[最新の市場データ]\n${perplexityResponse.answer}`;
       }
     } catch (error) {
       console.error('Perplexity search error:', error);
