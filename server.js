@@ -565,8 +565,11 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   // Get Perplexity data for career or consultant modes
   if (mode === 'career' || mode === 'consultant') {
     try {
-      // Use the basic search method that exists in PerplexitySearch
-      const perplexityResponse = await perplexity.search(userMessage);
+      // Use query method with proper parameters
+      const perplexityResponse = await perplexity.query({
+        text: userMessage,
+        focus: 'career trends and job market'
+      });
       if (perplexityResponse) {
         perplexityData = `\n\n[最新の市場データ]\n${perplexityResponse}`;
       }
