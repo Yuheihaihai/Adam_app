@@ -527,13 +527,30 @@ function validateMessageLength(message) {
 }
 
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
-  console.log(`Processing message in mode: ${mode}`);
-  
   let selectedModel = 'chatgpt-4o-latest';
-  const lowered = userMessage.toLowerCase();
-  let perplexityContext = '';
   
-  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {  // Updated trigger
+  // Check for topics and context that should trigger consultant mode
+  const consultantTopics = [
+    'ビジネス', '仕事', '悩み', '問題', 'キャリア', 
+    'メンタル', '心理', '法律', '医療', '健康'
+  ];
+  
+  // Topic check
+  const hasTriggerTopic = consultantTopics.some(topic => 
+    userMessage.includes(topic)
+  );
+
+  // Context check from recent conversation
+  const recentMessages = history.slice(-3);
+  const hasConsultContext = recentMessages.some(msg => 
+    msg.role === 'assistant' && 
+    (msg.content.includes('アドバイス：') || 
+     msg.content.includes('解決策：') ||
+     consultantTopics.some(topic => msg.content.includes(topic)))
+  );
+
+  // Career counseling mode check (existing)
+  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
     try {
       console.log('Career-related query detected, fetching job market trends...');
       
@@ -581,21 +598,50 @@ ${jobTrendsData.analysis}
     }
   }
 
-  if (userMessage.includes('天気') || userMessage.includes('スポーツ') || userMessage.includes('試合')) {
-    try {
-      console.log('Using Perplexity for weather/sports query');
-      return await perplexity.handleAllowedQuery(userMessage);
-    } catch (err) {
-      console.error('Perplexity error, falling back to OpenAI:', err);
+  // Consultant mode check with automatic switching
+  else if (hasTriggerTopic || hasConsultContext || mode === 'consultant') {
+    selectedModel = 'o1-preview-2024-09-12';
+    systemPrompt = SYSTEM_PROMPT_CONSULTANT;
+    mode = 'consultant';
+    
+    // Notify user of mode switch if it was automatic
+    if ((hasTriggerTopic || hasConsultContext) && history[history.length - 1]?.role === 'user') {
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '💡 より詳しくサポートするため、コンサルタントモードに切り替えさせていただきました。'
+      });
     }
   }
+  
+  // General chat mode (existing)
+  else {
+    mode = 'chat';
+    systemPrompt = `あなたは親しみやすいチャットボットです。
 
-  if (
-    lowered.includes('deeper') ||
-    lowered.includes('さらにわか') ||
-    lowered.includes('もっと深')
-  ) {
-    selectedModel = 'o1-preview-2024-09-12';
+[対応可能な話題]
+• 日常的な会話や雑談
+• 質問への回答やアドバイス
+  - 趣味や娯楽について
+  - 料理やレシピについて
+  - 旅行先や観光スポットについて
+  - 映画や音楽の感想
+  - 季節のイベントについて
+  - 一般的な生活の知恵
+• 一般的な情報提供
+
+[対応しない話題]
+• ビジネスや仕事の相談
+• 個人的な悩みや問題解決
+• キャリアに関する相談
+• メンタルヘルスに関する相談
+• 法律や医療に関する相談
+
+[注意事項]
+1. フレンドリーに会話してください
+2. 簡潔に回答してください
+3. 確実な情報のみを提供してください
+4. 専門的な相談には、コンサルタントモードへの切り替えを提案してください
+5. 対応できない話題の場合は、その旨を明確に伝えてください`;
   }
 
   console.log(`Using model: ${selectedModel}`);
