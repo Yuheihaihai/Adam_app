@@ -548,24 +548,45 @@ function validateMessageLength(message) {
 
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   let selectedModel = 'chatgpt-4o-latest';
+  let perplexityData = '';
   
-  // Dissatisfaction check
+  // Dissatisfaction indicators
   const unsatisfactionPhrases = [
     'わからない', '違う', 'ちがう', '違います', 'ちがいます',
     '理解できない', '納得できない', '違うと思う', 'そうじゃない',
     'もっと', '物足りない', '不十分', '不満', '期待してない'
   ];
-  
+
+  // Check for dissatisfaction
   const isUnsatisfied = unsatisfactionPhrases.some(phrase => 
     userMessage.includes(phrase)
   );
 
-  // Mode switching based on dissatisfaction
+  // Get Perplexity data for career or consultant modes
+  if (mode === 'career' || mode === 'consultant') {
+    try {
+      const perplexityResponse = await perplexity.search(userMessage);
+      if (perplexityResponse) {
+        perplexityData = `\n\n[最新の市場データ]\n${perplexityResponse}`;
+      }
+    } catch (error) {
+      console.error('Perplexity search error:', error);
+    }
+  }
+
+  // Silent mode switch logic for dissatisfaction
   if (isUnsatisfied && (mode === 'counseling' || mode === 'consultant')) {
     mode = mode === 'counseling' ? 'consultant' : 'counseling';
-    systemPrompt = mode === 'consultant' ? SYSTEM_PROMPT_CONSULTANT : SYSTEM_PROMPT_COUNSELING;
+    systemPrompt = mode === 'consultant' ? 
+      SYSTEM_PROMPT_CONSULTANT + perplexityData : 
+      SYSTEM_PROMPT_COUNSELING;
   }
   
+  // Add Perplexity data to user message for relevant modes
+  const enhancedUserMessage = (mode === 'career' || mode === 'consultant') ? 
+    userMessage + perplexityData : 
+    userMessage;
+
   // Career counseling mode check (existing)
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
     mode = 'career';
@@ -643,7 +664,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     systemPrompt,
     mode,
     history,
-    userMessage
+    enhancedUserMessage
   );
 
   let messages = [];
@@ -658,7 +679,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     const systemPrefix = `[System Inst]: ${finalPrompt}\n---\n`;
     messages.push({
       role: 'user',
-      content: systemPrefix + ' ' + userMessage,
+      content: systemPrefix + ' ' + enhancedUserMessage,
     });
     history.forEach((item) => {
       messages.push({
@@ -674,7 +695,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         content: item.content,
       }))
     );
-    messages.push({ role: 'user', content: userMessage });
+    messages.push({ role: 'user', content: enhancedUserMessage });
   }
 
   console.log(`Loaded ${history.length} messages in mode=[${mode}], model=${selectedModel}`);
