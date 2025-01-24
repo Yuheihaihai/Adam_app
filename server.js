@@ -532,7 +532,9 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   // Check for topics and context that should trigger consultant mode
   const consultantTopics = [
     'ビジネス', '仕事', '悩み', '問題', 'キャリア', 
-    'メンタル', '心理', '法律', '医療', '健康'
+    'メンタル', '心理', '法律', '医療', '健康',
+    '境界', '関係', 'ストレス', '不安', '自己',
+    'トラウマ', 'コミュニケーション'
   ];
   
   // Topic check
