@@ -549,57 +549,44 @@ function validateMessageLength(message) {
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   let selectedModel = 'chatgpt-4o-latest';
   
-  // Dissatisfaction indicators
+  // Dissatisfaction check
   const unsatisfactionPhrases = [
     'わからない', '違う', 'ちがう', '違います', 'ちがいます',
     '理解できない', '納得できない', '違うと思う', 'そうじゃない',
     'もっと', '物足りない', '不十分', '不満', '期待してない'
   ];
-
-  // Check for dissatisfaction
+  
   const isUnsatisfied = unsatisfactionPhrases.some(phrase => 
     userMessage.includes(phrase)
   );
 
-  // Personal experience indicators
-  const personalPhrases = [
-    '私は', '私が', '私の', '自分は', '自分が', '自分の',
-    '病む', '病ん', '辛い', 'つらい', '苦しい', '疲れ', 'しんどい'
-  ];
-
-  // Knowledge/professional topics
-  const consultantPhrases = [
-    'とは', 'って', 'について', '違い', '定義', '意味',
-    'どういう', 'どんな', 'どうやって', 'どうすれば',
-    'ビジネス', '仕事', 'キャリア', '法律', '医療', '健康',
-    'メンタル', '心理', '不安', '自己', 'トラウマ', '境界', '関係'
-  ];
-
-  // Check context and question type
-  const isPersonalQuestion = personalPhrases.some(topic => 
-    userMessage.includes(topic)
-  );
-
-  const isKnowledgeQuestion = consultantPhrases.some(topic => 
-    userMessage.includes(topic)
-  );
-
-  // Silent mode switch logic for dissatisfaction
+  // Mode switching based on dissatisfaction
   if (isUnsatisfied && (mode === 'counseling' || mode === 'consultant')) {
-    const currentMode = mode;
-    const newMode = currentMode === 'counseling' ? 'consultant' : 'counseling';
-    
-    if (newMode === 'consultant') {
-      selectedModel = 'o1-preview-2024-09-12';
-      systemPrompt = SYSTEM_PROMPT_CONSULTANT;
-      mode = 'consultant';
-    } else {
-      systemPrompt = SYSTEM_PROMPT_CAREER;
-      mode = 'counseling';
-    }
+    mode = mode === 'counseling' ? 'consultant' : 'counseling';
+    systemPrompt = mode === 'consultant' ? SYSTEM_PROMPT_CONSULTANT : SYSTEM_PROMPT_COUNSELING;
   }
+  
+  // Career counseling mode check (existing)
+  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
+    mode = 'career';
+    await client.pushMessage(userId, {
+      type: 'text',
+      text: '只今キャリアカウンセリングモードに移行中👩‍💼'
+    });
+  }
+  // Characteristic analysis mode check
+  else if (userMessage.includes('性格') || userMessage.includes('特性') || 
+           userMessage.includes('特徴') || userMessage.includes('ジョハリ') || 
+           userMessage.includes('盲点')) {
+    mode = 'characteristics';
+    await client.pushMessage(userId, {
+      type: 'text',
+      text: '只今分析中📖'
+    });
+  }
+  
   // Existing mode detection logic continues...
-  else if (isPersonalQuestion || mode === 'counseling') {
+  else if (mode === 'counseling') {
     mode = 'counseling';
     systemPrompt = SYSTEM_PROMPT_CAREER + `
 
@@ -607,14 +594,14 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
 • 話題が仕事や経営の相談に移った場合は、コンサルタントモードへの切り替えを提案してください
 • 話題が一般的な内容になった場合は、チャットモードへの切り替えを提案してください`;
     
-    if (isPersonalQuestion && history[history.length - 1]?.role === 'user') {
+    if (history[history.length - 1]?.role === 'user') {
       await client.pushMessage(userId, {
         type: 'text',
         text: '💭 お気持ちに寄り添ってお話をうかがわせていただきます。'
       });
     }
   }
-  else if (isKnowledgeQuestion || mode === 'consultant') {
+  else if (mode === 'consultant') {
     selectedModel = 'o1-preview-2024-09-12';
     systemPrompt = SYSTEM_PROMPT_CONSULTANT + `
 
@@ -625,7 +612,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
 • 必要に応じて専門家への相談を推奨する`;
     mode = 'consultant';
     
-    if (isKnowledgeQuestion && history[history.length - 1]?.role === 'user') {
+    if (history[history.length - 1]?.role === 'user') {
       await client.pushMessage(userId, {
         type: 'text',
         text: '💡 専門的な説明をさせていただきます。'
