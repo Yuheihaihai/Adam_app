@@ -570,31 +570,22 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       const jobTrendsData = await perplexity.getJobTrends(searchQuery);
       
       if (jobTrendsData?.analysis) {
-        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
+        console.log('✨ Perplexity market data successfully received');
         
+        // Send the formatted job analysis
         await client.pushMessage(userId, {
           type: 'text',
-          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
+          text: jobTrendsData.analysis
         });
 
-        if (jobTrendsData.urls) {
-          await client.pushMessage(userId, {
-            type: 'text',
-            text: '📎 参考求人情報：\n' + jobTrendsData.urls
-          });
-        }
-
-        perplexityContext = `
-[あなたの特性と市場分析に基づいた検索結果]
-${jobTrendsData.analysis}
-
-[分析の観点]
-上記の職種提案を考慮しながら、以下の点について分析してください：
-`;
-        systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
+        return null; // Return early since we've handled the message
       }
     } catch (err) {
       console.error('Perplexity search error:', err);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '申し訳ありません。検索時にエラーが発生しました。'
+      });
     }
   }
   
