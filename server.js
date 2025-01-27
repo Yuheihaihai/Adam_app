@@ -234,12 +234,20 @@ function checkRateLimit(userId) {
 const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職診断'];
 
 function determineModeAndLimit(userMessage) {
+  // Career counseling (exact match)
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
     return { mode: 'career', limit: 200 };
   }
-  if (userMessage.includes('思い出して') || userMessage.includes('記録') || userMessage.includes('過去の')) {
+  
+  // Memory recall - expanded patterns
+  if (userMessage.includes('思い出して') || 
+      userMessage.includes('記録') || 
+      userMessage.includes('過去の') || 
+      userMessage.includes('今までの')) {
     return { mode: 'memoryRecall', limit: 200 };
   }
+
+  // ... rest of the existing conditions ...
   return { mode: 'general', limit: 10 };
 }
 
