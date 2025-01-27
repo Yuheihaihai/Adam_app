@@ -9,7 +9,7 @@ import path from 'path';
 import helmet from 'helmet';
 import { Anthropic } from '@anthropic-ai/sdk';
 import timeout from 'connect-timeout';
-import { detectTopicFromHistory } from './utils/contextDetection';
+import { contextDetection } from './utils/contextDetection.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -19,7 +19,11 @@ app.set('trust proxy', 1);
 app.use(helmet());
 app.use(timeout('60s'));
 
-const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
+const config = {
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.CHANNEL_SECRET
+};
+
 const client = new line.Client(config);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
