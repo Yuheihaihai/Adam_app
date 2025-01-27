@@ -238,48 +238,21 @@ function checkRateLimit(userId) {
 
 const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職診断'];
 
-function determineModeAndLimit(userMessage) {
-  console.log('Checking message for career keywords:', userMessage);
+function determineModeAndLimit(message) {
+  console.log('🔍 Determining mode for message:', message);
   
-  const hasCareerKeyword = careerKeywords.some(keyword => {
-    const includes = userMessage.includes(keyword);
-    if (includes) {
-      console.log(`Career keyword detected: ${keyword}`);
-    }
-    return includes;
-  });
+  let mode = 'general';
+  let limit = 10;
 
-  if (hasCareerKeyword) {
-    console.log('Setting career mode');
-    return { mode: 'career', limit: 200 };
+  if (message.includes('思い出して') || message.includes('記録')) {
+    console.log('📖 Memory recall mode activated');
+    mode = 'memory';
+    limit = 200;
   }
-
-  const lcMsg = userMessage.toLowerCase();
-  if (
-    lcMsg.includes('特性') ||
-    lcMsg.includes('分析') ||
-    lcMsg.includes('思考') ||
-    lcMsg.includes('傾向') ||
-    lcMsg.includes('パターン') ||
-    lcMsg.includes('コミュニケーション') ||
-    lcMsg.includes('対人関係') ||
-    lcMsg.includes('性格')
-  ) {
-    return { mode: 'characteristics', limit: 200 };
-  }
-  if (lcMsg.includes('思い出して') || lcMsg.includes('今までの話')) {
-    return { mode: 'memoryRecall', limit: 200 };
-  }
-  if (
-    lcMsg.includes('人間関係') ||
-    lcMsg.includes('友人') ||
-    lcMsg.includes('同僚') ||
-    lcMsg.includes('恋愛') ||
-    lcMsg.includes('パートナー')
-  ) {
-    return { mode: 'humanRelationship', limit: 200 };
-  }
-  return { mode: 'general', limit: 10 };
+  // ... rest of the function ...
+  
+  console.log(`✨ Determined mode: ${mode}, limit: ${limit}`);
+  return { mode, limit };
 }
 
 function getSystemPromptForMode(mode) {
@@ -330,25 +303,37 @@ async function storeInteraction(userId, role, content) {
 
 async function fetchUserHistory(userId, limit) {
   try {
-    console.log(`📚 Airtable: Fetching history for user ${userId}`);
+    console.log(`📚 Airtable: Fetching history for user ${userId}, limit: ${limit}`);
     console.log('Table name:', INTERACTIONS_TABLE);
+    console.log('Base ID:', process.env.AIRTABLE_BASE_ID);
+    
+    const formula = `{UserID} = '${userId}'`;
+    console.log('Filter formula:', formula);
     
     const records = await base(INTERACTIONS_TABLE)
       .select({
-        filterByFormula: `{UserID} = '${userId}'`,
+        filterByFormula: formula,
         sort: [{ field: 'Timestamp', direction: 'desc' }],
         maxRecords: limit,
       })
       .all();
     
     console.log(`✅ Airtable: Found ${records.length} records`);
-    return records.map(record => ({
+    
+    const history = records.map(record => ({
       role: record.get('Role'),
       content: record.get('Content'),
     }));
+    
+    console.log('History sample:', history.slice(0, 2));
+    return history;
+    
   } catch (error) {
     console.error('❌ Airtable Error in fetchUserHistory:', error.message);
     console.error('Full error:', error);
+    if (error.response) {
+      console.error('Error response:', error.response.data);
+    }
     return [];
   }
 }
