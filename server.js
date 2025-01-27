@@ -6,6 +6,7 @@ const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
+const { detectTopicFromHistory } = require('./utils/contextDetection');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -664,7 +665,7 @@ ${jobTrendsData.analysis}
 5. 対応できない話題の場合は、その旨を明確に伝えてください`;
   }
 
-  // Switch to "o1-preview..." if deeper request
+  // Enhanced model selection with context preservation
   if (
     userMessage.toLowerCase().includes('a request for a deeper exploration of the ai\'s thoughts') ||
     userMessage.toLowerCase().includes('deeper') ||
@@ -672,6 +673,19 @@ ${jobTrendsData.analysis}
     userMessage.toLowerCase().includes('もっと深')
   ) {
     selectedModel = 'o1-preview-2024-09-12';
+    
+    // Add context preservation for specific topics
+    const contextualTopics = {
+      career: 'You are analyzing career paths and professional development. Previous context should be maintained.',
+      characteristics: 'You are analyzing personality and characteristics. Previous context should be maintained.',
+      personal: 'You are providing personal advice and insights. Previous context should be maintained.'
+    };
+
+    // Detect topic from conversation history
+    const topic = detectTopicFromHistory(history);
+    if (topic && contextualTopics[topic]) {
+      systemPrompt = `${systemPrompt}\n\n${contextualTopics[topic]}`;
+    }
   }
 
   console.log(`Using model: ${selectedModel}`);
