@@ -21,15 +21,19 @@ const client = new line.Client(config);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const perplexity = {
-  search: async function(query) {
+class PerplexitySearch {
+  constructor(apiKey) {
+    this.apiKey = apiKey;
+  }
+
+  async search(query) {
     try {
       const response = await axios.post('https://api.perplexity.ai/chat/completions', {
         model: 'mixtral-8x7b-instruct',
         messages: [{ role: 'user', content: query }]
       }, {
         headers: {
-          'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
+          'Authorization': `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json'
         }
       });
@@ -39,7 +43,9 @@ const perplexity = {
       return 'Sorry, I encountered an error while searching.';
     }
   }
-};
+}
+
+const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
 
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
