@@ -301,42 +301,54 @@ function getSystemPromptForMode(mode) {
 
 async function storeInteraction(userId, role, content) {
   try {
-    console.log('📝 Airtable: Storing interaction');
+    console.log('📝 Airtable: Starting to store interaction');
+    console.log(`UserID: ${userId}, Role: ${role}, Content length: ${content.length}`);
+    
     const result = await base(INTERACTIONS_TABLE).create([
       {
         fields: {
-          User_Id: userId,
+          UserID: userId,  // Make sure this matches exactly with your Airtable column name
           Role: role,
           Content: content,
           Timestamp: new Date().toISOString(),
         },
       },
     ]);
-    console.log('✅ Airtable: Interaction stored');
+    console.log('✅ Airtable: Successfully stored interaction:', result.length, 'records');
     return result;
   } catch (error) {
-    console.error('❌ Airtable Error:', error);
+    console.error('❌ Airtable Error:', error.message);
+    console.error('Error details:', {
+      statusCode: error.statusCode,
+      error: error.error,
+      table: INTERACTIONS_TABLE,
+      fields: error.fields
+    });
     return null;
   }
 }
 
 async function fetchUserHistory(userId, limit) {
   try {
-    console.log(`📚 Airtable: Fetching history for user ${userId}, limit=${limit}`);
+    console.log(`📚 Airtable: Fetching history for user ${userId}`);
+    console.log('Table name:', INTERACTIONS_TABLE);
+    
     const records = await base(INTERACTIONS_TABLE)
       .select({
-        filterByFormula: `{UserId} = '${userId}'`,
+        filterByFormula: `{UserID} = '${userId}'`,
         sort: [{ field: 'Timestamp', direction: 'desc' }],
         maxRecords: limit,
       })
       .all();
-    console.log(`✅ Airtable: Retrieved ${records.length} records`);
+    
+    console.log(`✅ Airtable: Found ${records.length} records`);
     return records.map(record => ({
       role: record.get('Role'),
       content: record.get('Content'),
     }));
   } catch (error) {
-    console.error('❌ Airtable Error:', error);
+    console.error('❌ Airtable Error in fetchUserHistory:', error.message);
+    console.error('Full error:', error);
     return [];
   }
 }
