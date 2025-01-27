@@ -713,24 +713,26 @@ process.on('SIGTERM', () => {
 });
 
 // Try to start the server with retries
-const startServer = (retries = 3) => {
+const startServer = () => {
   try {
     const server = app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
     });
 
     server.on('error', (err) => {
-      if (err.code === 'EADDRINUSE' && retries > 0) {
-        console.log(`Port ${PORT} in use, retrying... (${retries} attempts left)`);
-        setTimeout(() => {
-          server.close();
-          startServer(retries - 1);
-        }, 1000);
-      } else {
-        console.error('Server error:', err);
-        process.exit(1);
-      }
+      console.error('Server error:', err);
+      // Don't retry on Heroku - just exit and let Heroku restart
+      process.exit(1);
     });
+
+    // Handle cleanup on shutdown
+    process.on('SIGINT', () => {
+      server.close(() => {
+        console.log('Server closed gracefully');
+        process.exit(0);
+      });
+    });
+
   } catch (err) {
     console.error('Failed to start server:', err);
     process.exit(1);
