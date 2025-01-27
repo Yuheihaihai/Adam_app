@@ -500,10 +500,6 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     userMessage.includes(topic)
   );
 
-  const needsConsultant = consultantTopics.some(topic => 
-    userMessage.includes(topic)
-  );
-
   // Career counseling mode check (highest priority trigger)
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
     try {
@@ -566,7 +562,10 @@ ${jobTrendsData.analysis}
         text: '💭 お気持ちに寄り添ってお話をうかがわせていただきます。'
       });
     }
-  } else {
+  }
+  
+  // General chat mode (lowest priority)
+  else {
     mode = 'chat';
     systemPrompt = `あなたは親しみやすいチャットボットです。
 
