@@ -626,37 +626,42 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   );
 
   let messages = [];
-  let gptOptions = {
-    model: selectedModel,
-    messages,
-    temperature: 0.7,
-  };
-
+  
+  // Filter out any messages with null content
+  const validHistory = history.filter(item => item && item.content != null);
+  
   if (selectedModel === 'o1-preview-2024-09-12') {
-    gptOptions.temperature = 1;
     const systemPrefix = `[System Inst]: ${finalPrompt}\n---\n`;
     messages.push({
       role: 'user',
       content: systemPrefix + ' ' + userMessage,
     });
-    history.forEach((item) => {
-      messages.push({
-        role: 'user',
-        content: `(${item.role} said:) ${item.content}`,
-      });
+    validHistory.forEach((item) => {
+      if (item.content) {  // Additional null check
+        messages.push({
+          role: 'user',
+          content: `(${item.role} said:) ${item.content}`,
+        });
+      }
     });
   } else {
     messages.push({ role: 'system', content: finalPrompt });
     messages.push(
-      ...history.map((item) => ({
+      ...validHistory.map((item) => ({
         role: item.role,
-        content: item.content,
+        content: item.content || '',  // Ensure content is never null
       }))
     );
-    messages.push({ role: 'user', content: userMessage });
+    messages.push({ role: 'user', content: userMessage || '' });
   }
 
-  console.log(`Loaded ${history.length} messages in mode=[${mode}], model=${selectedModel}`);
+  let gptOptions = {
+    model: selectedModel,
+    messages,
+    temperature: selectedModel === 'o1-preview-2024-09-12' ? 1 : 0.7,
+  };
+
+  console.log(`Loaded ${validHistory.length} valid messages in mode=[${mode}], model=${selectedModel}`);
 
   const aiDraft = await tryPrimaryThenBackup(gptOptions);
 
