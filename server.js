@@ -184,43 +184,6 @@ const SYSTEM_PROMPT_HUMAN_RELATIONSHIP = `
 日本語200文字以内。共感的かつ建設的に。
 `;
 
-const SYSTEM_PROMPT_CONSULTANT = `あなたは優秀な「Adam」という非常に優秀なエリートビジネスコンサルタントです。以下の思考プロセスと指示に従って回答してください：
-
-[思考プロセス]
-1. 現状認識（質問理解）
-   • ユーザーの質問や課題の背景を理解
-   • 明確な事実と不明点を区別
-   • 追加で必要な情報を特定
-
-2. 主題定義（論点抽出→構造化）
-   • 本質的な問題点を特定
-   • 問題の構造を整理
-   • 優先順位を設定
-
-3. 解決策の立案
-   • 具体的な対応方法を提示
-   • 実行可能なステップを明示
-   • 期待される効果を説明
-
-[回答における注意点]
-1. 確実な情報のみを提供し、不確かな情報は含めない
-2. 具体的な事実やデータに基づいて説明する
-3. 推測や憶測を避け、「かもしれない」などの曖昧な表現は使用しない
-4. 追加情報が必要な場合は、具体的に質問する
-5. 話題が完全に変わるまでコンサルタントモードを維持する
-
-[回答形式]
-• 現状認識：（質問の背景と理解）
-• 本質的課題：（特定された核心的な問題）
-• 解決策：（具体的な対応方法）
-• 実行ステップ：（具体的なアクション）
-• 期待効果：（具体的な成果）
-• 留意点：（実践時の注意事項）
-• 必ず短く簡潔でわかりやすい（平たい表現）を使ってまとめる。（必ず200字以内）
-
-[継続確認]
-この話題について追加の質問やお悩みがありましたら、お気軽にお申し付けください。`;
-
 const rateLimit = new Map();
 
 function checkRateLimit(userId) {
@@ -292,8 +255,6 @@ function getSystemPromptForMode(mode) {
       return SYSTEM_PROMPT_MEMORY_RECALL;
     case 'humanRelationship':
       return SYSTEM_PROMPT_HUMAN_RELATIONSHIP;
-    case 'consultant':
-      return SYSTEM_PROMPT_CONSULTANT;
     default:
       return SYSTEM_PROMPT_GENERAL;
   }
@@ -533,78 +494,17 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   const counselingTopics = [
     'メンタル', '心理',
   ];
-
-  // Business/career consultant topics (second priority)
-  const consultantTopics = [
-    'ビジネス', '仕事', '悩み', '問題', 'キャリア', 
-    '法律', '医療', '健康', 'コミュニケーション'
-  ];
   
   // Priority order check
   const needsCounseling = counselingTopics.some(topic => 
     userMessage.includes(topic)
   );
-
-  const needsConsultant = consultantTopics.some(topic => 
-    userMessage.includes(topic)
-  );
-
-  // Career counseling mode check (highest priority trigger)
-  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
-    try {
-      console.log('Career-related query detected, fetching job market trends...');
-      
-      // Get user characteristics from history
-      const userTraits = history
-        .filter(h => h.role === 'assistant' && h.content.includes('あなたの特徴：'))
-        .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
-      
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
-      });
-
-      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
-      console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
-      
-      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
-      
-      if (jobTrendsData?.analysis) {
-        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
-        
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
-        });
-
-        if (jobTrendsData.urls) {
-          await client.pushMessage(userId, {
-            type: 'text',
-            text: '📎 参考求人情報：\n' + jobTrendsData.urls
-          });
-        }
-
-        perplexityContext = `
-[あなたの特性と市場分析に基づいた検索結果]
-${jobTrendsData.analysis}
-
-[分析の観点]
-上記の職種提案を考慮しながら、以下の点について分析してください：
-`;
-        systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
-      }
-    } catch (err) {
-      console.error('Perplexity search error:', err);
-    }
-  }
   
-  // Mental health counseling mode (second priority)
-  else if (needsCounseling || mode === 'counseling') {
+  // Mental health counseling mode
+  if (needsCounseling || mode === 'counseling') {
     mode = 'counseling';
     systemPrompt = SYSTEM_PROMPT_CAREER + `
-
 [注意事項]
-• 話題が仕事や経営の相談に移った場合は、コンサルタントモードへの切り替えを提案してください
 • 話題が一般的な内容になった場合は、チャットモードへの切り替えを提案してください`;
     
     if (needsCounseling && history[history.length - 1]?.role === 'user') {
@@ -614,26 +514,7 @@ ${jobTrendsData.analysis}
       });
     }
   }
-  
-  // Consultant mode (third priority)
-  else if (needsConsultant || mode === 'consultant') {
-    selectedModel = 'o1-preview-2024-09-12';
-    systemPrompt = SYSTEM_PROMPT_CONSULTANT + `
-
-[注意事項]
-• 話題がメンタルヘルスに関わる場合は、カウンセリングモードへの切り替えを提案してください
-• 話題が一般的な内容になった場合は、チャットモードへの切り替えを提案してください`;
-    mode = 'consultant';
-    
-    if (needsConsultant && history[history.length - 1]?.role === 'user') {
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: '💡 より詳しくサポートするため、コンサルタントモードに切り替えさせていただきました。'
-      });
-    }
-  }
-  
-  // General chat mode (lowest priority)
+  // General chat mode
   else {
     mode = 'chat';
     systemPrompt = `あなたは親しみやすいチャットボットです。
@@ -660,8 +541,7 @@ ${jobTrendsData.analysis}
 1. フレンドリーに会話してください
 2. 簡潔に回答してください
 3. 確実な情報のみを提供してください
-4. 専門的な相談には、コンサルタントモードへの切り替えを提案してください
-5. 対応できない話題の場合は、その旨を明確に伝えてください`;
+4. 対応できない話題の場合は、その旨を明確に伝えてください`;
   }
 
   console.log(`Using model: ${selectedModel}`);
