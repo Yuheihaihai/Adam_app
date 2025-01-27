@@ -39,7 +39,7 @@ const client = new line.Client(config);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const PerplexitySearch = require('./perplexitySearch');
-const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
+const perplexitySearch = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
 
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
@@ -537,7 +537,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
       console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
       
-      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
+      const jobTrendsData = await perplexitySearch.getJobTrends(searchQuery);
       
       if (jobTrendsData?.analysis) {
         console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
@@ -665,16 +665,30 @@ ${jobTrendsData.analysis}
 }
 
 async function handleEvent(event) {
-  console.log('Received event:', JSON.stringify(event));
   if (event.type !== 'message' || event.message.type !== 'text') {
-    console.log('Not a text message => ignoring');
-    return null;
+    return Promise.resolve(null);
   }
 
   const userMessage = event.message.text;
+
   try {
-    const replyText = await perplexitySearch(userMessage, process.env.PERPLEXITY_API_KEY);
-    return client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+    if (userMessage.includes('適職診断')) {
+      console.log('Career-related query detected, fetching job market trends...');
+      const result = await perplexitySearch.getJobTrends(userMessage);
+      
+      if (!result) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: '申し訳ありません。検索時にエラーが発生しました。'
+        });
+      }
+
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: result.analysis + (result.urls ? '\n\n[求人情報]\n' + result.urls : '')
+      });
+    }
+    // ... rest of the existing code ...
   } catch (error) {
     console.error('Error from perplexitySearch:', error);
     return client.replyMessage(event.replyToken, {
