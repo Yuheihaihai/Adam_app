@@ -1,22 +1,25 @@
 import 'dotenv/config';
-const express = require('express');
-const helmet = require('helmet');
-const line = require('@line/bot-sdk');
-const Airtable = require('airtable');
-const { OpenAI } = require('openai');
-const { Anthropic } = require('@anthropic-ai/sdk');
-const timeout = require('connect-timeout');
-const { detectTopicFromHistory } = require('./utils/contextDetection');
+import express from 'express';
+import line from '@line/bot-sdk';
+import OpenAI from 'openai';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import fs from 'fs';
+import path from 'path';
+import helmet from 'helmet';
+import { Anthropic } from '@anthropic-ai/sdk';
+import timeout from 'connect-timeout';
+import { detectTopicFromHistory } from './utils/contextDetection';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
 app.use(timeout('60s'));
 
-const config = {
-  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.CHANNEL_SECRET,
-};
+const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
 const client = new line.Client(config);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
