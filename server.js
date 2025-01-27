@@ -1,4 +1,4 @@
-require('dotenv').config();
+import 'dotenv/config';
 const express = require('express');
 const helmet = require('helmet');
 const line = require('@line/bot-sdk');
@@ -555,7 +555,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     try {
       await client.pushMessage(userId, {
         type: 'text',
-        text: '💭 キャリアプランと特性分析を開始します。過去の会話履歴を確認しています...\n\n※詳細な分析には2-3分ほどお時間をいただく場合があります。'
+        text: '💭 キャリアプラン提案を開始します。過去の会話履歴を確認しています...\n\n※詳細な分析には2-3分ほどお時間をいただく場合があります。'
       });
 
       console.log('Career-related query detected, fetching job market trends...');
