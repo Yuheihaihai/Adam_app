@@ -133,7 +133,7 @@ class PerplexitySearch {
       console.log('Making Perplexity API request...');
       
       const response = await axios.post('https://api.perplexity.ai/chat/completions', {
-        model: 'mistral-7b-instruct',
+        model: 'sonar',
         messages: [{
           role: 'user',
           content: query
@@ -147,20 +147,17 @@ class PerplexitySearch {
         }
       });
 
-      if (!response.data) {
-        throw new Error('No data received from Perplexity API');
+      if (!response.ok) {
+        throw new Error(`Perplexity API error: ${response.status}`);
       }
 
-      const content = response.data.choices?.[0]?.message?.content || '';
-      console.log('Received Perplexity response:', content);
-      
+      const data = await response.json();
       return {
-        analysis: content,
-        urls: null
+        analysis: data.choices[0].message.content,
+        urls: data.choices[0].message.content.match(/https?:\/\/[^\s]+/g)?.join('\n')
       };
-
     } catch (error) {
-      console.error('Perplexity search error:', error.response?.data || error.message);
+      console.error('Perplexity search error:', error);
       return null;
     }
   }
