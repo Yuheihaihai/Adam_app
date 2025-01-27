@@ -1,4 +1,5 @@
 const { OpenAI } = require('openai');
+const axios = require('axios');
 
 class PerplexitySearch {
   constructor(apiKey) {
@@ -127,35 +128,39 @@ class PerplexitySearch {
            query.includes('sports');
   }
 
-  async getJobTrends(searchQuery = '新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。') {
+  async getJobTrends(query) {
     try {
-      console.log('Fetching job market trends');
-      const response = await this.client.chat.completions.create({
-        model: "sonar",
+      console.log('Making Perplexity API request...');
+      
+      const response = await axios.post('https://api.perplexity.ai/chat/completions', {
+        model: 'mistral-7b-instruct',
         messages: [{
-          role: 'system',
-          content: '以下の指示に従って回答してください：\n\n1. 確実な情報のみを提供し、不確かな情報は含めないでください\n2. 具体的な事実やデータに基づいて説明してください\n3. 推測や憶測は避け、「かもしれない」などの曖昧な表現は使用しないでください\n\n以下の2つの情報を分けて提供してください：\n\n[あなたの特性と市場分析に基づいた検索結果]\n新興職種について、必要なスキル、将来性、具体的な事例を含めて（1000文字以内で簡潔に）\n\n[求人情報]\nIndeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度）'
-        }, {
           role: 'user',
-          content: searchQuery
+          content: query
         }],
-        max_tokens: 1000,
-        temperature: 0.7,
-        timeout: 20000
+        max_tokens: 1024,
+        temperature: 0.7
+      }, {
+        headers: {
+          'Authorization': `Bearer ${this.client.apiKey}`,
+          'Content-Type': 'application/json'
+        }
       });
 
-      const content = response.choices[0]?.message?.content || '';
-      const [mainText, urlSection] = content.split('[求人情報]');
+      if (!response.data) {
+        throw new Error('No data received from Perplexity API');
+      }
+
+      const content = response.data.choices?.[0]?.message?.content || '';
+      console.log('Received Perplexity response:', content);
       
       return {
-        analysis: mainText?.replace('[あなたの特性と市場分析に基づいた検索結果]', '').trim() || null,
-        urls: urlSection?.trim() || null
+        analysis: content,
+        urls: null
       };
+
     } catch (error) {
-      console.error('Perplexity job trends error:', error);
-      if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
-        console.log('Perplexity timeout, returning null');
-      }
+      console.error('Perplexity search error:', error.response?.data || error.message);
       return null;
     }
   }
