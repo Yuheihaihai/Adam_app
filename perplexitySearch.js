@@ -130,13 +130,11 @@ class PerplexitySearch {
 
   async getJobTrends(query) {
     try {
-      console.log('Making Perplexity API request...');
-      
       const response = await axios.post('https://api.perplexity.ai/chat/completions', {
         model: 'sonar',
         messages: [{
           role: 'user',
-          content: query
+          content: `${query}\n\n具体的な求人情報のURLも含めて回答してください。`
         }],
         max_tokens: 1024,
         temperature: 0.7
@@ -147,14 +145,9 @@ class PerplexitySearch {
         }
       });
 
-      if (!response.ok) {
-        throw new Error(`Perplexity API error: ${response.status}`);
-      }
-
-      const data = await response.json();
       return {
-        analysis: data.choices[0].message.content,
-        urls: data.choices[0].message.content.match(/https?:\/\/[^\s]+/g)?.join('\n')
+        analysis: response.data.choices[0].message.content,
+        urls: response.data.choices[0].message.content.match(/https?:\/\/[^\s]+/g)?.join('\n')
       };
     } catch (error) {
       console.error('Perplexity search error:', error);
