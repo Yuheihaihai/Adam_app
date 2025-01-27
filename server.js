@@ -706,22 +706,12 @@ app.post('/webhook', line.middleware(config), (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-const startServer = () => {
-  const server = app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-  }).on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.log(`Port ${PORT} is busy, please try another port`);
-      process.exit(1);
-    } else {
-      console.error('Server error:', err);
-      process.exit(1);
-    }
-  });
-};
-
-// Start the server
-startServer();
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+}).on('error', (err) => {
+  console.error('Server error:', err);
+  process.exit(1);
+});
 
 const RATE_LIMIT_CLEANUP_INTERVAL = 1000 * 60 * 60;
 
