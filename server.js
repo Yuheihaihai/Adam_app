@@ -6,23 +6,11 @@ const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
-const perplexitySearch = require('./perplexitySearch');
-const cors = require('cors');
 
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
 app.use(timeout('60s'));
-
-// Configure CORS
-app.use(cors({
-  origin: [
-    'https://www.herokucdn.com',
-    'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'
-  ],
-  methods: ['GET', 'POST'],
-  credentials: true
-}));
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
@@ -33,7 +21,7 @@ const client = new line.Client(config);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const PerplexitySearch = require('./perplexitySearch');
-const perplexity = perplexitySearch;
+const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
 
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
@@ -530,7 +518,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
       console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
       
-      const jobTrendsData = await perplexitySearch.search(searchQuery, process.env.PERPLEXITY_API_KEY);
+      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
       
       if (jobTrendsData?.analysis) {
         console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
@@ -705,54 +693,19 @@ app.get('/', (req, res) => {
   res.send('Adam App Cloud v2.3 is running. Ready for LINE requests.');
 });
 
-app.post('/webhook', line.middleware(config), async (req, res) => {
-  try {
-    const events = req.body.events;
-    const results = await Promise.all(
-      events.map(async (event) => {
-        try {
-          await handleEvent(event);
-        } catch (err) {
-          console.error('Event handling error:', err);
-        }
-      })
-    );
-    
-    // Always return 200 to LINE after processing events
-    res.status(200).json({
-      status: 'ok'
+app.post('/webhook', line.middleware(config), (req, res) => {
+  console.log('Webhook was called! Events:', req.body.events);
+  Promise.all(req.body.events.map(handleEvent))
+    .then((result) => res.json(result))
+    .catch((err) => {
+      console.error('Webhook error:', err);
+      res.status(200).json({});
     });
-  } catch (err) {
-    console.error('Webhook error:', err);
-    // Still return 200 even on error to prevent LINE from retrying
-    res.status(200).json({
-      status: 'error',
-      message: 'Internal server error'
-    });
-  }
 });
 
-const port = process.env.PORT || 3000;
-
-// Create server instance
-const server = app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-}).on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`Port ${port} is already in use`);
-    process.exit(1);
-  } else {
-    console.error('Server error:', err);
-    process.exit(1);
-  }
-});
-
-// Add graceful shutdown
-process.on('SIGTERM', () => {
-  server.close(() => {
-    console.log('Server shutting down');
-    process.exit(0);
-  });
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Listening on port ${PORT}`);
 });
 
 const RATE_LIMIT_CLEANUP_INTERVAL = 1000 * 60 * 60;
