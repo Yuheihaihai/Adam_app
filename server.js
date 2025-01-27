@@ -22,7 +22,6 @@ const client = new line.Client(config);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const PerplexitySearch = require('./perplexitySearch');
-const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
 
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
@@ -519,7 +518,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
       console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
       
-      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
+      const jobTrendsData = await perplexitySearch(searchQuery);
       
       if (jobTrendsData?.analysis) {
         console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
