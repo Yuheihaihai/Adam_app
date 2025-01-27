@@ -5,6 +5,7 @@ const line = require('@line/bot-sdk');
 const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
+const PerplexitySearch = require('./perplexitySearch');
 
 const app = express();
 app.use(helmet());
@@ -16,6 +17,7 @@ const config = {
 const client = new line.Client(config);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(process.env.AIRTABLE_BASE_ID);
 
 const INTERACTIONS_TABLE = 'ConversationHistory';
@@ -658,36 +660,33 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
 }
 
 async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') {
-    return null;
-  }
+  if (event.type !== 'message' || event.message.type !== 'text') return null;
 
-  const userId = event.source?.userId || 'unknown';
-  const userMessage = validateMessageLength(event.message.text.trim());
-
-  // Store user message in parallel with other operations
-  const storePromise = storeInteraction(userId, 'user', userMessage);
+  const userId = event.source?.userId;
+  const userMessage = event.message.text.trim();
 
   const { mode, limit } = determineModeAndLimit(userMessage);
   const history = await fetchUserHistory(userId, limit);
   const systemPrompt = getSystemPromptForMode(mode);
 
-  const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId, client);
-
-  // Wait for store operation to complete
-  await storePromise;
-  // Store AI reply in parallel with sending
-  const storeReplyPromise = storeInteraction(userId, 'assistant', aiReply);
-
-  const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
-  
   try {
+    const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId, client);
+    if (!aiReply) throw new Error('No AI reply received');
+
     await Promise.all([
-      client.replyMessage(event.replyToken, lineMessage),
-      storeReplyPromise
+      storeInteraction(userId, 'user', userMessage),
+      storeInteraction(userId, 'assistant', aiReply),
+      client.replyMessage(event.replyToken, { 
+        type: 'text', 
+        text: aiReply.slice(0, 2000) 
+      })
     ]);
-  } catch (err) {
-    console.error('Error:', err);
+  } catch (error) {
+    console.error('Error:', error);
+    await client.replyMessage(event.replyToken, { 
+      type: 'text', 
+      text: 'すみません、エラーが発生しました。もう一度お試しください。' 
+    });
   }
 }
 
@@ -698,10 +697,7 @@ app.get('/', (req, res) => {
 app.post('/webhook', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
-    .catch((err) => {
-      console.error('Webhook:', err);
-      res.status(200).json({});
-    });
+    .catch(() => res.status(200).end());
 });
 
 const PORT = process.env.PORT || 3000;
