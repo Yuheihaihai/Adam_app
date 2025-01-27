@@ -21,7 +21,9 @@ const client = new line.Client(config);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const perplexity = new Perplexity(process.env.PERPLEXITY_API_KEY).client();
+const perplexity = Perplexity.init({
+  apiKey: process.env.PERPLEXITY_API_KEY
+});
 
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
