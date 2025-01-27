@@ -734,11 +734,25 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
 
 const port = process.env.PORT || 3000;
 
-app.listen(port, () => {
+// Create server instance
+const server = app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 }).on('error', (err) => {
-  console.error('Server error:', err);
-  process.exit(1);
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${port} is already in use`);
+    process.exit(1);
+  } else {
+    console.error('Server error:', err);
+    process.exit(1);
+  }
+});
+
+// Add graceful shutdown
+process.on('SIGTERM', () => {
+  server.close(() => {
+    console.log('Server shutting down');
+    process.exit(0);
+  });
 });
 
 const RATE_LIMIT_CLEANUP_INTERVAL = 1000 * 60 * 60;
