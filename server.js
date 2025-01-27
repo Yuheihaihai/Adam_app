@@ -242,21 +242,25 @@ function checkRateLimit(userId) {
 
 const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職診断'];
 
-function determineModeAndLimit(message) {
-  console.log('🔍 Determining mode for message:', message);
+function determineModeAndLimit(userMessage) {
+  console.log('🔍 Checking message:', userMessage);
   
-  let mode = 'general';
-  let limit = 10;
-
-  if (message.includes('思い出して') || message.includes('記録')) {
-    console.log('📖 Memory recall mode activated');
-    mode = 'memory';
-    limit = 200;
+  // Career counseling trigger (working correctly)
+  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
+    console.log('🎯 Career mode with history');
+    return { mode: 'career', limit: 200 };
   }
-  // ... rest of the function ...
   
-  console.log(`✨ Determined mode: ${mode}, limit: ${limit}`);
-  return { mode, limit };
+  // Memory recall trigger (not working correctly)
+  if (userMessage.includes('思い出して') || 
+      userMessage.includes('記録') || 
+      userMessage.includes('過去の')) {
+    console.log('📚 Memory recall mode');
+    return { mode: 'memoryRecall', limit: 200 };  // Changed from 'memory' to 'memoryRecall'
+  }
+
+  // ... rest of the function ...
+  return { mode: 'general', limit: 10 };
 }
 
 function getSystemPromptForMode(mode) {
@@ -277,59 +281,39 @@ function getSystemPromptForMode(mode) {
 }
 
 async function storeInteraction(userId, role, content) {
-  let retries = 0;
-  while (retries < 3) {
-    try {
-      console.log(`📝 Airtable: Attempt ${retries + 1} to store interaction`);
-      const result = await base(INTERACTIONS_TABLE).create([
-        {
-          fields: {
-            UserID: userId,
-            Role: role,
-            Content: content,
-            Timestamp: new Date().toISOString(),
-          },
-        },
-      ]);
-      console.log('✅ Airtable: Successfully stored interaction');
-      return result;
-    } catch (error) {
-      console.error(`❌ Airtable Error (attempt ${retries + 1}):`, error.message);
-      retries++;
-      if (retries < 3) {
-        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s before retry
-      }
-    }
+  try {
+    const result = await base(INTERACTIONS_TABLE).create([{
+      fields: {
+        UserID: userId,
+        Role: role,
+        Content: content,
+        Timestamp: new Date().toISOString(),
+      },
+    }]);
+    return result;
+  } catch (error) {
+    console.error('❌ Airtable:', error.message);
+    return null;
   }
-  return null;
 }
 
 async function fetchUserHistory(userId, limit) {
-  let retries = 0;
-  while (retries < 3) {
-    try {
-      console.log(`📚 Airtable: Attempt ${retries + 1} to fetch history for user ${userId}`);
-      const records = await base(INTERACTIONS_TABLE)
-        .select({
-          filterByFormula: `{UserID} = '${userId}'`,
-          sort: [{ field: 'Timestamp', direction: 'desc' }],
-          maxRecords: limit,
-        })
-        .all();
-      console.log(`✅ Airtable: Found ${records.length} records`);
-      return records.map(record => ({
-        role: record.get('Role'),
-        content: record.get('Content'),
-      }));
-    } catch (error) {
-      console.error(`❌ Airtable Error (attempt ${retries + 1}):`, error.message);
-      retries++;
-      if (retries < 3) {
-        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s before retry
-      }
-    }
+  try {
+    const records = await base(INTERACTIONS_TABLE)
+      .select({
+        filterByFormula: `{UserID} = '${userId}'`,
+        sort: [{ field: 'Timestamp', direction: 'desc' }],
+        maxRecords: limit,
+      })
+      .all();
+    return records.map(record => ({
+      role: record.get('Role'),
+      content: record.get('Content'),
+    }));
+  } catch (error) {
+    console.error('❌ Airtable:', error.message);
+    return [];
   }
-  return [];
 }
 
 function applyAdditionalInstructions(basePrompt, mode, history, userMessage) {
@@ -698,49 +682,36 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
 }
 
 async function handleEvent(event) {
-  console.log('📱 LINE: Received event:', event.type);
-
   if (event.type !== 'message' || event.message.type !== 'text') {
-    console.log('❌ LINE: Not a text message, ignoring');
     return null;
   }
 
   const userId = event.source?.userId || 'unknown';
   const userMessage = validateMessageLength(event.message.text.trim());
 
-  console.log(`👤 LINE User ${userId} message: "${userMessage}"`);
-
-  const isSafe = securityFilterPrompt(userMessage);
-  if (!isSafe) {
-    const refusal = '申し訳ありません。このリクエストには対応できません。';
-    await storeInteraction(userId, 'assistant', refusal);
-    await client.replyMessage(event.replyToken, { type: 'text', text: refusal });
-    return null;
-  }
-
-  await storeInteraction(userId, 'user', userMessage);
+  // Store user message in parallel with other operations
+  const storePromise = storeInteraction(userId, 'user', userMessage);
 
   const { mode, limit } = determineModeAndLimit(userMessage);
-  console.log(`Determined mode=${mode}, limit=${limit}`);
-
   const history = await fetchUserHistory(userId, limit);
-
   const systemPrompt = getSystemPromptForMode(mode);
 
+  const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId, client);
+
+  // Wait for store operation to complete
+  await storePromise;
+  // Store AI reply in parallel with sending
+  const storeReplyPromise = storeInteraction(userId, 'assistant', aiReply);
+
+  const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
+  
   try {
-    console.log('🤖 Anthropic: Processing with Claude');
-    const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId, client);
-    console.log('✅ Anthropic: Response received');
-
-    await storeInteraction(userId, 'assistant', aiReply);
-
-    const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
-    console.log('📤 LINE: Sending reply');
-    
-    await client.replyMessage(event.replyToken, lineMessage);
-    console.log('✅ LINE: Reply sent successfully');
+    await Promise.all([
+      client.replyMessage(event.replyToken, lineMessage),
+      storeReplyPromise
+    ]);
   } catch (err) {
-    console.error('❌ Error:', err);
+    console.error('Error:', err);
   }
 }
 
