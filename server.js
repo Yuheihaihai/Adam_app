@@ -5,12 +5,10 @@ const line = require('@line/bot-sdk');
 const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
-const timeout = require('connect-timeout');
 
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
-app.use(timeout('60s'));
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
@@ -243,23 +241,43 @@ function checkRateLimit(userId) {
 const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職診断'];
 
 function determineModeAndLimit(userMessage) {
-  console.log('🔍 Checking message:', userMessage);
-  
-  // Career counseling trigger (working correctly)
+  // Career counseling (exact match - keep existing)
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
-    console.log('🎯 Career mode with history');
     return { mode: 'career', limit: 200 };
   }
   
-  // Memory recall trigger (not working correctly)
+  // Memory recall (fix mode name)
   if (userMessage.includes('思い出して') || 
       userMessage.includes('記録') || 
       userMessage.includes('過去の')) {
-    console.log('📚 Memory recall mode');
-    return { mode: 'memoryRecall', limit: 200 };  // Changed from 'memory' to 'memoryRecall'
+    return { mode: 'memoryRecall', limit: 200 };
   }
-
-  // ... rest of the function ...
+  
+  // Keep all existing conditions
+  const lcMsg = userMessage.toLowerCase();
+  if (
+    lcMsg.includes('特性') ||
+    lcMsg.includes('分析') ||
+    lcMsg.includes('思考') ||
+    lcMsg.includes('傾向') ||
+    lcMsg.includes('パターン') ||
+    lcMsg.includes('コミュニケーション') ||
+    lcMsg.includes('対人関係') ||
+    lcMsg.includes('性格')
+  ) {
+    return { mode: 'characteristics', limit: 200 };
+  }
+  
+  if (
+    lcMsg.includes('人間関係') ||
+    lcMsg.includes('友人') ||
+    lcMsg.includes('同僚') ||
+    lcMsg.includes('恋愛') ||
+    lcMsg.includes('パートナー')
+  ) {
+    return { mode: 'humanRelationship', limit: 200 };
+  }
+  
   return { mode: 'general', limit: 10 };
 }
 
@@ -732,23 +750,4 @@ app.post('/webhook', line.middleware(config), (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
-});
-
-const RATE_LIMIT_CLEANUP_INTERVAL = 1000 * 60 * 60;
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [userId, timestamp] of rateLimit.entries()) {
-    if (now - timestamp > RATE_LIMIT_CLEANUP_INTERVAL) {
-      rateLimit.delete(userId);
-    }
-  }
-}, RATE_LIMIT_CLEANUP_INTERVAL);
-
-app.use((err, req, res, next) => {
-  if (err.timeout) {
-    console.error('Request timeout:', err);
-    res.status(200).json({});
-  }
-  next();
 });
