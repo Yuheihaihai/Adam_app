@@ -705,7 +705,7 @@ app.post('/webhook', line.middleware(config), (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`);
 }).on('error', (err) => {
   console.error('Server error:', err);
