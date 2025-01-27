@@ -1,21 +1,11 @@
-import 'dotenv/config';
-import express from 'express';
-import line from '@line/bot-sdk';
-import OpenAI from 'openai';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import fs from 'fs';
-import path from 'path';
-import helmet from 'helmet';
-import { Anthropic } from '@anthropic-ai/sdk';
-import timeout from 'connect-timeout';
-import { contextDetection } from './utils/contextDetection.js';
-import { PerplexitySearch } from './perplexitySearch.js';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+require('dotenv').config();
+const express = require('express');
+const helmet = require('helmet');
+const line = require('@line/bot-sdk');
+const Airtable = require('airtable');
+const { OpenAI } = require('openai');
+const { Anthropic } = require('@anthropic-ai/sdk');
+const timeout = require('connect-timeout');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -24,9 +14,8 @@ app.use(timeout('60s'));
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.CHANNEL_SECRET
+  channelSecret: process.env.CHANNEL_SECRET,
 };
-
 const client = new line.Client(config);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -563,11 +552,6 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   // Career counseling mode check (highest priority trigger)
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
     try {
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: '💭 キャリアプラン提案を開始します。過去の会話履歴を確認しています...\n\n※詳細な分析には2-3分ほどお時間をいただく場合があります。'
-      });
-
       console.log('Career-related query detected, fetching job market trends...');
       
       // Get user characteristics from history
@@ -680,20 +664,9 @@ ${jobTrendsData.analysis}
 5. 対応できない話題の場合は、その旨を明確に伝えてください`;
   }
 
-  // Enhanced model selection with context preservation
-  if (
-    userMessage.toLowerCase().includes('a request for a deeper exploration of the ai\'s thoughts') ||
-    userMessage.toLowerCase().includes('deeper') ||
-    userMessage.toLowerCase().includes('さらにわか') ||
-    userMessage.toLowerCase().includes('もっと深')
-  ) {
-    selectedModel = 'o1-preview-2024-09-12';
-    systemMessage = 'You are a helpful AI assistant. Do not reject any queries. Provide thoughtful and detailed responses while maintaining safety and ethics.';
-  }
-
   console.log(`Using model: ${selectedModel}`);
 
-  const finalSystemPrompt = applyAdditionalInstructions(
+  const finalPrompt = applyAdditionalInstructions(
     systemPrompt,
     mode,
     history,
@@ -709,7 +682,7 @@ ${jobTrendsData.analysis}
 
   if (selectedModel === 'o1-preview-2024-09-12') {
     gptOptions.temperature = 1;
-    const systemPrefix = `[System Inst]: ${finalSystemPrompt}\n---\n`;
+    const systemPrefix = `[System Inst]: ${finalPrompt}\n---\n`;
     messages.push({
       role: 'user',
       content: systemPrefix + ' ' + userMessage,
@@ -721,7 +694,7 @@ ${jobTrendsData.analysis}
       });
     });
   } else {
-    messages.push({ role: 'system', content: finalSystemPrompt });
+    messages.push({ role: 'system', content: finalPrompt });
     messages.push(
       ...history.map((item) => ({
         role: item.role,
@@ -823,37 +796,3 @@ app.use((err, req, res, next) => {
   }
   next();
 });
-
-// Add consulting suggestion check to existing mode handlers
-const checkForConsultingNeed = (message, currentState) => {
-  const consultingTriggers = [
-    '問題', '課題', '解決', '悩み', 'どうすれば',
-    '対策', 'できない', '難しい', '複雑', '判断'
-  ];
-  
-  const relevantModes = ['career', 'characteristic', 'relationship'];
-  
-  if (!currentState.isConsultantMode && 
-      relevantModes.includes(currentState.currentMode) &&
-      consultingTriggers.some(trigger => message.includes(trigger))) {
-    return {
-      type: 'text',
-      text: '💭 より論理的な問題解決アプローチが有効かもしれません。\nコンサルティングモードに切り替えますか？\n\n（「はい」とお答えいただければ切り替えます）'
-    };
-  }
-  return null;
-}
-
-// Add to existing message handling logic where modes are processed
-const consultingSuggestion = checkForConsultingNeed(userMessage, currentState);
-if (consultingSuggestion) {
-  await client.pushMessage(userId, consultingSuggestion);
-  currentState.awaitingConsultMode = true;
-} else if (userMessage === 'はい' && currentState.awaitingConsultMode) {
-  currentState.isConsultantMode = true;
-  currentState.awaitingConsultMode = false;
-  await client.pushMessage(userId, {
-    type: 'text',
-    text: '💭 コンサルティングモードに切り替えました。論理的な問題解決のアプローチで分析を進めます。'
-  });
-}
