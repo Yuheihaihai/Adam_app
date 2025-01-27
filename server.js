@@ -7,7 +7,6 @@ const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 
 const app = express();
-app.set('trust proxy', 1);
 app.use(helmet());
 
 const config = {
@@ -17,16 +16,8 @@ const config = {
 const client = new line.Client(config);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(process.env.AIRTABLE_BASE_ID);
 
-const PerplexitySearch = require('./perplexitySearch');
-const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
-
-const base = new Airtable({ 
-  apiKey: process.env.AIRTABLE_API_KEY,
-  timeout: 30000,  // Increase timeout to 30 seconds
-  retryDelay: 5000,  // Wait 5 seconds between retries
-  maxRetries: 3  // Try up to 3 times
-}).base(process.env.AIRTABLE_BASE_ID);
 const INTERACTIONS_TABLE = 'ConversationHistory';
 
 const SYSTEM_PROMPT_GENERAL = `
@@ -241,43 +232,12 @@ function checkRateLimit(userId) {
 const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職診断'];
 
 function determineModeAndLimit(userMessage) {
-  // Career counseling (exact match - keep existing)
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
     return { mode: 'career', limit: 200 };
   }
-  
-  // Memory recall (fix mode name)
-  if (userMessage.includes('思い出して') || 
-      userMessage.includes('記録') || 
-      userMessage.includes('過去の')) {
+  if (userMessage.includes('思い出して') || userMessage.includes('記録') || userMessage.includes('過去の')) {
     return { mode: 'memoryRecall', limit: 200 };
   }
-  
-  // Keep all existing conditions
-  const lcMsg = userMessage.toLowerCase();
-  if (
-    lcMsg.includes('特性') ||
-    lcMsg.includes('分析') ||
-    lcMsg.includes('思考') ||
-    lcMsg.includes('傾向') ||
-    lcMsg.includes('パターン') ||
-    lcMsg.includes('コミュニケーション') ||
-    lcMsg.includes('対人関係') ||
-    lcMsg.includes('性格')
-  ) {
-    return { mode: 'characteristics', limit: 200 };
-  }
-  
-  if (
-    lcMsg.includes('人間関係') ||
-    lcMsg.includes('友人') ||
-    lcMsg.includes('同僚') ||
-    lcMsg.includes('恋愛') ||
-    lcMsg.includes('パートナー')
-  ) {
-    return { mode: 'humanRelationship', limit: 200 };
-  }
-  
   return { mode: 'general', limit: 10 };
 }
 
@@ -300,7 +260,7 @@ function getSystemPromptForMode(mode) {
 
 async function storeInteraction(userId, role, content) {
   try {
-    const result = await base(INTERACTIONS_TABLE).create([{
+    await base('ConversationHistory').create([{
       fields: {
         UserID: userId,
         Role: role,
@@ -308,16 +268,14 @@ async function storeInteraction(userId, role, content) {
         Timestamp: new Date().toISOString(),
       },
     }]);
-    return result;
   } catch (error) {
-    console.error('❌ Airtable:', error.message);
-    return null;
+    console.error('Airtable:', error.message);
   }
 }
 
 async function fetchUserHistory(userId, limit) {
   try {
-    const records = await base(INTERACTIONS_TABLE)
+    const records = await base('ConversationHistory')
       .select({
         filterByFormula: `{UserID} = '${userId}'`,
         sort: [{ field: 'Timestamp', direction: 'desc' }],
@@ -329,7 +287,7 @@ async function fetchUserHistory(userId, limit) {
       content: record.get('Content'),
     }));
   } catch (error) {
-    console.error('❌ Airtable:', error.message);
+    console.error('Airtable:', error.message);
     return [];
   }
 }
@@ -738,16 +696,13 @@ app.get('/', (req, res) => {
 });
 
 app.post('/webhook', line.middleware(config), (req, res) => {
-  console.log('Webhook was called! Events:', req.body.events);
   Promise.all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
     .catch((err) => {
-      console.error('Webhook error:', err);
+      console.error('Webhook:', err);
       res.status(200).json({});
     });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Listening on port ${PORT}`);
-});
+app.listen(PORT);
