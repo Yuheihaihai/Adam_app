@@ -277,7 +277,7 @@ function determineModeAndLimit(userMessage) {
     lcMsg.includes('恋愛') ||
     lcMsg.includes('パートナー')
   ) {
-    return { mode: 'humanRelationship', limit: 200 };
+    return { mode: 'humanRelationship', limit: 10};
   }
   return { mode: 'general', limit: 10 };
 }
@@ -796,3 +796,62 @@ app.use((err, req, res, next) => {
   }
   next();
 });
+
+async function analyzeContext(message) {
+  // Analyze message context and emotional content
+  const analysis = {
+    // 人間関係の文脈を検出 (0-1)
+    relationshipContext: await detectRelationshipContext(message),
+    
+    // 感情分析 (-1 to 1)
+    sentiment: await analyzeSentiment(message),
+    
+    // 感情の強度 (0-1)
+    emotionalIntensity: await measureEmotionalIntensity(message),
+    
+    // 個人的な話題の度合い (0-1)
+    personalityScore: await analyzePersonalContent(message)
+  };
+
+  // 人間関係モードに切り替えるべきかの判断
+  const shouldSwitchToHR = (
+    analysis.relationshipContext > 0.6 ||  // 人間関係の文脈が強い
+    (analysis.sentiment < -0.3 && analysis.personalityScore > 0.5) ||  // ネガティブな個人的な話題
+    (analysis.emotionalIntensity > 0.7 && analysis.personalityScore > 0.6)  // 強い感情を伴う個人的な話題
+  );
+
+  return {
+    mode: shouldSwitchToHR ? 'humanrelationship' : 'general',
+    analysis: analysis
+  };
+}
+
+// 人間関係の文脈を検出
+async function detectRelationshipContext(message) {
+  // 実装例：
+  // - 人称代名詞の使用頻度
+  // - 対人関係を示す表現の有無
+  // - 会話の文脈における他者への言及
+  return contextScore; // 0-1
+}
+
+// 感情分析
+async function analyzeSentiment(message) {
+  // 感情分析APIまたはライブラリを使用
+  return sentimentScore; // -1 to 1
+}
+
+// 感情の強度を測定
+async function measureEmotionalIntensity(message) {
+  // 感情表現の強さを分析
+  // 例：「とても」「すごく」などの強調表現
+  return intensityScore; // 0-1
+}
+
+// 個人的な内容かどうかを分析
+async function analyzePersonalContent(message) {
+  // 個人的な話題の特徴を検出
+  // - 一人称の使用
+  // - プライベートな内容の言及
+  return personalityScore; // 0-1
+}
