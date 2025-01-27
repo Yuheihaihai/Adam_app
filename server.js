@@ -694,14 +694,31 @@ app.get('/', (req, res) => {
   res.send('Adam App Cloud v2.3 is running. Ready for LINE requests.');
 });
 
-app.post('/webhook', line.middleware(config), (req, res) => {
-  console.log('Webhook was called! Events:', req.body.events);
-  Promise.all(req.body.events.map(handleEvent))
-    .then((result) => res.json(result))
-    .catch((err) => {
-      console.error('Webhook error:', err);
-      res.status(200).json({});
+app.post('/webhook', line.middleware(config), async (req, res) => {
+  try {
+    const events = req.body.events;
+    const results = await Promise.all(
+      events.map(async (event) => {
+        try {
+          await handleEvent(event);
+        } catch (err) {
+          console.error('Event handling error:', err);
+        }
+      })
+    );
+    
+    // Always return 200 to LINE after processing events
+    res.status(200).json({
+      status: 'ok'
     });
+  } catch (err) {
+    console.error('Webhook error:', err);
+    // Still return 200 even on error to prevent LINE from retrying
+    res.status(200).json({
+      status: 'error',
+      message: 'Internal server error'
+    });
+  }
 });
 
 const port = process.env.PORT || 3000;
