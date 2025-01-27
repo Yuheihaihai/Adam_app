@@ -23,21 +23,20 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 class PerplexitySearch {
   constructor(apiKey) {
-    this.apiKey = apiKey;
+    this.client = new OpenAI({
+      apiKey: apiKey,
+      baseURL: 'https://api.perplexity.ai'
+    });
   }
 
   async search(query) {
     try {
-      const response = await axios.post('https://api.perplexity.ai/chat/completions', {
+      const response = await this.client.chat.completions.create({
         model: 'mixtral-8x7b-instruct',
-        messages: [{ role: 'user', content: query }]
-      }, {
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json'
-        }
+        messages: [{ role: 'user', content: query }],
+        max_tokens: 1024
       });
-      return response.data.choices[0].message.content;
+      return response.choices[0].message.content;
     } catch (error) {
       console.error('Perplexity API error:', error);
       return 'Sorry, I encountered an error while searching.';

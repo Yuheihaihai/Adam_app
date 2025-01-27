@@ -14,7 +14,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "helmet": "^7.2.0",
-    "openai": "^4.78.1",
+    "openai": "^4.80.1",
     "perplexity-sdk": "^1.0.4"
   },
   "devDependencies": {
