@@ -7,6 +7,7 @@ const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
 const axios = require('axios');
+const fetch = require('node-fetch');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -822,6 +823,56 @@ async function search(query, apiKey) {
   } catch (error) {
     console.error('Perplexity API error:', error);
     throw error;
+  }
+}
+
+class PerplexitySearch {
+  constructor(apiKey) {
+    if (!apiKey) {
+      throw new Error('Perplexity API key is required');
+    }
+    this.apiKey = apiKey;
+  }
+
+  async getJobTrends(query) {
+    try {
+      console.log('Making Perplexity API request...');
+      
+      const response = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'pplx-7b-chat',
+          messages: [{
+            role: 'user',
+            content: query
+          }],
+          max_tokens: 1024,
+          temperature: 0.7
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Perplexity API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content || '';
+      
+      // Split content into analysis and URLs if possible
+      const [mainText, urlSection] = content.split('[求人情報]');
+      
+      return {
+        analysis: mainText?.trim() || null,
+        urls: urlSection?.trim() || null
+      };
+    } catch (error) {
+      console.error('Perplexity search error:', error);
+      return null;
+    }
   }
 }
 
