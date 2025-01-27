@@ -10,8 +10,25 @@ const { search: perplexitySearch } = require('./perplexitySearch');
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://api.line.me", "https://api.perplexity.ai"],
+    },
+  },
+}));
 app.use(timeout('60s'));
+app.use('/webhook', express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString();
+  }
+}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
@@ -665,24 +682,104 @@ async function handleEvent(event) {
   }
 }
 
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
 app.get('/', (req, res) => {
-  res.send('Adam App Cloud v2.3 is running. Ready for LINE requests.');
+  res.send('Adam App Cloud v2.4 is running. Ready for LINE requests.');
 });
 
-app.post('/webhook', line.middleware(config), (req, res) => {
-  console.log('Webhook was called! Events:', req.body.events);
-  Promise.all(req.body.events.map(handleEvent))
-    .then((result) => res.json(result))
-    .catch((err) => {
-      console.error('Webhook error:', err);
-      res.status(200).json({});
+app.post('/webhook', 
+  (req, res, next) => {
+    console.log('=== Webhook Request ===');
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Raw Body:', req.rawBody);
+    console.log('Parsed Body:', JSON.stringify(req.body, null, 2));
+    next();
+  },
+  line.middleware(config),
+  async (req, res) => {
+    console.log('=== Processing Webhook ===');
+    try {
+      if (!req.body.events || !Array.isArray(req.body.events)) {
+        console.error('Invalid webhook format:', req.body);
+        return res.status(400).json({ error: 'Invalid webhook format' });
+      }
+
+      console.log('Events to process:', req.body.events.length);
+      const results = await Promise.all(req.body.events.map(async (event) => {
+        console.log('Processing event:', JSON.stringify(event, null, 2));
+        try {
+          const result = await handleEvent(event);
+          console.log('Event processed successfully:', result);
+          return result;
+        } catch (eventError) {
+          console.error('Event processing error:', eventError);
+          throw eventError;
+        }
+      }));
+
+      console.log('=== Webhook Complete ===');
+      res.status(200).json({ 
+        status: 'ok',
+        processed: results.length,
+        results: results 
+      });
+    } catch (err) {
+      console.error('=== Webhook Error ===');
+      console.error(err);
+      // LINE requires 200 even on error
+      res.status(200).json({ 
+        status: 'error', 
+        message: err.message 
+      });
+    }
+  }
+);
+
+// Add a test route to help generate valid signatures
+if (process.env.NODE_ENV === 'development') {
+  app.get('/test-signature', (req, res) => {
+    const crypto = require('crypto');
+    const channelSecret = process.env.CHANNEL_SECRET;
+    const body = '{"events":[{"type":"message","message":{"type":"text","text":"hello"}}]}';
+    
+    const signature = crypto
+      .createHmac('SHA256', channelSecret)
+      .update(body)
+      .digest('base64');
+    
+    console.log('Test body:', body);
+    console.log('Generated signature:', signature);
+    
+    res.json({
+      curlCommand: `curl -v -X POST http://localhost:5007/webhook \\
+        -H "Content-Type: application/json" \\
+        -H "X-Line-Signature: ${signature}" \\
+        -d '${body}'`
     });
-});
+  });
+}
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Listening on port ${PORT}`);
-});
+const PORT = process.env.PORT || 5006;
+const server = app.listen(PORT)
+  .on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      const newPort = parseInt(PORT) + 1;
+      console.log(`Port ${PORT} is busy, trying ${newPort}...`);
+      app.listen(newPort)
+        .on('listening', () => {
+          console.log(`Successfully listening on port ${newPort}`);
+        });
+    } else {
+      console.error('Server error:', err);
+    }
+  })
+  .on('listening', () => {
+    console.log(`Listening on port ${server.address().port}`);
+  });
 
 const RATE_LIMIT_CLEANUP_INTERVAL = 1000 * 60 * 60;
 
@@ -696,9 +793,12 @@ setInterval(() => {
 }, RATE_LIMIT_CLEANUP_INTERVAL);
 
 app.use((err, req, res, next) => {
-  if (err.timeout) {
-    console.error('Request timeout:', err);
-    res.status(200).json({});
-  }
-  next();
+  console.error('Express error:', err);
+  console.error('Stack trace:', err.stack);
+  console.error('Request path:', req.path);
+  console.error('Request body:', req.body);
+  res.status(500).json({ 
+    error: 'Internal Server Error',
+    message: err.message
+  });
 });
