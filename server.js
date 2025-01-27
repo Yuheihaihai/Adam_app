@@ -6,6 +6,7 @@ const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
+const perplexitySearch = require('./perplexitySearch');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -518,7 +519,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
       console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
       
-      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
+      const jobTrendsData = await perplexitySearch.search(searchQuery, process.env.PERPLEXITY_API_KEY);
       
       if (jobTrendsData?.analysis) {
         console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
@@ -705,7 +706,7 @@ app.post('/webhook', line.middleware(config), (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Listening on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
 
 const RATE_LIMIT_CLEANUP_INTERVAL = 1000 * 60 * 60;
