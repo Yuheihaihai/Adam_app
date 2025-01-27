@@ -301,43 +301,42 @@ function getSystemPromptForMode(mode) {
 
 async function storeInteraction(userId, role, content) {
   try {
-    console.log(
-      `Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`
-    );
-    await base(INTERACTIONS_TABLE).create([
+    console.log('📝 Airtable: Storing interaction');
+    const result = await base(INTERACTIONS_TABLE).create([
       {
         fields: {
-          UserID: userId,
+          UserId: userId,
           Role: role,
           Content: content,
           Timestamp: new Date().toISOString(),
         },
       },
     ]);
-  } catch (err) {
-    console.error('Error storing interaction:', err);
+    console.log('✅ Airtable: Interaction stored');
+    return result;
+  } catch (error) {
+    console.error('❌ Airtable Error:', error);
+    return null;
   }
 }
 
 async function fetchUserHistory(userId, limit) {
   try {
-    console.log(`Fetching history for user ${userId}, limit: ${limit}`);
+    console.log(`📚 Airtable: Fetching history for user ${userId}, limit=${limit}`);
     const records = await base(INTERACTIONS_TABLE)
       .select({
-        filterByFormula: `{UserID} = "${userId}"`,
+        filterByFormula: `{UserId} = '${userId}'`,
         sort: [{ field: 'Timestamp', direction: 'desc' }],
         maxRecords: limit,
       })
       .all();
-    console.log(`Found ${records.length} records for user`);
-
-    const reversed = records.reverse();
-    return reversed.map((r) => ({
-      role: r.get('Role') === 'assistant' ? 'assistant' : 'user',
-      content: r.get('Content') || '',
+    console.log(`✅ Airtable: Retrieved ${records.length} records`);
+    return records.map(record => ({
+      role: record.get('Role'),
+      content: record.get('Content'),
     }));
   } catch (error) {
-    console.error('Error fetching history:', error);
+    console.error('❌ Airtable Error:', error);
     return [];
   }
 }
@@ -707,16 +706,17 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
 }
 
 async function handleEvent(event) {
-  console.log('Received LINE event:', JSON.stringify(event, null, 2));
+  console.log('📱 LINE: Received event:', event.type);
 
   if (event.type !== 'message' || event.message.type !== 'text') {
-    console.log('Not a text message, ignoring.');
+    console.log('❌ LINE: Not a text message, ignoring');
     return null;
   }
+
   const userId = event.source?.userId || 'unknown';
   const userMessage = validateMessageLength(event.message.text.trim());
 
-  console.log(`User ${userId} said: "${userMessage}"`);
+  console.log(`👤 LINE User ${userId} message: "${userMessage}"`);
 
   const isSafe = securityFilterPrompt(userMessage);
   if (!isSafe) {
@@ -735,18 +735,20 @@ async function handleEvent(event) {
 
   const systemPrompt = getSystemPromptForMode(mode);
 
-  const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId, client);
-
-  await storeInteraction(userId, 'assistant', aiReply);
-
-  const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
-  console.log('Replying to LINE user with:', lineMessage.text);
-
   try {
+    console.log('🤖 Anthropic: Processing with Claude');
+    const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId, client);
+    console.log('✅ Anthropic: Response received');
+
+    await storeInteraction(userId, 'assistant', aiReply);
+
+    const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
+    console.log('📤 LINE: Sending reply');
+    
     await client.replyMessage(event.replyToken, lineMessage);
-    console.log('Successfully replied to user.');
+    console.log('✅ LINE: Reply sent successfully');
   } catch (err) {
-    console.error('Error replying to user:', err);
+    console.error('❌ Error:', err);
   }
 }
 
