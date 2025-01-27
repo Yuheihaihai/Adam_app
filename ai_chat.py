@@ -39,4 +39,35 @@ def process_mode_switch_response(user_response, message):
     return {
         'mode': 'current',
         'response': "Continuing in current mode. How can I help you?"
-    } 
+    }
+
+def detect_problem_indicators(message):
+    # Problem indicators that should trigger consultation mode
+    indicators = [
+        '大変', '困る', '問題', 'トラブル', 'ストレス',
+        'help', 'difficult', 'trouble', 'stress', 'problem',
+        'issue', 'stuck', 'wrong', 'failed'
+    ]
+    return any(indicator in message.lower() for indicator in indicators)
+
+def handle_mode_switch(current_mode, message):
+    if current_mode != 'consultation' and detect_problem_indicators(message):
+        # Ask for user confirmation before switching
+        return {
+            'response': (
+                "問題解決のため、より詳しい分析が必要かもしれません。"
+                "コンサルテーションモードに切り替えてもよろしいでしょうか？"
+                "（「はい」または「いいえ」でお答えください）"
+            ),
+            'requires_mode_switch': True
+        }
+    return None
+
+def process_message(message, current_mode):
+    # Check if mode switch is needed
+    mode_switch = handle_mode_switch(current_mode, message)
+    if mode_switch:
+        return mode_switch
+        
+    # Continue with normal processing
+    return process_normal_message(message, current_mode) 
