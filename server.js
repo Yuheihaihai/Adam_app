@@ -664,9 +664,19 @@ ${jobTrendsData.analysis}
 5. 対応できない話題の場合は、その旨を明確に伝えてください`;
   }
 
+  // Switch to "o1-preview..." if deeper request
+  if (
+    userMessage.toLowerCase().includes('a request for a deeper exploration of the ai\'s thoughts') ||
+    userMessage.toLowerCase().includes('deeper') ||
+    userMessage.toLowerCase().includes('さらにわか') ||
+    userMessage.toLowerCase().includes('もっと深')
+  ) {
+    selectedModel = 'o1-preview-2024-09-12';
+  }
+
   console.log(`Using model: ${selectedModel}`);
 
-  const finalPrompt = applyAdditionalInstructions(
+  const finalSystemPrompt = applyAdditionalInstructions(
     systemPrompt,
     mode,
     history,
@@ -682,7 +692,7 @@ ${jobTrendsData.analysis}
 
   if (selectedModel === 'o1-preview-2024-09-12') {
     gptOptions.temperature = 1;
-    const systemPrefix = `[System Inst]: ${finalPrompt}\n---\n`;
+    const systemPrefix = `[System Inst]: ${finalSystemPrompt}\n---\n`;
     messages.push({
       role: 'user',
       content: systemPrefix + ' ' + userMessage,
@@ -694,7 +704,7 @@ ${jobTrendsData.analysis}
       });
     });
   } else {
-    messages.push({ role: 'system', content: finalPrompt });
+    messages.push({ role: 'system', content: finalSystemPrompt });
     messages.push(
       ...history.map((item) => ({
         role: item.role,
