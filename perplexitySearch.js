@@ -6,7 +6,7 @@ const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
-const Perplexity = require('perplexity-sdk');
+const axios = require('axios');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -21,9 +21,25 @@ const client = new line.Client(config);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const perplexity = new Perplexity({
-  apiKey: process.env.PERPLEXITY_API_KEY
-}).client();
+const perplexity = {
+  search: async function(query) {
+    try {
+      const response = await axios.post('https://api.perplexity.ai/chat/completions', {
+        model: 'mixtral-8x7b-instruct',
+        messages: [{ role: 'user', content: query }]
+      }, {
+        headers: {
+          'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      return response.data.choices[0].message.content;
+    } catch (error) {
+      console.error('Perplexity API error:', error);
+      return 'Sorry, I encountered an error while searching.';
+    }
+  }
+};
 
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
@@ -569,7 +585,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
       console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
       
-      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
+      const jobTrendsData = await perplexity.search(searchQuery);
       
       if (jobTrendsData?.analysis) {
         console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
