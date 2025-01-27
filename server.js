@@ -675,7 +675,8 @@ ${jobTrendsData.analysis}
     // Remove model switching for characteristic analysis
     if (!userMessage.toLowerCase().includes('特性') && 
         !userMessage.toLowerCase().includes('性格') && 
-        !userMessage.toLowerCase().includes('ジョハリ')) {
+        !userMessage.toLowerCase().includes('ジョハリ')&&
+        !userMessage.toLowerCase().includes('適職')) {
       selectedModel = 'o1-preview-2024-09-12';
     }
     
