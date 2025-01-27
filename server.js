@@ -7,11 +7,22 @@ const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
 const perplexitySearch = require('./perplexitySearch');
+const cors = require('cors');
 
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
 app.use(timeout('60s'));
+
+// Configure CORS
+app.use(cors({
+  origin: [
+    'https://www.herokucdn.com',
+    'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'
+  ],
+  methods: ['GET', 'POST'],
+  credentials: true
+}));
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
