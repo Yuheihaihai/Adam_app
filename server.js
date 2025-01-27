@@ -6,6 +6,7 @@ const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
+const axios = require('axios');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -646,46 +647,34 @@ ${jobTrendsData.analysis}
 }
 
 async function handleEvent(event) {
-  console.log('Received LINE event:', JSON.stringify(event, null, 2));
-
   if (event.type !== 'message' || event.message.type !== 'text') {
-    console.log('Not a text message, ignoring.');
-    return null;
-  }
-  const userId = event.source?.userId || 'unknown';
-  const userMessage = validateMessageLength(event.message.text.trim());
-
-  console.log(`User ${userId} said: "${userMessage}"`);
-
-  const isSafe = securityFilterPrompt(userMessage);
-  if (!isSafe) {
-    const refusal = '申し訳ありません。このリクエストには対応できません。';
-    await storeInteraction(userId, 'assistant', refusal);
-    await client.replyMessage(event.replyToken, { type: 'text', text: refusal });
-    return null;
+    // Ignore non-text messages
+    return Promise.resolve(null);
   }
 
-  await storeInteraction(userId, 'user', userMessage);
+  const userMessage = event.message.text;
 
-  const { mode, limit } = determineModeAndLimit(userMessage);
-  console.log(`Determined mode=${mode}, limit=${limit}`);
+  // Process the user's message
+  const replyText = await processUserMessage(userMessage);
 
-  const history = await fetchUserHistory(userId, limit);
+  // Create a reply message
+  const replyMessage = {
+    type: 'text',
+    text: replyText,
+  };
 
-  const systemPrompt = getSystemPromptForMode(mode);
+  // Reply to the user
+  return client.replyMessage(event.replyToken, replyMessage);
+}
 
-  const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId, client);
-
-  await storeInteraction(userId, 'assistant', aiReply);
-
-  const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
-  console.log('Replying to LINE user with:', lineMessage.text);
-
+// Function to process user message
+async function processUserMessage(message) {
   try {
-    await client.replyMessage(event.replyToken, lineMessage);
-    console.log('Successfully replied to user.');
-  } catch (err) {
-    console.error('Error replying to user:', err);
+    const reply = await perplexity.search(message, process.env.PERPLEXITY_API_KEY);
+    return reply;
+  } catch (error) {
+    console.error('Error processing user message:', error);
+    return 'Sorry, something went wrong.';
   }
 }
 
@@ -693,19 +682,22 @@ app.get('/', (req, res) => {
   res.send('Adam App Cloud v2.3 is running. Ready for LINE requests.');
 });
 
-app.post('/webhook', line.middleware(config), (req, res) => {
-  console.log('Webhook was called! Events:', req.body.events);
-  Promise.all(req.body.events.map(handleEvent))
-    .then((result) => res.json(result))
-    .catch((err) => {
-      console.error('Webhook error:', err);
-      res.status(200).json({});
-    });
+app.post('/webhook', line.middleware(config), async (req, res) => {
+  try {
+    // Process all events
+    await Promise.all(req.body.events.map(handleEvent));
+    // Respond with 200 OK
+    res.status(200).end();
+  } catch (err) {
+    console.error('Error handling events:', err);
+    // Ensure LINE receives a 200 OK response even if there's an error
+    res.status(200).end();
+  }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Listening on port ${PORT}`);
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
 });
 
 const RATE_LIMIT_CLEANUP_INTERVAL = 1000 * 60 * 60;
