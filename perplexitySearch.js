@@ -876,4 +876,4 @@ class PerplexitySearch {
   }
 }
 
-module.exports = { search };
+module.exports = PerplexitySearch;
