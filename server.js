@@ -553,6 +553,11 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   // Career counseling mode check (highest priority trigger)
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
     try {
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '💭 キャリアプランと特性分析を開始します。過去の会話履歴を確認しています...\n\n※詳細な分析には2-3分ほどお時間をいただく場合があります。'
+      });
+
       console.log('Career-related query detected, fetching job market trends...');
       
       // Get user characteristics from history
@@ -673,11 +678,14 @@ ${jobTrendsData.analysis}
     userMessage.toLowerCase().includes('もっと深')
   ) {
     // Remove model switching for characteristic analysis
-    if (!userMessage.toLowerCase().includes('特性') && 
-        !userMessage.toLowerCase().includes('性格') && 
-        !userMessage.toLowerCase().includes('ジョハリ')&&
-        !userMessage.toLowerCase().includes('適職')) {
+    if (!userMessage.toLowerCase().includes('特性'),
+        !userMessage.toLowerCase().includes('性格'),
+        !userMessage.toLowerCase().includes('ジョハリ'),
+        !userMessage.toLowerCase().includes('適職'),
+        !userMessage.toLowerCase().includes('職業')) {
       selectedModel = 'o1-preview-2024-09-12';
+    } else {
+      selectedModel = 'chatgpt-4o-latest'; // Explicitly set model for characteristic analysis
     }
     
     // Add context preservation
