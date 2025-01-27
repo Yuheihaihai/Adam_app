@@ -305,7 +305,7 @@ async function storeInteraction(userId, role, content) {
     const result = await base(INTERACTIONS_TABLE).create([
       {
         fields: {
-          UserId: userId,
+          User_Id: userId,
           Role: role,
           Content: content,
           Timestamp: new Date().toISOString(),
@@ -556,7 +556,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       
       // Get user characteristics from history
       const userTraits = history
-        .filter(h => h.role === 'assistant' && h.content.includes('あなたの特徴：'))
+        .filter(h => h && h.role === 'assistant' && h.content && h.content.includes('あなたの特徴：'))
         .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
       
       await client.pushMessage(userId, {
@@ -564,7 +564,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
       });
 
-      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
+      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種を3つ程度、具体的に提案してください。`;
       console.log('📝 Query:', searchQuery);
       
       const jobTrendsData = await perplexity.getJobTrends(searchQuery);
@@ -581,10 +581,11 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       }
     } catch (err) {
       console.error('❌ Perplexity error:', err);
-      return client.replyMessage(event.replyToken, {
+      await client.pushMessage(userId, {
         type: 'text',
         text: '申し訳ありません。検索時にエラーが発生しました。'
       });
+      return null;
     }
   }
   
