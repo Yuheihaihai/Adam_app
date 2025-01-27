@@ -672,19 +672,17 @@ ${jobTrendsData.analysis}
     userMessage.toLowerCase().includes('さらにわか') ||
     userMessage.toLowerCase().includes('もっと深')
   ) {
-    selectedModel = 'o1-preview-2024-09-12';
+    // Remove model switching for characteristic analysis
+    if (!userMessage.toLowerCase().includes('特性') && 
+        !userMessage.toLowerCase().includes('性格') && 
+        !userMessage.toLowerCase().includes('ジョハリ')) {
+      selectedModel = 'o1-preview-2024-09-12';
+    }
     
-    // Add context preservation for specific topics
-    const contextualTopics = {
-      career: 'You are analyzing career paths and professional development. Previous context should be maintained.',
-      characteristics: 'You are analyzing personality and characteristics. Previous context should be maintained.',
-      personal: 'You are providing personal advice and insights. Previous context should be maintained.'
-    };
-
-    // Detect topic from conversation history
-    const topic = detectTopicFromHistory(history);
-    if (topic && contextualTopics[topic]) {
-      systemPrompt = `${systemPrompt}\n\n${contextualTopics[topic]}`;
+    // Add context preservation
+    const currentContext = detectTopicFromHistory(history);
+    if (currentContext) {
+      systemPrompt = `${systemPrompt}\n\nContinue the current conversation about ${currentContext}. Previous context and knowledge should be maintained.`;
     }
   }
 
