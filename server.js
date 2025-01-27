@@ -23,8 +23,12 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const PerplexitySearch = require('./perplexitySearch');
 const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
 
-const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
-  .base(process.env.AIRTABLE_BASE_ID);
+const base = new Airtable({ 
+  apiKey: process.env.AIRTABLE_API_KEY,
+  timeout: 30000,  // Increase timeout to 30 seconds
+  retryDelay: 5000,  // Wait 5 seconds between retries
+  maxRetries: 3  // Try up to 3 times
+}).base(process.env.AIRTABLE_BASE_ID);
 const INTERACTIONS_TABLE = 'ConversationHistory';
 
 const SYSTEM_PROMPT_GENERAL = `
@@ -273,69 +277,59 @@ function getSystemPromptForMode(mode) {
 }
 
 async function storeInteraction(userId, role, content) {
-  try {
-    console.log('📝 Airtable: Starting to store interaction');
-    console.log(`UserID: ${userId}, Role: ${role}, Content length: ${content.length}`);
-    
-    const result = await base(INTERACTIONS_TABLE).create([
-      {
-        fields: {
-          UserID: userId,  // Make sure this matches exactly with your Airtable column name
-          Role: role,
-          Content: content,
-          Timestamp: new Date().toISOString(),
+  let retries = 0;
+  while (retries < 3) {
+    try {
+      console.log(`📝 Airtable: Attempt ${retries + 1} to store interaction`);
+      const result = await base(INTERACTIONS_TABLE).create([
+        {
+          fields: {
+            UserID: userId,
+            Role: role,
+            Content: content,
+            Timestamp: new Date().toISOString(),
+          },
         },
-      },
-    ]);
-    console.log('✅ Airtable: Successfully stored interaction:', result.length, 'records');
-    return result;
-  } catch (error) {
-    console.error('❌ Airtable Error:', error.message);
-    console.error('Error details:', {
-      statusCode: error.statusCode,
-      error: error.error,
-      table: INTERACTIONS_TABLE,
-      fields: error.fields
-    });
-    return null;
+      ]);
+      console.log('✅ Airtable: Successfully stored interaction');
+      return result;
+    } catch (error) {
+      console.error(`❌ Airtable Error (attempt ${retries + 1}):`, error.message);
+      retries++;
+      if (retries < 3) {
+        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s before retry
+      }
+    }
   }
+  return null;
 }
 
 async function fetchUserHistory(userId, limit) {
-  try {
-    console.log(`📚 Airtable: Fetching history for user ${userId}, limit: ${limit}`);
-    console.log('Table name:', INTERACTIONS_TABLE);
-    console.log('Base ID:', process.env.AIRTABLE_BASE_ID);
-    
-    const formula = `{UserID} = '${userId}'`;
-    console.log('Filter formula:', formula);
-    
-    const records = await base(INTERACTIONS_TABLE)
-      .select({
-        filterByFormula: formula,
-        sort: [{ field: 'Timestamp', direction: 'desc' }],
-        maxRecords: limit,
-      })
-      .all();
-    
-    console.log(`✅ Airtable: Found ${records.length} records`);
-    
-    const history = records.map(record => ({
-      role: record.get('Role'),
-      content: record.get('Content'),
-    }));
-    
-    console.log('History sample:', history.slice(0, 2));
-    return history;
-    
-  } catch (error) {
-    console.error('❌ Airtable Error in fetchUserHistory:', error.message);
-    console.error('Full error:', error);
-    if (error.response) {
-      console.error('Error response:', error.response.data);
+  let retries = 0;
+  while (retries < 3) {
+    try {
+      console.log(`📚 Airtable: Attempt ${retries + 1} to fetch history for user ${userId}`);
+      const records = await base(INTERACTIONS_TABLE)
+        .select({
+          filterByFormula: `{UserID} = '${userId}'`,
+          sort: [{ field: 'Timestamp', direction: 'desc' }],
+          maxRecords: limit,
+        })
+        .all();
+      console.log(`✅ Airtable: Found ${records.length} records`);
+      return records.map(record => ({
+        role: record.get('Role'),
+        content: record.get('Content'),
+      }));
+    } catch (error) {
+      console.error(`❌ Airtable Error (attempt ${retries + 1}):`, error.message);
+      retries++;
+      if (retries < 3) {
+        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s before retry
+      }
     }
-    return [];
   }
+  return [];
 }
 
 function applyAdditionalInstructions(basePrompt, mode, history, userMessage) {
