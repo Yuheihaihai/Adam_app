@@ -526,83 +526,193 @@ function validateMessageLength(message) {
   return message;
 }
 
-async function determineMode(userMessage) {
-  const client = new OpenAI();
-  
-  try {
-    // Use faster gpt-4o-mini for mode detection
-    const response = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `あなたはモード判定を行うアシスタントです。
-以下の基準でメッセージを分類し、モードのみを返してください：
-
-1. counseling: メンタルヘルス、心理的な相談
-2. consultant: ビジネス、キャリア、専門的アドバイス
-3. chat: 一般的な会話
-
-返答は "counseling", "consultant", "chat" のいずれかのみとしてください。`
-        },
-        {
-          role: "user",
-          content: userMessage
-        }
-      ],
-      temperature: 0,
-      max_tokens: 10  // Very short response needed
-    });
-
-    return response.choices[0].message.content.trim();
-  } catch (error) {
-    console.error('Mode determination error:', error);
-    return 'chat';  // Default to chat mode if error
-  }
-}
-
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
-  // First, quickly determine mode using gpt-4o-mini
-  const detectedMode = await determineMode(userMessage);
-  
   let selectedModel = 'chatgpt-4o-latest';
-  const lowered = userMessage.toLowerCase();
-
-  // Quick response for test messages
-  if (userMessage === 'テスト' || userMessage === 'test') {
-    return '✅ テスト成功です';
-  }
-
-  // Switch model based on mode and deep exploration request
-  if (detectedMode === 'consultant' || 
-      lowered.includes('さらにわか') || 
-      lowered.includes('もっと深')) {
-    selectedModel = 'o1-preview-2024-09-12';
-  }
-
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    ...history.map((item) => ({ role: item.role, content: item.content })),
-    { role: 'user', content: userMessage },
+  
+  // Mental health counseling topics (highest priority)
+  const counselingTopics = [
+    'メンタル', '心理',
   ];
 
-  console.log(`Loaded ${history.length} messages for context in mode=[${mode}]`);
-  console.log(`Calling GPT with ${messages.length} msgs, mode=${mode}, model=${selectedModel}`);
+  // Business/career consultant topics (second priority)
+  const consultantTopics = [
+    'ビジネス', '仕事', '悩み', '問題', 'キャリア', 
+    '法律', '医療', '健康', 'コミュニケーション'
+  ];
+  
+  // Priority order check
+  const needsCounseling = counselingTopics.some(topic => 
+    userMessage.includes(topic)
+  );
 
-  try {
-    const resp = await openai.chat.completions.create({
-      model: selectedModel,
-      messages,
-      temperature: 0.7,
-    });
-    const reply = resp.choices?.[0]?.message?.content || '（No reply）';
+  const needsConsultant = consultantTopics.some(topic => 
+    userMessage.includes(topic)
+  );
 
-    console.log('OpenAI raw reply:', reply);
-    return reply;
-  } catch (err) {
-    console.error('OpenAI error:', err);
-    return '申し訳ありません、AI処理中にエラーが発生しました。';
+  // Career counseling mode check (highest priority trigger)
+  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
+    try {
+      console.log('Career-related query detected, fetching job market trends...');
+      
+      // Get user characteristics from history
+      const userTraits = history
+        .filter(h => h.role === 'assistant' && h.content.includes('あなたの特徴：'))
+        .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
+      
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
+      });
+
+      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
+      console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
+      
+      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
+      
+      if (jobTrendsData?.analysis) {
+        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
+        
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
+        });
+
+        if (jobTrendsData.urls) {
+          await client.pushMessage(userId, {
+            type: 'text',
+            text: '📎 参考求人情報：\n' + jobTrendsData.urls
+          });
+        }
+
+        perplexityContext = `
+[あなたの特性と市場分析に基づいた検索結果]
+${jobTrendsData.analysis}
+
+[分析の観点]
+上記の職種提案を考慮しながら、以下の点について分析してください：
+`;
+        systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
+      }
+    } catch (err) {
+      console.error('Perplexity search error:', err);
+    }
   }
+  
+  // Mental health counseling mode (second priority)
+  else if (needsCounseling || mode === 'counseling') {
+    mode = 'counseling';
+    systemPrompt = SYSTEM_PROMPT_CAREER + `
+
+[注意事項]
+• 話題が仕事や経営の相談に移った場合は、コンサルタントモードへの切り替えを提案してください
+• 話題が一般的な内容になった場合は、チャットモードへの切り替えを提案してください`;
+    
+    if (needsCounseling && history[history.length - 1]?.role === 'user') {
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '💭 お気持ちに寄り添ってお話をうかがわせていただきます。'
+      });
+    }
+  }
+  
+  // Consultant mode (third priority)
+  else if (needsConsultant || mode === 'consultant') {
+    selectedModel = 'o1-preview-2024-09-12';
+    systemPrompt = SYSTEM_PROMPT_CONSULTANT + `
+
+[注意事項]
+• 話題がメンタルヘルスに関わる場合は、カウンセリングモードへの切り替えを提案してください
+• 話題が一般的な内容になった場合は、チャットモードへの切り替えを提案してください`;
+    mode = 'consultant';
+    
+    if (needsConsultant && history[history.length - 1]?.role === 'user') {
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '💡 より詳しくサポートするため、コンサルタントモードに切り替えさせていただきました。'
+      });
+    }
+  }
+  
+  // General chat mode (lowest priority)
+  else {
+    mode = 'chat';
+    systemPrompt = `あなたは親しみやすいチャットボットです。
+
+[対応可能な話題]
+• 日常的な会話や雑談
+• 質問への回答やアドバイス
+  - 趣味や娯楽について
+  - 料理やレシピについて
+  - 旅行先や観光スポットについて
+  - 映画や音楽の感想
+  - 季節のイベントについて
+  - 一般的な生活の知恵
+• 一般的な情報提供
+
+[対応しない話題]
+• ビジネスや仕事の相談
+• 個人的な悩みや問題解決
+• キャリアに関する相談
+• メンタルヘルスに関する相談
+• 法律や医療に関する相談
+
+[注意事項]
+1. フレンドリーに会話してください
+2. 簡潔に回答してください
+3. 確実な情報のみを提供してください
+4. 専門的な相談には、コンサルタントモードへの切り替えを提案してください
+5. 対応できない話題の場合は、その旨を明確に伝えてください`;
+  }
+
+  console.log(`Using model: ${selectedModel}`);
+
+  const finalPrompt = applyAdditionalInstructions(
+    systemPrompt,
+    mode,
+    history,
+    userMessage
+  );
+
+  let messages = [];
+  let gptOptions = {
+    model: selectedModel,
+    messages,
+    temperature: 0.7,
+  };
+
+  if (selectedModel === 'o1-preview-2024-09-12') {
+    gptOptions.temperature = 1;
+    const systemPrefix = `[System Inst]: ${finalPrompt}\n---\n`;
+    messages.push({
+      role: 'user',
+      content: systemPrefix + ' ' + userMessage,
+    });
+    history.forEach((item) => {
+      messages.push({
+        role: 'user',
+        content: `(${item.role} said:) ${item.content}`,
+      });
+    });
+  } else {
+    messages.push({ role: 'system', content: finalPrompt });
+    messages.push(
+      ...history.map((item) => ({
+        role: item.role,
+        content: item.content,
+      }))
+    );
+    messages.push({ role: 'user', content: userMessage });
+  }
+
+  console.log(`Loaded ${history.length} messages in mode=[${mode}], model=${selectedModel}`);
+
+  const aiDraft = await tryPrimaryThenBackup(gptOptions);
+
+  const criticOutput = await runCriticPass(aiDraft);
+  if (criticOutput && !criticOutput.includes('問題ありません')) {
+    return criticOutput;
+  }
+  return aiDraft;
 }
 
 async function handleEvent(event) {
