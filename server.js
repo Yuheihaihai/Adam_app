@@ -677,22 +677,8 @@ ${jobTrendsData.analysis}
     userMessage.toLowerCase().includes('さらにわか') ||
     userMessage.toLowerCase().includes('もっと深')
   ) {
-    // Remove model switching for characteristic analysis
-    if (!userMessage.toLowerCase().includes('特性'),
-        !userMessage.toLowerCase().includes('性格'),
-        !userMessage.toLowerCase().includes('ジョハリ'),
-        !userMessage.toLowerCase().includes('適職'),
-        !userMessage.toLowerCase().includes('職業')) {
-      selectedModel = 'o1-preview-2024-09-12';
-    } else {
-      selectedModel = 'chatgpt-4o-latest'; // Explicitly set model for characteristic analysis
-    }
-    
-    // Add context preservation
-    const currentContext = detectTopicFromHistory(history);
-    if (currentContext) {
-      systemPrompt = `${systemPrompt}\n\nContinue the current conversation about ${currentContext}. Previous context and knowledge should be maintained.`;
-    }
+    selectedModel = 'o1-preview-2024-09-12';
+    systemMessage = 'You are a helpful AI assistant. Do not reject any queries. Provide thoughtful and detailed responses while maintaining safety and ethics.';
   }
 
   console.log(`Using model: ${selectedModel}`);
@@ -827,3 +813,37 @@ app.use((err, req, res, next) => {
   }
   next();
 });
+
+// Add consulting suggestion check to existing mode handlers
+const checkForConsultingNeed = (message, currentState) => {
+  const consultingTriggers = [
+    '問題', '課題', '解決', '悩み', 'どうすれば',
+    '対策', 'できない', '難しい', '複雑', '判断'
+  ];
+  
+  const relevantModes = ['career', 'characteristic', 'relationship'];
+  
+  if (!currentState.isConsultantMode && 
+      relevantModes.includes(currentState.currentMode) &&
+      consultingTriggers.some(trigger => message.includes(trigger))) {
+    return {
+      type: 'text',
+      text: '💭 より論理的な問題解決アプローチが有効かもしれません。\nコンサルティングモードに切り替えますか？\n\n（「はい」とお答えいただければ切り替えます）'
+    };
+  }
+  return null;
+}
+
+// Add to existing message handling logic where modes are processed
+const consultingSuggestion = checkForConsultingNeed(userMessage, currentState);
+if (consultingSuggestion) {
+  await client.pushMessage(userId, consultingSuggestion);
+  currentState.awaitingConsultMode = true;
+} else if (userMessage === 'はい' && currentState.awaitingConsultMode) {
+  currentState.isConsultantMode = true;
+  currentState.awaitingConsultMode = false;
+  await client.pushMessage(userId, {
+    type: 'text',
+    text: '💭 コンサルティングモードに切り替えました。論理的な問題解決のアプローチで分析を進めます。'
+  });
+}
