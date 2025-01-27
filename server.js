@@ -704,10 +704,11 @@ app.post('/webhook', line.middleware(config), (req, res) => {
     });
 });
 
-const PORT = process.env.PORT || 3000;
+const port = process.env.PORT || 3000;  // Heroku provides PORT env variable
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+// Simple server start
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server is running on port ${port}`);
 }).on('error', (err) => {
   console.error('Server error:', err);
   process.exit(1);
