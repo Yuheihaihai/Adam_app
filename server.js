@@ -552,7 +552,8 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   // Career counseling mode check (highest priority trigger)
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
     try {
-      console.log('Career-related query detected, fetching job market trends...');
+      console.log('🎯 Career counseling mode activated');
+      console.log('🤖 Using Perplexity API');
       
       // Get user characteristics from history
       const userTraits = history
@@ -565,23 +566,22 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       });
 
       const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
-      console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
+      console.log('📝 Query:', searchQuery);
       
       const jobTrendsData = await perplexity.getJobTrends(searchQuery);
       
       if (jobTrendsData?.analysis) {
-        console.log('✨ Perplexity market data successfully received');
+        console.log('✅ Perplexity data received');
         
-        // Send the formatted job analysis
         await client.pushMessage(userId, {
           type: 'text',
           text: jobTrendsData.analysis
         });
 
-        return null; // Return early since we've handled the message
+        return null;
       }
     } catch (err) {
-      console.error('Perplexity search error:', err);
+      console.error('❌ Perplexity error:', err);
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: '申し訳ありません。検索時にエラーが発生しました。'
