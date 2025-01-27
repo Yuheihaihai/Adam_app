@@ -10,7 +10,10 @@ import helmet from 'helmet';
 import { Anthropic } from '@anthropic-ai/sdk';
 import timeout from 'connect-timeout';
 import { contextDetection } from './utils/contextDetection.js';
+import { PerplexitySearch } from './perplexitySearch.js';
+import { createRequire } from 'module';
 
+const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 

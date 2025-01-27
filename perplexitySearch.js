@@ -1,6 +1,6 @@
 const { OpenAI } = require('openai');
 
-class PerplexitySearch {
+export class PerplexitySearch {
   constructor(apiKey) {
     if (!apiKey) {
       console.error('Perplexity API key is missing');
@@ -159,6 +159,4 @@ class PerplexitySearch {
       return null;
     }
   }
-}
-
-module.exports = PerplexitySearch; 
+} 
