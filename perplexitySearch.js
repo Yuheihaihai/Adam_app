@@ -6,6 +6,7 @@ const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
+const { PerplexityAI } = require('perplexity-ai');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -20,8 +21,7 @@ const client = new line.Client(config);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const PerplexitySearch = require('./perplexitySearch');
-const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
+const perplexity = new PerplexityAI(process.env.PERPLEXITY_API_KEY);
 
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
