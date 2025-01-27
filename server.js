@@ -506,6 +506,7 @@ function validateMessageLength(message) {
 
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   let selectedModel = 'chatgpt-4o-latest';
+  let perplexityContext = '';
   
   // Mental health counseling topics (highest priority)
   const counselingTopics = [
@@ -793,12 +794,9 @@ setInterval(() => {
 }, RATE_LIMIT_CLEANUP_INTERVAL);
 
 app.use((err, req, res, next) => {
-  console.error('Express error:', err);
-  console.error('Stack trace:', err.stack);
-  console.error('Request path:', req.path);
-  console.error('Request body:', req.body);
-  res.status(500).json({ 
-    error: 'Internal Server Error',
-    message: err.message
-  });
+  if (err.timeout) {
+    console.error('Request timeout:', err);
+    res.status(200).json({});
+  }
+  next();
 });
