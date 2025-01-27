@@ -7,6 +7,7 @@ const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
 const axios = require('axios');
+const perplexitySearch = require('./perplexitySearch');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -652,29 +653,21 @@ async function handleEvent(event) {
     return Promise.resolve(null);
   }
 
-  const userMessage = event.message.text;
-
-  // Process the user's message
-  const replyText = await processUserMessage(userMessage);
-
-  // Create a reply message
-  const replyMessage = {
-    type: 'text',
-    text: replyText,
-  };
-
-  // Reply to the user
-  return client.replyMessage(event.replyToken, replyMessage);
-}
-
-// Function to process user message
-async function processUserMessage(message) {
   try {
-    const reply = await perplexity.search(message, process.env.PERPLEXITY_API_KEY);
-    return reply;
+    const userMessage = event.message.text;
+    // Use perplexitySearch directly without 'new'
+    const replyText = await perplexitySearch.search(userMessage, process.env.PERPLEXITY_API_KEY);
+    
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: replyText
+    });
   } catch (error) {
-    console.error('Error processing user message:', error);
-    return 'Sorry, something went wrong.';
+    console.error('Error processing message:', error);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'Sorry, I encountered an error processing your request.'
+    });
   }
 }
 
@@ -684,13 +677,10 @@ app.get('/', (req, res) => {
 
 app.post('/webhook', line.middleware(config), async (req, res) => {
   try {
-    // Process all events
     await Promise.all(req.body.events.map(handleEvent));
-    // Respond with 200 OK
     res.status(200).end();
   } catch (err) {
     console.error('Error handling events:', err);
-    // Ensure LINE receives a 200 OK response even if there's an error
     res.status(200).end();
   }
 });
