@@ -796,3 +796,10 @@ app.use((err, req, res, next) => {
   }
   next();
 });
+
+async function search(query, apiKey) {
+  // Implementation here
+  return "search results";
+}
+
+module.exports = { search };
