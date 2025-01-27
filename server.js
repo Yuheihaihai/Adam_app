@@ -240,7 +240,7 @@ function determineModeAndLimit(userMessage) {
     lcMsg.includes('恋愛') ||
     lcMsg.includes('パートナー')
   ) {
-    return { mode: 'humanRelationship', limit: 10};
+    return { mode: 'humanRelationship', limit: 200 };
   }
   return { mode: 'general', limit: 10 };
 }
@@ -499,9 +499,62 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   const needsCounseling = counselingTopics.some(topic => 
     userMessage.includes(topic)
   );
+
+  const needsConsultant = consultantTopics.some(topic => 
+    userMessage.includes(topic)
+  );
+
+  // Career counseling mode check (highest priority trigger)
+  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
+    try {
+      console.log('Career-related query detected, fetching job market trends...');
+      
+      // Get user characteristics from history
+      const userTraits = history
+        .filter(h => h.role === 'assistant' && h.content.includes('あなたの特徴：'))
+        .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
+      
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
+      });
+
+      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
+      console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
+      
+      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
+      
+      if (jobTrendsData?.analysis) {
+        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
+        
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
+        });
+
+        if (jobTrendsData.urls) {
+          await client.pushMessage(userId, {
+            type: 'text',
+            text: '📎 参考求人情報：\n' + jobTrendsData.urls
+          });
+        }
+
+        perplexityContext = `
+[あなたの特性と市場分析に基づいた検索結果]
+${jobTrendsData.analysis}
+
+[分析の観点]
+上記の職種提案を考慮しながら、以下の点について分析してください：
+`;
+        systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
+      }
+    } catch (err) {
+      console.error('Perplexity search error:', err);
+    }
+  }
   
-  // Mental health counseling mode
-  if (needsCounseling || mode === 'counseling') {
+  // Mental health counseling mode (second priority)
+  else if (needsCounseling || mode === 'counseling') {
     mode = 'counseling';
     systemPrompt = SYSTEM_PROMPT_CAREER + `
 [注意事項]
@@ -513,9 +566,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         text: '💭 お気持ちに寄り添ってお話をうかがわせていただきます。'
       });
     }
-  }
-  // General chat mode
-  else {
+  } else {
     mode = 'chat';
     systemPrompt = `あなたは親しみやすいチャットボットです。
 
@@ -676,62 +727,3 @@ app.use((err, req, res, next) => {
   }
   next();
 });
-
-async function analyzeContext(message) {
-  // Analyze message context and emotional content
-  const analysis = {
-    // 人間関係の文脈を検出 (0-1)
-    relationshipContext: await detectRelationshipContext(message),
-    
-    // 感情分析 (-1 to 1)
-    sentiment: await analyzeSentiment(message),
-    
-    // 感情の強度 (0-1)
-    emotionalIntensity: await measureEmotionalIntensity(message),
-    
-    // 個人的な話題の度合い (0-1)
-    personalityScore: await analyzePersonalContent(message)
-  };
-
-  // 人間関係モードに切り替えるべきかの判断
-  const shouldSwitchToHR = (
-    analysis.relationshipContext > 0.6 ||  // 人間関係の文脈が強い
-    (analysis.sentiment < -0.3 && analysis.personalityScore > 0.5) ||  // ネガティブな個人的な話題
-    (analysis.emotionalIntensity > 0.7 && analysis.personalityScore > 0.6)  // 強い感情を伴う個人的な話題
-  );
-
-  return {
-    mode: shouldSwitchToHR ? 'humanrelationship' : 'general',
-    analysis: analysis
-  };
-}
-
-// 人間関係の文脈を検出
-async function detectRelationshipContext(message) {
-  // 実装例：
-  // - 人称代名詞の使用頻度
-  // - 対人関係を示す表現の有無
-  // - 会話の文脈における他者への言及
-  return contextScore; // 0-1
-}
-
-// 感情分析
-async function analyzeSentiment(message) {
-  // 感情分析APIまたはライブラリを使用
-  return sentimentScore; // -1 to 1
-}
-
-// 感情の強度を測定
-async function measureEmotionalIntensity(message) {
-  // 感情表現の強さを分析
-  // 例：「とても」「すごく」などの強調表現
-  return intensityScore; // 0-1
-}
-
-// 個人的な内容かどうかを分析
-async function analyzePersonalContent(message) {
-  // 個人的な話題の特徴を検出
-  // - 一人称の使用
-  // - プライベートな内容の言及
-  return personalityScore; // 0-1
-}
