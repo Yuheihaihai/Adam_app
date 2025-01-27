@@ -6,6 +6,7 @@ const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
+const axios = require('axios');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -798,8 +799,31 @@ app.use((err, req, res, next) => {
 });
 
 async function search(query, apiKey) {
-  // Implementation here
-  return "search results";
+  try {
+    const response = await axios.post(
+      'https://api.perplexity.ai/chat/completions',
+      {
+        model: 'pplx-7b-chat',
+        messages: [
+          {
+            role: 'user',
+            content: query
+          }
+        ]
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    return response.data.choices[0].message.content;
+  } catch (error) {
+    console.error('Perplexity API error:', error);
+    throw error;
+  }
 }
 
 module.exports = { search };
