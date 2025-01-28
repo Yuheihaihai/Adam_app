@@ -517,52 +517,57 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   // For memory recall mode, summarize all chats first
   if (mode === 'memoryRecall') {
     try {
-      // Get 200 messages max as per existing limit
+      // Get full history first
       const fullHistory = await fetchUserHistory(userId, 200);
       
       // Filter out null content and ensure strings
-      const validHistory = fullHistory
+      let validHistory = fullHistory
         .filter(item => item && item.content != null)
         .map(item => ({
           role: item.role || 'user',
-          content: String(item.content).trim(), // Convert to string and trim
+          content: String(item.content).trim(),
         }));
 
-      if (validHistory.length > 0) {
-        const summaryMessages = [
-          { role: 'system', content: SYSTEM_PROMPT_MEMORY_RECALL },
-          ...validHistory.slice(-100) // Use last 100 messages to stay within token limit
-        ];
+      // Start with all messages and reduce if needed
+      while (validHistory.length > 0) {
+        try {
+          const summaryMessages = [
+            { role: 'system', content: SYSTEM_PROMPT_MEMORY_RECALL },
+            ...validHistory
+          ];
 
-        // Get chat summary first
-        const summaryResponse = await openai.chat.completions.create({
-          model: selectedModel,
-          messages: summaryMessages,
-          temperature: 0.7,
-        });
+          // Try to get summary
+          const summaryResponse = await openai.chat.completions.create({
+            model: selectedModel,
+            messages: summaryMessages,
+            temperature: 0.7,
+          });
 
-        const chatSummary = summaryResponse.choices[0].message.content;
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: '💭 これまでのチャット履歴の要約：\n' + chatSummary
-        });
+          const chatSummary = summaryResponse.choices[0].message.content;
+          
+          // If we get here, it worked within token limit
+          const messages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'assistant', content: chatSummary },
+            { role: 'user', content: userMessage }
+          ];
 
-        // Then proceed with the original request
-        const messages = [
-          { role: 'system', content: systemPrompt },
-          { role: 'assistant', content: chatSummary },
-          { role: 'user', content: userMessage }
-        ];
+          const completion = await openai.chat.completions.create({
+            model: selectedModel,
+            messages,
+            temperature: 0.7,
+          });
 
-        const completion = await openai.chat.completions.create({
-          model: selectedModel,
-          messages,
-          temperature: 0.7,
-        });
-
-        return completion.choices[0].message.content;
-      } else {
-        return '申し訳ありません。まだ十分な会話履歴がありません。もう少しお話ししてから、もう一度お試しください。';
+          return completion.choices[0].message.content;
+        } catch (err) {
+          if (err.message.includes('maximum context length')) {
+            // If token limit exceeded, reduce history by 25%
+            const newLength = Math.floor(validHistory.length * 0.75);
+            validHistory = validHistory.slice(-newLength);
+            continue;
+          }
+          throw err; // Re-throw other errors
+        }
       }
     } catch (err) {
       console.error('Memory recall error:', err.message);
