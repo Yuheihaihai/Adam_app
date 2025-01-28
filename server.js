@@ -261,8 +261,6 @@ function getSystemPromptForMode(mode) {
       return SYSTEM_PROMPT_MEMORY_RECALL;
     case 'humanRelationship':
       return SYSTEM_PROMPT_HUMAN_RELATIONSHIP;
-    case 'consultant':
-      return SYSTEM_PROMPT_CONSULTANT;
     default:
       return SYSTEM_PROMPT_GENERAL;
   }
@@ -563,24 +561,6 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       await client.pushMessage(userId, {
         type: 'text',
         text: '💭 お気持ちに寄り添ってお話をうかがわせていただきます。'
-      });
-    }
-  }
-  
-  // Consultant mode (third priority)
-  else if (needsConsultant || mode === 'consultant') {
-    selectedModel = 'o1-preview-2024-09-12';
-    systemPrompt = SYSTEM_PROMPT_CONSULTANT + `
-
-[注意事項]
-• 話題がメンタルヘルスに関わる場合は、カウンセリングモードへの切り替えを提案してください
-• 話題が一般的な内容になった場合は、チャットモードへの切り替えを提案してください`;
-    mode = 'consultant';
-    
-    if (needsConsultant && history[history.length - 1]?.role === 'user') {
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: '💡 より詳しくサポートするため、コンサルタントモードに切り替えさせていただきました。'
       });
     }
   }
