@@ -489,30 +489,6 @@ function validateMessageLength(message) {
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   let selectedModel = 'chatgpt-4o-latest';
   
-  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
-    try {
-      const userTraits = history
-        .filter(h => h.role === 'assistant' && h.content.includes('あなたの特徴：'))
-        .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
-      
-      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種を3つ程度、具体的に提案してください。求人サイトのURLも含めて回答してください。`;
-      
-      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
-      
-      if (jobTrendsData?.analysis) {
-        console.log('✅ Perplexity data received:', jobTrendsData.analysis);
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
-        });
-        return '以上が現在の市場分析に基づく職種提案です。これらの職種について、より詳しい情報や具体的なアドバイスが必要でしたらお申し付けください。';
-      }
-    } catch (err) {
-      console.error('Market data fetch error:', err.message);
-      return '申し訳ありません。市場データの取得中にエラーが発生しました。別の方法でアドバイスをさせていただきます。';
-    }
-  }
-  
   // Mental health counseling topics (highest priority)
   const counselingTopics = [
     'メンタル', '心理',
@@ -533,8 +509,49 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     userMessage.includes(topic)
   );
 
+  // Career counseling mode check (highest priority trigger)
+  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
+    try {
+      console.log('🎯 Career counseling mode activated');
+      console.log('🤖 Using Perplexity API');
+      
+      // Get user characteristics from history
+      const userTraits = history
+        .filter(h => h && h.role === 'assistant' && h.content && h.content.includes('あなたの特徴：'))
+        .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
+      
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
+      });
+
+      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種を3つ程度、具体的に提案してください。`;
+      console.log('📝 Query:', searchQuery);
+      
+      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
+      
+      if (jobTrendsData?.analysis) {
+        console.log('✅ Perplexity data received');
+        
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: jobTrendsData.analysis
+        });
+
+        return null;
+      }
+    } catch (err) {
+      console.error('❌ Perplexity error:', err);
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '申し訳ありません。検索時にエラーが発生しました。'
+      });
+      return null;
+    }
+  }
+  
   // Mental health counseling mode (second priority)
-  if (needsCounseling || mode === 'counseling') {
+  else if (needsCounseling || mode === 'counseling') {
     mode = 'counseling';
     systemPrompt = SYSTEM_PROMPT_CAREER + `
 
