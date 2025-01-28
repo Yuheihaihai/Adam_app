@@ -265,15 +265,16 @@ function determineModeAndLimit(userMessage) {
     return { mode: 'career', limit: 200 };
   }
   
-  // Memory recall - expanded patterns
-  if (userMessage.includes('思い出して') || 
+  // Memory recall - keep original patterns but add AND condition
+  if ((userMessage.includes('思い出して') || 
       userMessage.includes('記録') || 
       userMessage.includes('過去の') || 
-      userMessage.includes('今までの')) {
+      userMessage.includes('今までの')) &&
+      userMessage.toLowerCase().includes('記録')) {
     return { mode: 'memoryRecall', limit: 200 };
   }
 
-  // ... rest of the existing conditions ...
+  // Default mode - unchanged
   return { mode: 'general', limit: 10 };
 }
 
