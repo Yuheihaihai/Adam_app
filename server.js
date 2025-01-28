@@ -546,7 +546,8 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
           text: jobTrendsData.analysis
         });
 
-        return null;
+         // *** The key change: instead of return null => let's set `mode='characteristics'`. ***
+         mode = 'characteristics';
       }
     } catch (err) {
       console.error('❌ Perplexity error:', err);
