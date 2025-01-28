@@ -450,6 +450,53 @@ function validateMessageLength(message) {
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   let selectedModel = 'chatgpt-4o-latest';
   
+  // For memory recall mode, summarize all chats first
+  if (mode === 'memoryRecall') {
+    try {
+      // Get all history without limit for full summary
+      const fullHistory = await fetchUserHistory(userId, 1000);
+      
+      const summaryMessages = [
+        { role: 'system', content: SYSTEM_PROMPT_MEMORY_RECALL },
+        ...fullHistory.map(item => ({
+          role: item.role,
+          content: item.content,
+        }))
+      ];
+
+      // Get chat summary first
+      const summaryResponse = await openai.chat.completions.create({
+        model: selectedModel,
+        messages: summaryMessages,
+        temperature: 0.7,
+      });
+
+      const chatSummary = summaryResponse.choices[0].message.content;
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '💭 これまでのチャット履歴の要約：\n' + chatSummary
+      });
+
+      // Then proceed with the original request
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'assistant', content: chatSummary },
+        { role: 'user', content: userMessage }
+      ];
+
+      const completion = await openai.chat.completions.create({
+        model: selectedModel,
+        messages,
+        temperature: 0.7,
+      });
+
+      return completion.choices[0].message.content;
+    } catch (err) {
+      console.error('Memory recall error:', err.message);
+      return '申し訳ありません。記録の取得中にエラーが発生しました。';
+    }
+  }
+
   // Mental health counseling topics (highest priority)
   const counselingTopics = [
     'メンタル', '心理',
