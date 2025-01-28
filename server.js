@@ -520,41 +520,51 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       // Get all history without limit for full summary
       const fullHistory = await fetchUserHistory(userId, 1000);
       
-      const summaryMessages = [
-        { role: 'system', content: SYSTEM_PROMPT_MEMORY_RECALL },
-        ...fullHistory.map(item => ({
-          role: item.role,
-          content: item.content,
-        }))
-      ];
+      // Filter out null content and ensure strings
+      const validHistory = fullHistory
+        .filter(item => item && item.content != null)
+        .map(item => ({
+          role: item.role || 'user',
+          content: String(item.content).trim(), // Convert to string and trim
+        }));
 
-      // Get chat summary first
-      const summaryResponse = await openai.chat.completions.create({
-        model: selectedModel,
-        messages: summaryMessages,
-        temperature: 0.7,
-      });
+      // Only proceed if we have valid history
+      if (validHistory.length > 0) {
+        const summaryMessages = [
+          { role: 'system', content: SYSTEM_PROMPT_MEMORY_RECALL },
+          ...validHistory
+        ];
 
-      const chatSummary = summaryResponse.choices[0].message.content;
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: '💭 これまでのチャット履歴の要約：\n' + chatSummary
-      });
+        // Get chat summary first
+        const summaryResponse = await openai.chat.completions.create({
+          model: selectedModel,
+          messages: summaryMessages,
+          temperature: 0.7,
+        });
 
-      // Then proceed with the original request
-      const messages = [
-        { role: 'system', content: systemPrompt },
-        { role: 'assistant', content: chatSummary },
-        { role: 'user', content: userMessage }
-      ];
+        const chatSummary = summaryResponse.choices[0].message.content;
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: '💭 これまでのチャット履歴の要約：\n' + chatSummary
+        });
 
-      const completion = await openai.chat.completions.create({
-        model: selectedModel,
-        messages,
-        temperature: 0.7,
-      });
+        // Then proceed with the original request
+        const messages = [
+          { role: 'system', content: systemPrompt },
+          { role: 'assistant', content: chatSummary },
+          { role: 'user', content: userMessage }
+        ];
 
-      return completion.choices[0].message.content;
+        const completion = await openai.chat.completions.create({
+          model: selectedModel,
+          messages,
+          temperature: 0.7,
+        });
+
+        return completion.choices[0].message.content;
+      } else {
+        return '申し訳ありません。まだ十分な会話履歴がありません。もう少しお話ししてから、もう一度お試しください。';
+      }
     } catch (err) {
       console.error('Memory recall error:', err.message);
       return '申し訳ありません。記録の取得中にエラーが発生しました。';
