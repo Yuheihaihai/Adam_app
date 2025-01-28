@@ -489,6 +489,50 @@ function validateMessageLength(message) {
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   let selectedModel = 'chatgpt-4o-latest';
   
+  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
+    try {
+      // Use existing characteristics mode
+      const { mode: charMode, limit } = determineModeAndLimit('特性分析をお願いします');
+      const charSystemPrompt = getSystemPromptForMode(charMode);
+      
+      const messages = [
+        { role: 'system', content: charSystemPrompt },
+        ...history.map(item => ({
+          role: item.role,
+          content: item.content,
+        }))
+      ];
+      
+      const characteristicsResponse = await openai.chat.completions.create({
+        model: selectedModel,
+        messages,
+        temperature: 0.7,
+      });
+
+      const characteristicsAnalysis = characteristicsResponse.choices[0].message.content;
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: characteristicsAnalysis
+      });
+
+      // Then do Perplexity search using the analysis
+      const searchQuery = `${characteristicsAnalysis}\n\nこのような特徴を持つ方に最適な新興職種を3つ程度、具体的に提案してください。求人サイトのURLも含めて回答してください。`;
+      
+      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
+      
+      if (jobTrendsData?.analysis) {
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
+        });
+        return '以上が現在の市場分析に基づく職種提案です。これらの職種について、より詳しい情報や具体的なアドバイスが必要でしたらお申し付けください。';
+      }
+    } catch (err) {
+      console.error('Analysis/Market data error:', err.message);
+      return '申し訳ありません。分析中にエラーが発生しました。別の方法でアドバイスをさせていただきます。';
+    }
+  }
+  
   // Mental health counseling topics (highest priority)
   const counselingTopics = [
     'メンタル', '心理',
@@ -509,49 +553,8 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     userMessage.includes(topic)
   );
 
-  // Career counseling mode check (highest priority trigger)
-  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
-    try {
-      console.log('🎯 Career counseling mode activated');
-      console.log('🤖 Using Perplexity API');
-      
-      // Get user characteristics from history
-      const userTraits = history
-        .filter(h => h && h.role === 'assistant' && h.content && h.content.includes('あなたの特徴：'))
-        .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
-      
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
-      });
-
-      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種を3つ程度、具体的に提案してください。`;
-      console.log('📝 Query:', searchQuery);
-      
-      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
-      
-      if (jobTrendsData?.analysis) {
-        console.log('✅ Perplexity data received');
-        
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: jobTrendsData.analysis
-        });
-
-        return null;
-      }
-    } catch (err) {
-      console.error('❌ Perplexity error:', err);
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: '申し訳ありません。検索時にエラーが発生しました。'
-      });
-      return null;
-    }
-  }
-  
   // Mental health counseling mode (second priority)
-  else if (needsCounseling || mode === 'counseling') {
+  if (needsCounseling || mode === 'counseling') {
     mode = 'counseling';
     systemPrompt = SYSTEM_PROMPT_CAREER + `
 
@@ -674,31 +677,44 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
 
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') return null;
-
-  const userId = event.source?.userId;
-  const userMessage = event.message.text.trim();
-
-  const { mode, limit } = determineModeAndLimit(userMessage);
-  const history = await fetchUserHistory(userId, limit);
-  const systemPrompt = getSystemPromptForMode(mode);
+  
+  const userId = event.source?.userId || 'unknown';
+  const userMessage = validateMessageLength(event.message.text.trim());
 
   try {
-    const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId, client);
-    if (!aiReply) throw new Error('No AI reply received');
-
-    await Promise.all([
-      storeInteraction(userId, 'user', userMessage),
-      storeInteraction(userId, 'assistant', aiReply),
-      client.replyMessage(event.replyToken, { 
+    if (!securityFilterPrompt(userMessage)) {
+      return client.replyMessage(event.replyToken, { 
         type: 'text', 
-        text: aiReply.slice(0, 2000) 
-      })
+        text: '申し訳ありません。このリクエストには対応できません。' 
+      });
+    }
+
+    await storeInteraction(userId, 'user', userMessage);
+    const { mode, limit } = determineModeAndLimit(userMessage);
+    const history = await fetchUserHistory(userId, limit);
+    
+    // Increased timeout to 150 seconds (2.5 minutes)
+    const aiReply = await Promise.race([
+      processWithAI(getSystemPromptForMode(mode), userMessage, history, mode, userId, client),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('AI response timeout')), 150000)
+      )
     ]);
-  } catch (error) {
-    console.error('Error:', error);
-    await client.replyMessage(event.replyToken, { 
+
+    if (!aiReply) {
+      throw new Error('No AI reply received');
+    }
+
+    await storeInteraction(userId, 'assistant', aiReply);
+    return client.replyMessage(event.replyToken, { 
       type: 'text', 
-      text: 'すみません、エラーが発生しました。もう一度お試しください。' 
+      text: aiReply.slice(0, 2000) 
+    });
+  } catch (error) {
+    console.error('Error in handleEvent:', error);
+    return client.replyMessage(event.replyToken, { 
+      type: 'text', 
+      text: '申し訳ありません。処理中にエラーが発生しました。もう一度お試しください。' 
     });
   }
 }
