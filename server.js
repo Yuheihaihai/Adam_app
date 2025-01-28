@@ -517,8 +517,8 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   // For memory recall mode, summarize all chats first
   if (mode === 'memoryRecall') {
     try {
-      // Get all history without limit for full summary
-      const fullHistory = await fetchUserHistory(userId, 1000);
+      // Get 200 messages max as per existing limit
+      const fullHistory = await fetchUserHistory(userId, 200);
       
       // Filter out null content and ensure strings
       const validHistory = fullHistory
@@ -528,11 +528,10 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
           content: String(item.content).trim(), // Convert to string and trim
         }));
 
-      // Only proceed if we have valid history
       if (validHistory.length > 0) {
         const summaryMessages = [
           { role: 'system', content: SYSTEM_PROMPT_MEMORY_RECALL },
-          ...validHistory
+          ...validHistory.slice(-100) // Use last 100 messages to stay within token limit
         ];
 
         // Get chat summary first
