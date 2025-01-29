@@ -535,7 +535,7 @@ function limitHistoryTokens(history, maxTokens = 120000) { // Leave buffer for s
   return limitedHistory;
 }
 
-async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
+async function processWithAI(systemPrompt, userMessage, history, mode, userId, client, replyToken) {
   let selectedModel = 'chatgpt-4o-latest';
   
   // For memory recall mode
@@ -684,7 +684,7 @@ async function handleEvent(event) {
     
     // Increased timeout to 150 seconds (2.5 minutes)
     const aiReply = await Promise.race([
-      processWithAI(getSystemPromptForMode(mode), userMessage, history, mode, userId, client),
+      processWithAI(getSystemPromptForMode(mode), userMessage, history, mode, userId, client, event.replyToken),
       new Promise((_, reject) => 
         setTimeout(() => reject(new Error('AI response timeout')), 150000)
       )
