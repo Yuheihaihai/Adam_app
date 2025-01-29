@@ -9,7 +9,7 @@ class PerplexitySearch {
     
     this.client = new OpenAI({ 
       apiKey: apiKey,
-      baseURL: "https://api.perplexity.ai/v1",  // Updated endpoint
+      baseURL: "https://api.perplexity.ai",  // Just the base URL
       timeout: 25000,
       maxRetries: 2
     });
@@ -103,9 +103,10 @@ class PerplexitySearch {
       console.log('🔍 Sending request to Perplexity API for job trends...');
       
       const response = await this.client.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
-          { role: "system", content: `あなたは「Adam」というカウンセラーです。
+        model: "sonar",
+        messages: [{
+          role: "system",
+          content: `あなたは「Adam」というカウンセラーです。
           下記の観点から情報を提供してください：
 
           [分析の観点]
@@ -132,14 +133,12 @@ class PerplexitySearch {
           返答は必ず日本語で、200文字以内に収めてください。` },
           { role: "user", content: query }
         ],
-        max_tokens: 200,
+        max_tokens: 500,
         temperature: 0.7
       });
 
-      // Process the response
-      const analysis = response.choices[0].message.content.slice(0, 1900);
       return {
-        analysis: analysis,
+        analysis: response.choices[0]?.message?.content.slice(0, 1900),
         urls: []
       };
     } catch (error) {
