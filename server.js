@@ -745,18 +745,26 @@ app.listen(PORT);
 function sanitizeForLINE(rawText) {
   if (!rawText) return '';
   
-  return rawText
-    // 1. Remove emojis and symbols
-    .replace(/[\u{1F300}-\u{1FAFF}]/gu, '')  
-    // 2. Remove zero-width spaces and BOM
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')   
-    // 3. Keep only Japanese characters and basic punctuation
-    .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF。、：！？（）\s]/g, '')  
-    // 4. Normalize Unicode (using correct form)
-    .normalize('NFKC')                        
-    // 5. Clean spaces
-    .replace(/\s+/g, ' ')                     
-    // 6. Final trimming and length limit
-    .trim()
-    .slice(0, 1900);
+  // 1. Keep only valid LINE message characters
+  let cleaned = rawText
+    // Remove emojis (LINE requires specific emoji format)
+    .replace(/[\u{1F300}-\u{1FAFF}]/gu, '')
+    // Keep only Japanese text and basic punctuation that LINE supports
+    .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF。、：！？（）\s]/g, '')
+    // Normalize for LINE's text handling
+    .normalize('NFKC')
+    // Clean whitespace as per LINE specs
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // 2. Ensure message length is within LINE's limits
+  cleaned = cleaned.slice(0, 1900);  // Safe limit under LINE's max
+
+  // 3. Ensure we have valid content
+  if (!cleaned) {
+    cleaned = '申し訳ありません。有効な回答を生成できませんでした。';
+  }
+
+  // 4. Return proper LINE message format
+  return cleaned;
 }
