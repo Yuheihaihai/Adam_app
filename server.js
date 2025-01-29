@@ -563,7 +563,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         });
 
         const chatSummary = summaryResponse.choices[0].message.content;
-        await client.pushMessage(userId, {
+        await client.replyMessage(replyToken, {
           type: 'text',
           text: '💭 これまでのチャット履歴の要約：\n' + chatSummary
         });
@@ -598,10 +598,12 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         .filter(h => h.role === 'assistant' && h.content.includes('あなたの特徴：'))
         .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
       
-      await client.pushMessage(userId, {
+      // First message - searching notification
+      const searchingMessages = [{
         type: 'text',
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
-      });
+      }];
+      await client.replyMessage(replyToken, searchingMessages);
 
       const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
       console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
@@ -611,13 +613,16 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       if (jobTrendsData?.analysis) {
         console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
         
-        await client.pushMessage(userId, {
+        // Results messages
+        const analysisMessages = [{
           type: 'text',
           text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
-        });
+        }];
+        
+        await client.replyMessage(replyToken, analysisMessages);
 
         if (jobTrendsData.urls) {
-          await client.pushMessage(userId, {
+          await client.replyMessage(replyToken, {
             type: 'text',
             text: '📎 参考求人情報：\n' + jobTrendsData.urls
           });
