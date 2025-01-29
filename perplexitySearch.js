@@ -137,14 +137,25 @@ class PerplexitySearch {
         temperature: 0.7
       });
 
-      // Enhanced text cleaning
-      const rawText = response.choices[0]?.message?.content || '';
-      const cleanText = Buffer.from(rawText, 'utf8')
-        .toString('utf8')                    // Ensure UTF-8 encoding
-        .replace(/[\uFFFD\uD800-\uDFFF]/g, '') // Remove invalid UTF-8
-        .normalize('NFKC')                   // Normalize Japanese characters
-        .replace(/[^\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\u3400-\u4dbf\uff00-\uffef\u4e00-\u9faf\x00-\x7F]/g, '') // Keep only valid Japanese and basic Latin chars
-        .slice(0, 1900);                    // LINE message limit
+      // Multi-step text cleaning
+      let cleanText = response.choices[0]?.message?.content || '';
+      
+      // Step 1: Basic UTF-8 cleanup
+      cleanText = cleanText
+        .replace(/[\uFFFD\uD800-\uDFFF]/g, '')  // Remove surrogate pairs and replacement chars
+        .normalize('NFKC');                      // Normalize Japanese text
+      
+      // Step 2: Keep only valid characters
+      cleanText = cleanText.replace(
+        /[^\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\u3400-\u4dbf\x20-\x7E]/g, 
+        ''
+      );
+      
+      // Step 3: Final length limit
+      cleanText = cleanText.slice(0, 1900);
+
+      console.log('Cleaned text length:', cleanText.length);
+      console.log('First 100 chars:', cleanText.slice(0, 100));
 
       return {
         analysis: cleanText,
