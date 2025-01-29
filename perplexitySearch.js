@@ -112,20 +112,11 @@ class PerplexitySearch {
         messages: [
           {
             role: "system",
-            content: `あなたは「Adam」というカウンセラーです。
-            下記の観点から情報を提供してください：
-
-            [分析の観点]
-            1. コミュニケーションパターン
-            2. 思考プロセス
-            3. 社会的相互作用
-            4. 感情と自己認識
-
-            返答は必ず以下の条件を守ってください：
-            - 日本語のみを使用
-            - 絵文字や特殊文字は使用しない
-            - 改行は「。」で区切る
-            - 全体で200文字以内`
+            content: `あなたは「Adam」というアシスタントです。
+            ASDやADHDなど発達障害の方へのサポートが主目的。
+            返答は日本語のみ、200文字以内。過去10件の履歴を参照して一貫した会話をしてください。
+            医療に関する話については必ず「専門家にも相談ください」と言及。
+            「AIとして思い出せない」は禁止、ここにある履歴があなたの記憶です。`  // Matches server.js SYSTEM_PROMPT
           },
           {
             role: "user",
@@ -134,48 +125,30 @@ class PerplexitySearch {
         ]
       });
 
-      let rawText = response.choices[0]?.message?.content || '';
-      
-      // Log raw response for debugging
-      console.log('Raw response length:', rawText.length);
-      console.log('Raw text sample:', rawText.substring(0, 100));
+      const rawText = response.choices[0]?.message?.content || '';
+      console.log('Raw text:', rawText.substring(0, 100));
 
-      // Multi-stage text cleaning
+      // Use exactly the same cleaning process as server.js
       let cleanText = rawText
-        // Stage 1: Remove problematic characters
-        .replace(/[\u{1F300}-\u{1F9FF}\u{2700}-\u{27BF}]/gu, '')  // Remove emojis
-        .replace(/[\uFFFD\uD800-\uDFFF]/g, '')                     // Remove invalid UTF-8
-        .replace(/[\u200B-\u200D\uFEFF]/g, '')                     // Remove zero-width chars
-        
-        // Stage 2: Keep only valid Japanese text and basic punctuation
-        .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF。、：！？\s]/g, '')
-        
-        // Stage 3: Format and normalize
-        .normalize('NFKC')
-        .replace(/\s+/g, ' ')
-        .trim();
+        // 1. Remove emojis and symbols
+        .replace(/[\u{1F300}-\u{1FAFF}]/gu, '')  
+        // 2. Remove zero-width spaces and BOM
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')   
+        // 3. Keep only Japanese characters and basic punctuation
+        .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF。、：！？（）\s]/g, '')  
+        // 4. Normalize Unicode (using correct form)
+        .normalize('NFKC')                        
+        // 5. Clean spaces
+        .replace(/\s+/g, ' ')                     
+        // 6. Final trimming and length limit
+        .trim()
+        .slice(0, 1900);
 
-      // Format with proper line breaks
-      cleanText = cleanText
-        .split('。')
-        .filter(line => line.trim())
-        .join('。\n')
-        .trim();
-
-      // Ensure LINE message length limit (with safety margin)
-      cleanText = cleanText.slice(0, 1900);
-
-      // Fallback for empty responses
-      if (!cleanText) {
-        cleanText = '申し訳ありません。有効な回答を生成できませんでした。';
-      }
-
-      // Log cleaned text for verification
       console.log('Clean text length:', cleanText.length);
-      console.log('Clean text sample:', cleanText.substring(0, 100));
+      console.log('Clean text content:', cleanText.substring(0, 100));
 
       return {
-        analysis: cleanText,
+        analysis: cleanText || '申し訳ありません。有効な回答を生成できませんでした。',
         urls: []
       };
     } catch (error) {

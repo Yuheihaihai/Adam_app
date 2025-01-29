@@ -740,3 +740,23 @@ app.post('/webhook', line.middleware(config), (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT);
+
+// Consistent text sanitization function
+function sanitizeForLINE(rawText) {
+  if (!rawText) return '';
+  
+  return rawText
+    // 1. Remove emojis and symbols
+    .replace(/[\u{1F300}-\u{1FAFF}]/gu, '')  
+    // 2. Remove zero-width spaces and BOM
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')   
+    // 3. Keep only Japanese characters and basic punctuation
+    .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF。、：！？（）\s]/g, '')  
+    // 4. Normalize Unicode (using correct form)
+    .normalize('NFKC')                        
+    // 5. Clean spaces
+    .replace(/\s+/g, ' ')                     
+    // 6. Final trimming and length limit
+    .trim()
+    .slice(0, 1900);
+}
