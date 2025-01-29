@@ -617,7 +617,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         const summaryMessages = [
           { 
             role: "system", 
-            content: "あなたは求人市場分析の専門家です。以下の分析結果を800文字以内で要約してください。重要なポイントのみを簡潔に記載し、不要な装飾的な文章は省いてください。特に、職種の具体的な提案、必要なスキル、将来性の情報を優先して含めてください。" 
+            content: "あなたは求人市場分析の専門家です。以下の分析結果を800文字以内で重要なポイントを保ちながら簡潔に要約してください。特に、職種の具体的な提案、必要なスキル、将来性の情報を優先して含めてください。" 
           },
           { 
             role: "user", 
@@ -628,8 +628,8 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         const summaryCompletion = await openai.chat.completions.create({
           model: "chatgpt-4o-latest",
           messages: summaryMessages,
-          max_tokens: 500,  // Add token limit
           temperature: 0.7,
+          max_tokens: 500
         });
 
         const summarizedAnalysis = summaryCompletion.choices[0].message.content;
