@@ -103,6 +103,43 @@ class PerplexitySearch {
            query.includes('sports');
   }
 
+  // Helper functions for text sanitization
+  function removeEmojis(text) {
+    return text.replace(/[\u{1F300}-\u{1FAFF}]/gu, "");
+  }
+
+  function limitLength(text, maxLen = 2000) {
+    if (text.length > maxLen) {
+      return text.slice(0, maxLen - 3) + "...";
+    }
+    return text;
+  }
+
+  function sanitizeForLINE(raw) {
+    // 1) Remove emojis
+    let cleaned = removeEmojis(raw);
+    
+    // 2) Remove zero-width spaces and other invisible characters
+    cleaned = cleaned.replace(/[\u200B-\u200D\uFEFF]/g, '');
+    
+    // 3) Keep only Japanese characters and basic punctuation
+    cleaned = cleaned.replace(
+      /[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF。、：！？（）\s]/g,
+      ''
+    );
+    
+    // 4) Normalize Unicode and fix spacing
+    cleaned = cleaned
+      .normalize('NFKC')
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    // 5) Enforce length limit
+    cleaned = limitLength(cleaned, 2000);
+    
+    return cleaned;
+  }
+
   async getJobTrends(query) {
     try {
       console.log('🔍 Sending request to Perplexity API for job trends...');
@@ -134,48 +171,21 @@ class PerplexitySearch {
         ]
       });
 
-      let rawText = response.choices[0]?.message?.content || '';
-      
-      // Log raw response for debugging
-      console.log('Raw response length:', rawText.length);
+      // Get raw text from response
+      const rawText = response.choices[0]?.message?.content || '';
+      console.log('Raw text length:', rawText.length);
       console.log('Raw text sample:', rawText.substring(0, 100));
 
-      // Multi-stage text cleaning
-      let cleanText = rawText
-        // Stage 1: Remove problematic characters
-        .replace(/[\u{1F300}-\u{1F9FF}\u{2700}-\u{27BF}]/gu, '')  // Remove emojis
-        .replace(/[\uFFFD\uD800-\uDFFF]/g, '')                     // Remove invalid UTF-8
-        .replace(/[\u200B-\u200D\uFEFF]/g, '')                     // Remove zero-width chars
-        
-        // Stage 2: Keep only valid Japanese text and basic punctuation
-        .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF。、：！？\s]/g, '')
-        
-        // Stage 3: Format and normalize
-        .normalize('NFKC')
-        .replace(/\s+/g, ' ')
-        .trim();
+      // Clean and sanitize text for LINE
+      const cleanText = this.sanitizeForLINE(rawText);
 
-      // Format with proper line breaks
-      cleanText = cleanText
-        .split('。')
-        .filter(line => line.trim())
-        .join('。\n')
-        .trim();
-
-      // Ensure LINE message length limit (with safety margin)
-      cleanText = cleanText.slice(0, 1900);
-
-      // Fallback for empty responses
-      if (!cleanText) {
-        cleanText = '申し訳ありません。有効な回答を生成できませんでした。';
-      }
-
-      // Log cleaned text for verification
+      // Log sanitized text for verification
       console.log('Clean text length:', cleanText.length);
       console.log('Clean text sample:', cleanText.substring(0, 100));
 
+      // Return sanitized text
       return {
-        analysis: cleanText,
+        analysis: cleanText || '申し訳ありません。有効な回答を生成できませんでした。',
         urls: []
       };
     } catch (error) {
