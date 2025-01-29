@@ -636,7 +636,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         
         const analysisMessages = [{
           type: 'text',
-          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + summarizedAnalysis
+          text: 'あなたの特性と市場分析に基づいた検索結果：\n' + summarizedAnalysis
         }];
         
         await client.replyMessage(replyToken, analysisMessages);
