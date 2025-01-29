@@ -137,8 +137,15 @@ class PerplexitySearch {
         temperature: 0.7
       });
 
+      // Clean and encode the response text
+      const rawText = response.choices[0]?.message?.content || '';
+      const cleanText = rawText
+        .replace(/[\uFFFD\uD800-\uDFFF\u0000-\u001F]/g, '') // Remove invalid chars
+        .normalize('NFKC')  // Normalize Japanese characters
+        .slice(0, 1900);   // LINE message length limit
+
       return {
-        analysis: response.choices[0]?.message?.content.slice(0, 1900),
+        analysis: cleanText,
         urls: []
       };
     } catch (error) {
