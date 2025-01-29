@@ -526,38 +526,6 @@ function validateMessageLength(message) {
   return message;
 }
 
-// Add rate limiting control
-let lastPushTimestamp = 0;
-const PUSH_COOLDOWN_MS = 2000;
-
-async function safePushMessage(userId, message) {
-  const now = Date.now();
-  const elapsed = now - lastPushTimestamp;
-
-  if (elapsed < PUSH_COOLDOWN_MS) {
-    const waitMs = PUSH_COOLDOWN_MS - elapsed;
-    await new Promise(resolve => setTimeout(resolve, waitMs));
-  }
-
-  try {
-    await client.pushMessage(userId, message);
-    lastPushTimestamp = Date.now();
-  } catch (err) {
-    if (err.statusCode === 429) {
-      console.warn('PushMessage rate-limited. Retrying...');
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      try {
-        await client.pushMessage(userId, message);
-        lastPushTimestamp = Date.now();
-      } catch (err2) {
-        console.error('Second push attempt failed:', err2);
-      }
-    } else {
-      console.error('pushMessage error:', err);
-    }
-  }
-}
-
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   let selectedModel = 'chatgpt-4o-latest';
   
@@ -586,21 +554,16 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     try {
       console.log('Career-related query detected, fetching job market trends...');
       
-      if (!checkRateLimit(userId)) {
-        console.log('Rate limit exceeded, waiting...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
+      // Get user characteristics from history
+      const userTraits = history
+        .filter(h => h.role === 'assistant' && h.content.includes('あなたの特徴：'))
+        .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
       
       await client.pushMessage(userId, {
         type: 'text',
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
       });
 
-      // Get user characteristics from history
-      const userTraits = history
-        .filter(h => h.role === 'assistant' && h.content.includes('あなたの特徴：'))
-        .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
-      
       const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
       console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
       
@@ -621,7 +584,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
           });
         }
 
-        let perplexityContext = `
+        perplexityContext = `
 [あなたの特性と市場分析に基づいた検索結果]
 ${jobTrendsData.analysis}
 
@@ -632,17 +595,6 @@ ${jobTrendsData.analysis}
       }
     } catch (err) {
       console.error('Perplexity search error:', err);
-      if (err.statusCode === 429) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        try {
-          await client.pushMessage(userId, {
-            type: 'text',
-            text: '申し訳ありません。しばらく待ってから再度お試しください。'
-          });
-        } catch (retryErr) {
-          console.error('Retry failed:', retryErr);
-        }
-      }
     }
   }
   
@@ -800,10 +752,7 @@ async function handleEvent(event) {
   console.log('Replying to LINE user with:', lineMessage.text);
 
   try {
-    while (!checkRateLimit(userId)) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-    await client.pushMessage(userId, { text: '結果...' });
+    await client.replyMessage(event.replyToken, lineMessage);
     console.log('Successfully replied to user.');
   } catch (err) {
     console.error('Error replying to user:', err);
