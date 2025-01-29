@@ -1,19 +1,13 @@
-const { OpenAI } = require('openai');
 const axios = require('axios');
 
 class PerplexitySearch {
-  constructor(apiKey, model) {
+  constructor(apiKey) {
     if (!apiKey) {
       console.error('Perplexity API key is missing');
       throw new Error('Perplexity API key is required');
     }
     
-    this.client = new OpenAI({ 
-      apiKey: apiKey,
-      baseURL: "https://api.perplexity.ai",
-      timeout: 25000,  // 25 second timeout (below Heroku's 30s limit)
-      maxRetries: 2    // Allow 2 retries
-    });
+    this.apiKey = apiKey;
   }
 
   async enhanceKnowledge(history, userMessage) {
@@ -22,44 +16,20 @@ class PerplexitySearch {
     try {
       console.log('Enhancing knowledge with Perplexity for:', userMessage);
       
-      const response = await this.client.chat.completions.create({
-        model: "sonar",
-        messages: [{
-          role: 'system',
-          content: `あなたは「Adam」というカウンセラーです。
-          下記の観点から情報を提供してください：
-
-          [分析の観点]
-          1. コミュニケーションパターン
-             - 言葉遣いの特徴
-             - 表現の一貫性
-             - 感情表現の方法
-
-          2. 思考プロセス
-             - 論理的思考の特徴
-             - 問題解決アプローチ
-             - 興味・関心の対象
-
-          3. 社会的相互作用
-             - 対人関係での傾向
-             - ストレス対処方法
-             - コミュニケーション上の強み/課題
-
-          4. 感情と自己認識
-             - 感情表現の特徴
-             - 自己理解の程度
-             - モチベーションの源泉
-
-          返答は必ず日本語で、200文字以内に収めてください。`
-        }, {
-          role: 'user',
-          content: this.constructSearchQuery(history, userMessage)
-        }],
+      const response = await axios.post('https://api.perplexity.ai/search', {
+        query: this.constructSearchQuery(history, userMessage),
+        model: 'sonar',
         max_tokens: 256,
         temperature: 0.7
+      }, {
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 25000  // 25 second timeout
       });
 
-      return response.choices[0]?.message?.content;
+      return response.data.text;
     } catch (error) {
       console.error('Perplexity knowledge enhancement error:', error);
       return null;
@@ -101,19 +71,20 @@ class PerplexitySearch {
 
     try {
       console.log('Processing allowed query:', query);
-      const response = await this.client.chat.completions.create({
+      const response = await axios.post('https://api.perplexity.ai/search', {
+        query: query,
         model: 'sonar',
-        messages: [
-          {
-            role: 'user',
-            content: `天気予報について: ${query}`
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 150
+        max_tokens: 150,
+        temperature: 0.7
+      }, {
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 25000  // 25 second timeout
       });
 
-      return response.choices[0]?.message?.content || '情報を取得できませんでした。';
+      return response.data.text || '情報を取得できませんでした。';
     } catch (error) {
       console.error('Perplexity query error:', error);
       return '申し訳ありません。情報を取得できませんでした。';
@@ -130,25 +101,32 @@ class PerplexitySearch {
 
   async getJobTrends(query) {
     try {
-      const response = await this.client.chat.completions.create({
+      console.log('🔍 Sending request to Perplexity API for job trends...');
+      
+      const response = await axios.post('https://api.perplexity.ai/search', {
+        query: query,
         model: 'sonar',
-        messages: [{
-          role: 'user',
-          content: query
-        }],
-        max_tokens: 500,
-        temperature: 0.7
+        max_tokens: 500
+      }, {
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 25000  // 25 second timeout
       });
 
-      // Process URLs into hyperlinks (if they exist in the response)
-      const urls = response.choices[0]?.message?.content?.urls || [];
+      // Extract the text and URLs from the response
+      const analysis = response.data.text.slice(0, 1000); // Safety limit
+      const urls = response.data.urls || [];
+
+      // Convert URLs to hyperlinks
       const hyperlinks = urls.map(url => {
         const domain = new URL(url).hostname;
-        return `<${domain}|${url}>`;
+        return `<${domain}|${url}>`; // LINE's hyperlink format or adjust as needed
       }).join('\n');
 
       return {
-        analysis: response.choices[0]?.message?.content.slice(0, 1000),
+        analysis: analysis,
         urls: hyperlinks
       };
     } catch (error) {
