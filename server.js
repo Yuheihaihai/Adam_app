@@ -526,6 +526,7 @@ function validateMessageLength(message) {
   return message;
 }
 
+// Add rate limiting control
 let lastPushTimestamp = 0;
 const PUSH_COOLDOWN_MS = 2000;
 
@@ -585,12 +586,11 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     try {
       console.log('Career-related query detected, fetching job market trends...');
       
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '🔍 適職診断の検索を開始します。少々お待ちください...'
-      });
-
-      // 特性分析を別メッセージで送信
+      if (!checkRateLimit(userId)) {
+        console.log('Rate limit exceeded, waiting...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
       await client.pushMessage(userId, {
         type: 'text',
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
@@ -607,6 +607,8 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       const jobTrendsData = await perplexity.getJobTrends(searchQuery);
       
       if (jobTrendsData?.analysis) {
+        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
+        
         await client.pushMessage(userId, {
           type: 'text',
           text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
