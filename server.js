@@ -586,8 +586,12 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     try {
       console.log('Career-related query detected, fetching job market trends...');
       
-      // Initial reply using replyMessage
-      await client.replyMessage(event.replyToken, {
+      if (!checkRateLimit(userId)) {
+        console.log('Rate limit exceeded, waiting...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      await client.pushMessage(userId, {
         type: 'text',
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
       });
@@ -605,24 +609,40 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       if (jobTrendsData?.analysis) {
         console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
         
-        await client.replyMessage(event.replyToken, {
+        await client.pushMessage(userId, {
           type: 'text',
           text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
         });
 
         if (jobTrendsData.urls) {
-          await safePushMessage(userId, {
+          await client.pushMessage(userId, {
             type: 'text',
             text: '📎 参考求人情報：\n' + jobTrendsData.urls
           });
         }
+
+        let perplexityContext = `
+[あなたの特性と市場分析に基づいた検索結果]
+${jobTrendsData.analysis}
+
+[分析の観点]
+上記の職種提案を考慮しながら、以下の点について分析してください：
+`;
+        systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
       }
     } catch (err) {
       console.error('Perplexity search error:', err);
-      await safePushMessage(userId, {
-        type: 'text',
-        text: '申し訳ありません。検索に失敗しました。しばらく待ってから再度お試しください。'
-      });
+      if (err.statusCode === 429) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+          await client.pushMessage(userId, {
+            type: 'text',
+            text: '申し訳ありません。しばらく待ってから再度お試しください。'
+          });
+        } catch (retryErr) {
+          console.error('Retry failed:', retryErr);
+        }
+      }
     }
   }
   
@@ -636,7 +656,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
 • 話題が一般的な内容になった場合は、チャットモードへの切り替えを提案してください`;
     
     if (needsCounseling && history[history.length - 1]?.role === 'user') {
-      await client.replyMessage(event.replyToken, {
+      await client.pushMessage(userId, {
         type: 'text',
         text: '💭 お気持ちに寄り添ってお話をうかがわせていただきます。'
       });
@@ -654,7 +674,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     mode = 'consultant';
     
     if (needsConsultant && history[history.length - 1]?.role === 'user') {
-      await client.replyMessage(event.replyToken, {
+      await client.pushMessage(userId, {
         type: 'text',
         text: '💡 より詳しくサポートするため、コンサルタントモードに切り替えさせていただきました。'
       });
@@ -780,7 +800,10 @@ async function handleEvent(event) {
   console.log('Replying to LINE user with:', lineMessage.text);
 
   try {
-    await client.replyMessage(event.replyToken, lineMessage);
+    while (!checkRateLimit(userId)) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    await client.pushMessage(userId, { text: '結果...' });
     console.log('Successfully replied to user.');
   } catch (err) {
     console.error('Error replying to user:', err);
