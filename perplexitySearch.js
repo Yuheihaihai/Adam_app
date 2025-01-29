@@ -148,8 +148,8 @@ class PerplexitySearch {
       console.log('Clean text content:', cleanText.substring(0, 100));
 
       return {
-        analysis: cleanText || '申し訳ありません。有効な回答を生成できませんでした。',
-        urls: []
+        type: "text",
+        text: cleanText
       };
     } catch (error) {
       console.error('Perplexity search error:', error);
