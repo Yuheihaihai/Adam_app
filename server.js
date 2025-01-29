@@ -617,7 +617,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         const summaryMessages = [
           { 
             role: "system", 
-            content: "あなたは求人市場分析の専門家です。以下の分析結果を800文字以内で重要なポイントを保ちながら簡潔に要約してください。特に、職種の具体的な提案、必要なスキル、将来性の情報を優先して含めてください。" 
+            content: "あなたは求人市場分析の専門家です。以下の分析結果を600文字以内で要約してください。マークダウン記法は使用せず、改行は最小限に抑えてください。職種名、必要なスキル、将来性の情報を簡潔に含めてください。" 
           },
           { 
             role: "user", 
