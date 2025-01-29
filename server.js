@@ -6,17 +6,11 @@ const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
-const rateLimit = require('express-rate-limit');
 
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
 app.use(timeout('60s'));
-
-console.log('Environment Check:');
-console.log('LINE Channel Token exists:', !!process.env.CHANNEL_ACCESS_TOKEN);
-console.log('LINE Channel Secret exists:', !!process.env.CHANNEL_SECRET);
-console.log('Perplexity API Key exists:', !!process.env.PERPLEXITY_API_KEY);
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
@@ -534,7 +528,7 @@ function validateMessageLength(message) {
 
 // Add rate limiting control
 let lastPushTimestamp = 0;
-const PUSH_COOLDOWN_MS = 2000; // 2秒
+const PUSH_COOLDOWN_MS = 2000;
 
 async function safePushMessage(userId, message) {
   const now = Date.now();
@@ -550,25 +544,19 @@ async function safePushMessage(userId, message) {
     lastPushTimestamp = Date.now();
   } catch (err) {
     if (err.statusCode === 429) {
+      console.warn('PushMessage rate-limited. Retrying...');
       await new Promise(resolve => setTimeout(resolve, 3000));
-      await client.pushMessage(userId, message);
-      lastPushTimestamp = Date.now();
+      try {
+        await client.pushMessage(userId, message);
+        lastPushTimestamp = Date.now();
+      } catch (err2) {
+        console.error('Second push attempt failed:', err2);
+      }
+    } else {
+      console.error('pushMessage error:', err);
     }
   }
 }
-
-const perplexityLimiter = {
-  lastCallTime: 0,
-  minInterval: 60000, // 1 minute in milliseconds
-  canMakeCall() {
-    const now = Date.now();
-    if (now - this.lastCallTime >= this.minInterval) {
-      this.lastCallTime = now;
-      return true;
-    }
-    return false;
-  }
-};
 
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   let selectedModel = 'chatgpt-4o-latest';
@@ -597,11 +585,6 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
     try {
       console.log('Career-related query detected, fetching job market trends...');
-      
-      if (!perplexityLimiter.canMakeCall()) {
-        console.log('Rate limit reached for Perplexity API');
-        return 'Sorry, please try again in a minute.';
-      }
       
       // Initial reply using replyMessage
       await client.replyMessage(event.replyToken, {
