@@ -612,30 +612,30 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       
       if (jobTrendsData?.analysis) {
         console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
-        if (jobTrendsData.analysis.length > 1900) {
-          const summaryMessages = [
-            { 
-              role: "system", 
-              content: "あなたは求人市場分析の専門家です。以下の分析結果を1500文字以内で重要なポイントを保ちながら簡潔に要約してください。特に、職種の具体的な提案、必要なスキル、将来性の情報を優先して含めてください。" 
-            },
-            { 
-              role: "user", 
-              content: jobTrendsData.analysis 
-            }
-          ];
+        
+        // Always summarize the analysis to ensure it fits LINE's limits
+        const summaryMessages = [
+          { 
+            role: "system", 
+            content: "あなたは求人市場分析の専門家です。以下の分析結果を1500文字以内で重要なポイントを保ちながら簡潔に要約してください。特に、職種の具体的な提案、必要なスキル、将来性の情報を優先して含めてください。" 
+          },
+          { 
+            role: "user", 
+            content: jobTrendsData.analysis 
+          }
+        ];
 
-          const summaryCompletion = await openai.chat.completions.create({
-            model: "chatgpt-4o-latest",
-            messages: summaryMessages,
-            temperature: 0.7,
-          });
+        const summaryCompletion = await openai.chat.completions.create({
+          model: "chatgpt-4o-latest",
+          messages: summaryMessages,
+          temperature: 0.7,
+        });
 
-          jobTrendsData.analysis = summaryCompletion.choices[0].message.content;
-        }
+        const summarizedAnalysis = summaryCompletion.choices[0].message.content;
         
         const analysisMessages = [{
           type: 'text',
-          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
+          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + summarizedAnalysis
         }];
         
         await client.replyMessage(replyToken, analysisMessages);
