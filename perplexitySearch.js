@@ -9,14 +9,9 @@ class PerplexitySearch {
     
     this.client = new OpenAI({ 
       apiKey: apiKey,
-      baseURL: "https://api.perplexity.ai",  // Just the base URL
-      timeout: 25000,
-      maxRetries: 2,
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json; charset=UTF-8',
-        'Accept-Charset': 'utf-8'
-      }
+      baseURL: "https://api.perplexity.ai",
+      timeout: 25000,  // 25 second timeout (below Heroku's 30s limit)
+      maxRetries: 2    // Allow 2 retries
     });
   }
 
@@ -27,16 +22,43 @@ class PerplexitySearch {
       console.log('Enhancing knowledge with Perplexity for:', userMessage);
       
       const response = await this.client.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          { role: "system", content: "You are a helpful assistant." },
-          { role: "user", content: this.constructSearchQuery(history, userMessage) }
-        ],
+        model: "sonar",
+        messages: [{
+          role: 'system',
+          content: `あなたは「Adam」というカウンセラーです。
+          下記の観点から情報を提供してください：
+
+          [分析の観点]
+          1. コミュニケーションパターン
+             - 言葉遣いの特徴
+             - 表現の一貫性
+             - 感情表現の方法
+
+          2. 思考プロセス
+             - 論理的思考の特徴
+             - 問題解決アプローチ
+             - 興味・関心の対象
+
+          3. 社会的相互作用
+             - 対人関係での傾向
+             - ストレス対処方法
+             - コミュニケーション上の強み/課題
+
+          4. 感情と自己認識
+             - 感情表現の特徴
+             - 自己理解の程度
+             - モチベーションの源泉
+
+          返答は必ず日本語で、200文字以内に収めてください。`
+        }, {
+          role: 'user',
+          content: this.constructSearchQuery(history, userMessage)
+        }],
         max_tokens: 256,
         temperature: 0.7
       });
 
-      return response.choices[0].message.content;
+      return response.choices[0]?.message?.content;
     } catch (error) {
       console.error('Perplexity knowledge enhancement error:', error);
       return null;
@@ -79,16 +101,18 @@ class PerplexitySearch {
     try {
       console.log('Processing allowed query:', query);
       const response = await this.client.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: 'sonar',
         messages: [
-          { role: "system", content: "You are a helpful assistant." },
-          { role: "user", content: query }
+          {
+            role: 'user',
+            content: `天気予報について: ${query}`
+          }
         ],
-        max_tokens: 150,
-        temperature: 0.7
+        temperature: 0.7,
+        max_tokens: 150
       });
 
-      return response.choices[0].message.content || '情報を取得できませんでした。';
+      return response.choices[0]?.message?.content || '情報を取得できませんでした。';
     } catch (error) {
       console.error('Perplexity query error:', error);
       return '申し訳ありません。情報を取得できませんでした。';
@@ -103,83 +127,35 @@ class PerplexitySearch {
            query.includes('sports');
   }
 
-  async getJobTrends(query) {
+  async getJobTrends(searchQuery = '新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。') {
     try {
-      console.log('🔍 Sending request to Perplexity API for job trends...');
-
+      console.log('Fetching job market trends');
       const response = await this.client.chat.completions.create({
         model: "sonar",
-        messages: [
-          {
-            role: "system",
-            content: `あなたは「Adam」というカウンセラーです。
-            下記の観点から情報を提供してください：
-
-            [分析の観点]
-            1. コミュニケーションパターン
-            2. 思考プロセス
-            3. 社会的相互作用
-            4. 感情と自己認識
-
-            返答は必ず以下の条件を守ってください：
-            - 日本語のみを使用
-            - 絵文字や特殊文字は使用しない
-            - 改行は「。」で区切る
-            - 全体で200文字以内`
-          },
-          {
-            role: "user",
-            content: query
-          }
-        ]
+        messages: [{
+          role: 'system',
+          content: '以下の指示に従って回答してください：\n\n1. 確実な情報のみを提供し、不確かな情報は含めないでください\n2. 具体的な事実やデータに基づいて説明してください\n3. 推測や憶測は避け、「かもしれない」などの曖昧な表現は使用しないでください\n\n以下の2つの情報を分けて提供してください：\n\n[あなたの特性と市場分析に基づいた検索結果]\n新興職種について、必要なスキル、将来性、具体的な事例を含めて（1000文字以内で簡潔に）\n\n[求人情報]\nIndeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度）'
+        }, {
+          role: 'user',
+          content: searchQuery
+        }],
+        max_tokens: 1000,
+        temperature: 0.7,
+        timeout: 20000
       });
 
-      let rawText = response.choices[0]?.message?.content || '';
+      const content = response.choices[0]?.message?.content || '';
+      const [mainText, urlSection] = content.split('[求人情報]');
       
-      // Log raw response for debugging
-      console.log('Raw response length:', rawText.length);
-      console.log('Raw text sample:', rawText.substring(0, 100));
-
-      // Multi-stage text cleaning
-      let cleanText = rawText
-        // Stage 1: Remove problematic characters
-        .replace(/[\u{1F300}-\u{1F9FF}\u{2700}-\u{27BF}]/gu, '')  // Remove emojis
-        .replace(/[\uFFFD\uD800-\uDFFF]/g, '')                     // Remove invalid UTF-8
-        .replace(/[\u200B-\u200D\uFEFF]/g, '')                     // Remove zero-width chars
-        
-        // Stage 2: Keep only valid Japanese text and basic punctuation
-        .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF。、：！？\s]/g, '')
-        
-        // Stage 3: Format and normalize
-        .normalize('NFKC')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      // Format with proper line breaks
-      cleanText = cleanText
-        .split('。')
-        .filter(line => line.trim())
-        .join('。\n')
-        .trim();
-
-      // Ensure LINE message length limit (with safety margin)
-      cleanText = cleanText.slice(0, 1900);
-
-      // Fallback for empty responses
-      if (!cleanText) {
-        cleanText = '申し訳ありません。有効な回答を生成できませんでした。';
-      }
-
-      // Log cleaned text for verification
-      console.log('Clean text length:', cleanText.length);
-      console.log('Clean text sample:', cleanText.substring(0, 100));
-
       return {
-        analysis: cleanText,
-        urls: []
+        analysis: mainText?.replace('[あなたの特性と市場分析に基づいた検索結果]', '').trim() || null,
+        urls: urlSection?.trim() || null
       };
     } catch (error) {
-      console.error('Perplexity search error:', error);
+      console.error('Perplexity job trends error:', error);
+      if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+        console.log('Perplexity timeout, returning null');
+      }
       return null;
     }
   }
