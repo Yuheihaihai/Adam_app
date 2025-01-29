@@ -526,7 +526,6 @@ function validateMessageLength(message) {
   return message;
 }
 
-// Add rate limiting control
 let lastPushTimestamp = 0;
 const PUSH_COOLDOWN_MS = 2000;
 
@@ -584,13 +583,23 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   // Career counseling mode check (highest priority trigger)
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
     try {
-      console.log('Career-related query detected, fetching job market trends...');
+      console.log('Career-related query detected...');
       
-      if (!checkRateLimit(userId)) {
-        console.log('Rate limit exceeded, waiting...');
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '🔍 適職診断の検索を開始します。少々お待ちください...'
+      });
+
+      // キャリアモードの分析結果を送信
+      while (!checkRateLimit(userId)) {
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
-      
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: careerAnalysis
+      });
+
+      // 特性分析を別メッセージで送信
       await client.pushMessage(userId, {
         type: 'text',
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
@@ -607,8 +616,6 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       const jobTrendsData = await perplexity.getJobTrends(searchQuery);
       
       if (jobTrendsData?.analysis) {
-        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
-        
         await client.pushMessage(userId, {
           type: 'text',
           text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
@@ -631,18 +638,7 @@ ${jobTrendsData.analysis}
         systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
       }
     } catch (err) {
-      console.error('Perplexity search error:', err);
-      if (err.statusCode === 429) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        try {
-          await client.pushMessage(userId, {
-            type: 'text',
-            text: '申し訳ありません。しばらく待ってから再度お試しください。'
-          });
-        } catch (retryErr) {
-          console.error('Retry failed:', retryErr);
-        }
-      }
+      console.error('Analysis error:', err);
     }
   }
   
