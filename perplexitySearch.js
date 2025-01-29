@@ -2,7 +2,7 @@ const { OpenAI } = require('openai');
 const axios = require('axios');
 
 class PerplexitySearch {
-  constructor(apiKey) {
+  constructor(apiKey, model) {
     if (!apiKey) {
       console.error('Perplexity API key is missing');
       throw new Error('Perplexity API key is required');
@@ -130,21 +130,25 @@ class PerplexitySearch {
 
   async getJobTrends(query) {
     try {
-      const response = await this.client.search({
-        query,
+      const response = await this.client.chat.completions.create({
         model: 'sonar',
-        max_tokens: 500  // Limit response length
+        messages: [{
+          role: 'user',
+          content: query
+        }],
+        max_tokens: 500,
+        temperature: 0.7
       });
 
-      // Process URLs into hyperlinks
-      const urls = response.choices[0].urls || [];
+      // Process URLs into hyperlinks (if they exist in the response)
+      const urls = response.choices[0]?.message?.content?.urls || [];
       const hyperlinks = urls.map(url => {
         const domain = new URL(url).hostname;
-        return `<${domain}|${url}>`; // LINE's hyperlink format
+        return `<${domain}|${url}>`;
       }).join('\n');
 
       return {
-        analysis: response.choices[0].text.slice(0, 1000),  // Safety limit
+        analysis: response.choices[0]?.message?.content.slice(0, 1000),
         urls: hyperlinks
       };
     } catch (error) {
