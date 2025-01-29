@@ -11,7 +11,12 @@ class PerplexitySearch {
       apiKey: apiKey,
       baseURL: "https://api.perplexity.ai",  // Just the base URL
       timeout: 25000,
-      maxRetries: 2
+      maxRetries: 2,
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+        'Accept-Charset': 'utf-8'
+      }
     });
   }
 
@@ -138,24 +143,23 @@ class PerplexitySearch {
       });
 
       // Multi-step text cleaning
-      let cleanText = response.choices[0]?.message?.content || '';
+      let rawText = response.choices[0]?.message?.content || '';
       
-      // Step 1: Basic UTF-8 cleanup
-      cleanText = cleanText
-        .replace(/[\uFFFD\uD800-\uDFFF]/g, '')  // Remove surrogate pairs and replacement chars
-        .normalize('NFKC');                      // Normalize Japanese text
+      console.log('Raw text:', rawText.substring(0, 100));
       
-      // Step 2: Keep only valid characters
-      cleanText = cleanText.replace(
-        /[^\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\u3400-\u4dbf\x20-\x7E]/g, 
-        ''
-      );
-      
-      // Step 3: Final length limit
-      cleanText = cleanText.slice(0, 1900);
+      // Enhanced text cleaning without Unicode property escapes
+      const cleanText = rawText
+        .replace(/[\uFFFD\uD800-\uDFFF]/g, '')  // Remove invalid UTF-8 characters
+        .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF\u0020-\u007E々。、：！？「」『』（）・\s]/g, '')  // Keep only valid characters
+        .normalize('NFKC')  // Normalize Unicode to compose characters
+        .replace(/\s+/g, ' ')  // Replace multiple spaces with a single space
+        .trim()
+        .slice(0, 1900);  // Ensure the text is within the LINE message limit
 
-      console.log('Cleaned text length:', cleanText.length);
-      console.log('First 100 chars:', cleanText.slice(0, 100));
+      cleanText = cleanText.replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+      console.log('Clean text length:', cleanText.length);
+      console.log('Clean text content:', cleanText.substring(0, 100));
 
       return {
         analysis: cleanText,
