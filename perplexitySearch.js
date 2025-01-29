@@ -104,8 +104,35 @@ class PerplexitySearch {
       console.log('🔍 Sending request to Perplexity API for job trends...');
       
       const requestBody = {
-        model: "sonar",  // Keep using sonar
+        model: "sonar",
         messages: [{
+          role: "system",
+          content: `あなたは「Adam」というカウンセラーです。
+          下記の観点から情報を提供してください：
+
+          [分析の観点]
+          1. コミュニケーションパターン
+             - 言葉遣いの特徴
+             - 表現の一貫性
+             - 感情表現の方法
+
+          2. 思考プロセス
+             - 論理的思考の特徴
+             - 問題解決アプローチ
+             - 興味・関心の対象
+
+          3. 社会的相互作用
+             - 対人関係での傾向
+             - ストレス対処方法
+             - コミュニケーション上の強み/課題
+
+          4. 感情と自己認識
+             - 感情表現の特徴
+             - 自己理解の程度
+             - モチベーションの源泉
+
+          返答は必ず日本語で、200文字以内に収めてください。`
+        }, {
           role: "user",
           content: query
         }]
@@ -122,11 +149,11 @@ class PerplexitySearch {
         }
       );
 
-      // Process the response with 1900 character limit
+      // Process the response
       const analysis = response.data.choices[0].message.content.slice(0, 1900);
       return {
         analysis: analysis,
-        urls: []  // Perplexity chat completions don't return URLs
+        urls: []
       };
     } catch (error) {
       console.error('Perplexity search error:', error);
