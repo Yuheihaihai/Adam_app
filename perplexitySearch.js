@@ -121,8 +121,11 @@ class PerplexitySearch {
             3. 社会的相互作用
             4. 感情と自己認識
 
-            返答は必ず日本語のみを使用し、絵文字や特殊文字は使用しないでください。
-            200文字以内に収めてください。`
+            返答は必ず以下の条件を守ってください：
+            - 日本語のみを使用
+            - 絵文字や特殊文字は使用しない
+            - 改行は「。」で区切る
+            - 全体で200文字以内`
           },
           {
             role: "user",
@@ -131,38 +134,48 @@ class PerplexitySearch {
         ]
       });
 
-      const rawText = response.choices[0]?.message?.content || '';
-      console.log('Raw text:', rawText.substring(0, 100));
+      let rawText = response.choices[0]?.message?.content || '';
+      
+      // Log raw response for debugging
+      console.log('Raw response length:', rawText.length);
+      console.log('Raw text sample:', rawText.substring(0, 100));
 
-      // Enhanced text cleaning with stricter character filtering
+      // Multi-stage text cleaning
       let cleanText = rawText
-        // Remove all emojis
-        .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
-        // Remove invalid UTF-8 characters
-        .replace(/[\uFFFD\uD800-\uDFFF]/g, '')
-        // Keep only Japanese characters (no Chinese), basic punctuation, and spaces
-        .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF\u3000-\u303F\s]/g, '')
-        // Remove zero-width spaces and BOM
-        .replace(/[\u200B-\u200D\uFEFF]/g, '')
-        // Normalize Unicode
+        // Stage 1: Remove problematic characters
+        .replace(/[\u{1F300}-\u{1F9FF}\u{2700}-\u{27BF}]/gu, '')  // Remove emojis
+        .replace(/[\uFFFD\uD800-\uDFFF]/g, '')                     // Remove invalid UTF-8
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')                     // Remove zero-width chars
+        
+        // Stage 2: Keep only valid Japanese text and basic punctuation
+        .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF。、：！？\s]/g, '')
+        
+        // Stage 3: Format and normalize
         .normalize('NFKC')
-        // Fix newlines (replace \n with actual newlines)
-        .replace(/\\n/g, '\n')
-        .replace(/\n+/g, '\n')
-        // Replace multiple spaces with single space
         .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 1900);
+        .trim();
 
-      // Log cleaned text for debugging
+      // Format with proper line breaks
+      cleanText = cleanText
+        .split('。')
+        .filter(line => line.trim())
+        .join('。\n')
+        .trim();
+
+      // Ensure LINE message length limit (with safety margin)
+      cleanText = cleanText.slice(0, 1900);
+
+      // Fallback for empty responses
+      if (!cleanText) {
+        cleanText = '申し訳ありません。有効な回答を生成できませんでした。';
+      }
+
+      // Log cleaned text for verification
       console.log('Clean text length:', cleanText.length);
-      console.log('Clean text content:', cleanText.substring(0, 100));
-
-      // Format the final message without emojis
-      const formattedText = `あなたの特性と市場分析に基づいた検索結果：\n${cleanText}`;
+      console.log('Clean text sample:', cleanText.substring(0, 100));
 
       return {
-        analysis: formattedText,
+        analysis: cleanText,
         urls: []
       };
     } catch (error) {
