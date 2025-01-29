@@ -109,51 +109,41 @@ class PerplexitySearch {
       
       const response = await this.client.chat.completions.create({
         model: "sonar",
-        messages: [{
-          role: "system",
-          content: `あなたは「Adam」というカウンセラーです。
-          下記の観点から情報を提供してください：
+        messages: [
+          {
+            role: "system",
+            content: `あなたは「Adam」というカウンセラーです。
+            下記の観点から情報を提供してください：
 
-          [分析の観点]
-          1. コミュニケーションパターン
-             - 言葉遣いの特徴
-             - 表現の一貫性
-             - 感情表現の方法
+            [分析の観点]
+            1. コミュニケーションパターン
+            2. 思考プロセス
+            3. 社会的相互作用
+            4. 感情と自己認識
 
-          2. 思考プロセス
-             - 論理的思考の特徴
-             - 問題解決アプローチ
-             - 興味・関心の対象
-
-          3. 社会的相互作用
-             - 対人関係での傾向
-             - ストレス対処方法
-             - コミュニケーション上の強み/課題
-
-          4. 感情と自己認識
-             - 感情表現の特徴
-             - 自己理解の程度
-             - モチベーションの源泉
-
-          返答は必ず日本語で、200文字以内に収めてください。` },
-          { role: "user", content: query }
-        ],
-        max_tokens: 500,
-        temperature: 0.7
+            返答は必ず日本語で、200文字以内に収めてください。`
+          },
+          {
+            role: "user",
+            content: query
+          }
+        ]
       });
 
-      const rawText = response.choices[0]?.message?.content || '';
-      
+      let rawText = response.choices[0]?.message?.content || '';
       console.log('Raw text:', rawText.substring(0, 100));
-      
+
+      // Remove markdown syntax and clean the text
       let cleanText = rawText
-        .replace(/[\uFFFD\uD800-\uDFFF]/g, '')  // Remove invalid UTF-8 characters
-        .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF\u0020-\u007E々。、：！？「」『』（）・\s]/g, '')  // Keep valid Japanese characters
+        .replace(/[\uFFFD\uD800-\uDFFF]/g, '')  // Remove invalid characters
+        .replace(/\*\*/g, '')  // Remove bold markdown '**'
+        .replace(/__+/g, '')   // Remove underline markdown '__'
+        .replace(/`+/g, '')    // Remove inline code markdown '`'
+        .replace(/\\n/g, '\n') // Correct newline characters
+        .normalize('NFKC')     // Normalize Unicode
         .replace(/[\u200B-\u200D\uFEFF]/g, '')  // Remove zero-width spaces and BOM
-        .normalize('NFKC')                      // Normalize Unicode to compose characters
-        .replace(/\s+/g, ' ')                   // Replace multiple spaces with a single space
         .trim()
-        .slice(0, 1900);                        // Ensure the text is within the LINE message limit
+        .slice(0, 1900);       // Enforce message length limit
 
       console.log('Clean text length:', cleanText.length);
       console.log('Clean text content:', cleanText.substring(0, 100));
