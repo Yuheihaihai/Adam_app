@@ -6,8 +6,6 @@ const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
-const JobAnalysis = require('./models/jobAnalysis');
-const startScheduler = require('./scheduler/weeklyAnalysis');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -227,7 +225,7 @@ const rateLimit = new Map();
 
 function checkRateLimit(userId) {
   const now = Date.now();
-  const cooldown = 2000;
+  const cooldown = 1000;
   const lastRequest = rateLimit.get(userId) || 0;
   
   if (now - lastRequest < cooldown) {
@@ -586,55 +584,65 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   // Career counseling mode check (highest priority trigger)
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
     try {
-      console.log('Career-related query detected...');
+      console.log('Career-related query detected, fetching job market trends...');
       
-      // 即時応答
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '🔍 あなたの適職診断結果を確認しています...'
-      });
-
-      // Airtableから最新の分析を取得
-      const savedAnalysis = await JobAnalysis.getLatestAnalysis(userId);
-      
-      if (savedAnalysis) {
-        // 保存された分析結果がある場合
-        while (!checkRateLimit(userId)) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: '📊 あなたの特性と最新の市場分析に基づいた結果：\n' + savedAnalysis.analysis
-        });
-      } else {
-        // 保存された分析がない場合は新規分析を実行
-        const jobTrendsData = await perplexity.getJobTrends(searchQuery);
-        if (jobTrendsData?.analysis) {
-          // 分析結果を保存
-          await JobAnalysis.saveAnalysis(userId, jobTrendsData.analysis);
-          
-          while (!checkRateLimit(userId)) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-          
-          await client.pushMessage(userId, {
-            type: 'text',
-            text: '📊 新しい分析結果：\n' + jobTrendsData.analysis
-          });
-        }
-      }
-    } catch (err) {
-      console.error('Analysis error:', err);
-      
-      while (!checkRateLimit(userId)) {
+      if (!checkRateLimit(userId)) {
+        console.log('Rate limit exceeded, waiting...');
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
       
       await client.pushMessage(userId, {
         type: 'text',
-        text: '申し訳ありません。分析中にエラーが発生しました。しばらく待ってから再度お試しください。'
+        text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
       });
+
+      // Get user characteristics from history
+      const userTraits = history
+        .filter(h => h.role === 'assistant' && h.content.includes('あなたの特徴：'))
+        .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
+      
+      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
+      console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
+      
+      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
+      
+      if (jobTrendsData?.analysis) {
+        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
+        
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
+        });
+
+        if (jobTrendsData.urls) {
+          await client.pushMessage(userId, {
+            type: 'text',
+            text: '📎 参考求人情報：\n' + jobTrendsData.urls
+          });
+        }
+
+        let perplexityContext = `
+[あなたの特性と市場分析に基づいた検索結果]
+${jobTrendsData.analysis}
+
+[分析の観点]
+上記の職種提案を考慮しながら、以下の点について分析してください：
+`;
+        systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
+      }
+    } catch (err) {
+      console.error('Perplexity search error:', err);
+      if (err.statusCode === 429) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+          await client.pushMessage(userId, {
+            type: 'text',
+            text: '申し訳ありません。しばらく待ってから再度お試しください。'
+          });
+        } catch (retryErr) {
+          console.error('Retry failed:', retryErr);
+        }
+      }
     }
   }
   
@@ -839,6 +847,3 @@ app.use((err, req, res, next) => {
   }
   next();
 });
-
-// Start the scheduler when the server starts
-startScheduler();
