@@ -691,53 +691,79 @@ async function handleEvent(event) {
 
   const userId = event.source?.userId || 'unknown';
   const userMessage = event.message.text.trim();
-  console.log(`User ${userId} said: "${userMessage}"`);
+  const replyToken = event.replyToken;
 
   try {
-    // Store user message
     await storeInteraction(userId, 'user', userMessage);
-
-    // Determine mode and get history
     const { mode, limit } = determineModeAndLimit(userMessage);
     const history = await fetchUserHistory(userId, limit);
-    
-    // If career mode, use Perplexity
-    if (mode === 'career') {
-      console.log('Career-related query detected, fetching job market trends...');
-      const perplexityResponse = await perplexity.getJobTrends(userMessage);
-      
-      if (perplexityResponse) {
-        // Clean the text for LINE
-        const cleanText = sanitizeForLINE(perplexityResponse.text || '');
-        
-        // Create LINE message object
-        const lineMessage = {
-          type: 'text',
-          text: cleanText || '申し訳ありません。有効な回答を生成できませんでした。'
-        };
 
-        // Send to LINE
-        await client.replyMessage(event.replyToken, lineMessage);
+    if (mode === 'career') {
+      // First message - searching notification
+      const searchingMessages = [{
+        type: 'text',
+        text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
+      }];
+      await client.replyMessage(replyToken, searchingMessages);
+
+      // Construct search query with user traits
+      const userTraits = extractUserTraits(history);
+      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
+      console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
+      
+      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
+      
+      if (jobTrendsData?.analysis) {
+        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
         
-        // Store the response
-        await storeInteraction(userId, 'assistant', cleanText);
+        // Summarize the analysis
+        const summaryMessages = [
+          { 
+            role: "system", 
+            content: "あなたは求人市場分析の専門家です。以下の分析結果を600文字以内で要約してください。マークダウン記法は使用せず、改行は最小限に抑えてください。職種名、必要なスキル、将来性の情報を簡潔に含めてください。" 
+          },
+          { 
+            role: "user", 
+            content: jobTrendsData.analysis 
+          }
+        ];
+
+        const summaryCompletion = await openai.chat.completions.create({
+          model: "chatgpt-4o-latest",
+          messages: summaryMessages,
+          temperature: 0.7,
+          max_tokens: 500
+        });
+
+        const summarizedAnalysis = summaryCompletion.choices[0].message.content;
         
-        console.log('Successfully sent Perplexity response to LINE');
-        return;
+        // Send the analysis
+        const analysisMessages = [{
+          type: 'text',
+          text: 'あなたの特性と市場分析に基づいた検索結果：\n' + summarizedAnalysis
+        }];
+        
+        await client.replyMessage(replyToken, analysisMessages);
+
+        // Send URLs if available
+        if (jobTrendsData.urls && jobTrendsData.urls.length > 0) {
+          await client.replyMessage(replyToken, {
+            type: 'text',
+            text: '📎 参考求人情報：\n' + jobTrendsData.urls.join('\n')
+          });
+        }
+
+        // Store the interaction
+        await storeInteraction(userId, 'assistant', summarizedAnalysis);
       }
     }
-
-    // ... rest of existing handleEvent code for non-career modes ...
+    // ... rest of the existing code ...
   } catch (error) {
     console.error('Error in handleEvent:', error);
-    
-    // Send error message to user
-    const errorMessage = {
+    await client.replyMessage(replyToken, {
       type: 'text',
       text: '申し訳ありません。現在サービスが混み合っております。しばらく経ってからお試しください。'
-    };
-    
-    await client.replyMessage(event.replyToken, errorMessage);
+    });
   }
 }
 
