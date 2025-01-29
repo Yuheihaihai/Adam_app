@@ -137,12 +137,13 @@ class PerplexitySearch {
         temperature: 0.7
       });
 
-      // Clean and encode the response text
+      // Clean and encode the text properly
       const rawText = response.choices[0]?.message?.content || '';
       const cleanText = rawText
-        .replace(/[\uFFFD\uD800-\uDFFF\u0000-\u001F]/g, '') // Remove invalid chars
-        .normalize('NFKC')  // Normalize Japanese characters
-        .slice(0, 1900);   // LINE message length limit
+        .replace(/[\uFFFD\uD800-\uDFFF]/g, '') // Remove invalid UTF-8
+        .normalize('NFKC')                      // Normalize Japanese text
+        .replace(/[^\u0020-\u007E\u3000-\u30FF\u4E00-\u9FAF]/g, '') // Keep only valid chars
+        .slice(0, 1900);                        // LINE message limit
 
       return {
         analysis: cleanText,
