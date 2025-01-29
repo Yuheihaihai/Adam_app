@@ -5,10 +5,12 @@ const line = require('@line/bot-sdk');
 const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
-const PerplexitySearch = require('./perplexitySearch');
+const timeout = require('connect-timeout');
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(helmet());
+app.use(timeout('60s'));
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
@@ -17,16 +19,18 @@ const config = {
 const client = new line.Client(config);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY, 'sonar');
-const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(process.env.AIRTABLE_BASE_ID);
 
+const PerplexitySearch = require('./perplexitySearch');
+const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
+
+const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
+  .base(process.env.AIRTABLE_BASE_ID);
 const INTERACTIONS_TABLE = 'ConversationHistory';
 
 const SYSTEM_PROMPT_GENERAL = `
 あなたは「Adam」というアシスタントです。
 ASDやADHDなど発達障害の方へのサポートが主目的。
-返答は日本語のみ、200文字以内。過去10件の履歴を参照して誠意を持って一貫した会話をしてください。
-会話をする際はユーザーの感情を分析してそれに合わせた適切な返答を心がけてください。
+返答は日本語のみ、200文字以内。過去10件の履歴を参照して一貫した会話をしてください。
 医療に関する話については必ず「専門家にも相談ください」と言及。
 「AIとして思い出せない」は禁止、ここにある履歴があなたの記憶です。
 `;
@@ -89,12 +93,12 @@ const SYSTEM_PROMPT_CHARACTERISTICS = `
 - 断定的な診断は避ける
 `;
 
-const SYSTEM_PROMPT_CAREER = `あなたは「Adam」という優秀なキャリアカウンセラーです。ユーザーの過去ログ(最大200件)を分析し、下記の分析観点に則って希望職や興味を踏まえ広い選択肢を提案してください。
+const SYSTEM_PROMPT_CAREER = `あなたは「Adam」という優秀なキャリアカウンセラーです。以下の指示に従って回答してください：
 
 [分析の観点]
 1. ユーザーの特性
-   - コミュニケーションパターン　（言葉遣いの特徴,表現の一貫性, 感情表現の方法)
-   - 思考プロセス ( 問題解決アプローチ,論理的思考の特徴)
+   - コミュニケーションパターン
+   - 思考プロセス
    - 興味・関心分野
 
 2. 市場適合性
@@ -102,78 +106,16 @@ const SYSTEM_PROMPT_CAREER = `あなたは「Adam」という優秀なキャリ�
    - 成長が期待される分野
    - 必要なスキルと準備
 
-3.社会的相互作用
-   - 対人関係での傾向
-   - ストレス対処方法
-   - コミュニケーション上の強み/課題
-
-4. 感情と自己認識
-   - 感情表現の特徴
-   - 自己理解の程度
-   - モチベーションの源泉
-
-5. キャリア提案
+3. キャリア提案
    - 具体的な職種
    - 準備すべきスキル
    - 段階的なステップ
 
-   [分析の観点]
-1. コミュニケーションパターン
-   - 言葉遣いの特徴
-   - 表現の一貫性
-   - 感情表現の方法
-
-2. 思考プロセス
-   - 論理的思考の特徴
-   - 問題解決アプローチ
-   - 興味・関心の対象
-
-3. 社会的相互作用
-   - 対人関係での傾向
-   - ストレス対処方法
-   - コミュニケーション上の強み/課題
-
-4. 感情と自己認識
-   - 感情表現の特徴
-   - 自己理解の程度
-   - モチベーションの源泉
-
-[分析プロセス]
-1. 目標の明確化
-   - 分析における目的を定義
-   - 対象となる行動や特性の範囲を明確化
-   - 分析の成功基準を設定
-
-2. 問題の分解
-   - 観察された行動を要素ごとに分解
-   - 各要素の重要度を評価
-   - 短期・長期の影響を分類
-
-3. 情報の選別
-   - 過去の会話から重要なパターンを抽出
-   - 偶発的な要素を除外
-   - 一貫した行動傾向に注目
-
-4. 推論と検証
-   - 行動パターンから仮説を構築
-   - 複数の会話履歴での検証
-   - 必要に応じて仮説を修正
-
-5. 統合と最終判断
-   - 分析結果を統合し、一貫性のある特性像を提示
-   - 具体的な強みと課題を特定
-   - 改善のための具体的な提案を含める
-
 [出力形式]
-- 日本語で理由を添えて簡潔に（200文字以内）
+- 日本語で簡潔に（200文字以内）
 - 市場データの引用を含める
 - 具体的な行動提案を示す
 - 専門家への相談も推奨
--提案内容には下記を必ず全て例外なく明記してください。（必ず日本語で100文字以内。）
-＜下記＞
-「ユーザーに向いている職場環境と具体的な選び方」
-「ユーザーにとって好ましい/避けるべき社内カルチャーと具体的な選び方」
-「ユーザーにとって好ましい/避けるべき人間関係と具体的な選び方」
 
 ※医療的な診断は避け、必要に応じて専門家への相談を促してください。
 `;
@@ -239,8 +181,45 @@ const SYSTEM_PROMPT_HUMAN_RELATIONSHIP = `
 1. ユーザー特徴を分析
 2. 状況を整理
 3. 具体的提案
-日本語200文字以内。共感的かつ建設的に誠意を持って対応。
+日本語200文字以内。共感的かつ建設的に。
 `;
+
+const SYSTEM_PROMPT_CONSULTANT = `あなたは優秀な「Adam」という非常に優秀なエリートビジネスコンサルタントです。以下の思考プロセスと指示に従って回答してください：
+
+[思考プロセス]
+1. 現状認識（質問理解）
+   • ユーザーの質問や課題の背景を理解
+   • 明確な事実と不明点を区別
+   • 追加で必要な情報を特定
+
+2. 主題定義（論点抽出→構造化）
+   • 本質的な問題点を特定
+   • 問題の構造を整理
+   • 優先順位を設定
+
+3. 解決策の立案
+   • 具体的な対応方法を提示
+   • 実行可能なステップを明示
+   • 期待される効果を説明
+
+[回答における注意点]
+1. 確実な情報のみを提供し、不確かな情報は含めない
+2. 具体的な事実やデータに基づいて説明する
+3. 推測や憶測を避け、「かもしれない」などの曖昧な表現は使用しない
+4. 追加情報が必要な場合は、具体的に質問する
+5. 話題が完全に変わるまでコンサルタントモードを維持する
+
+[回答形式]
+• 現状認識：（質問の背景と理解）
+• 本質的課題：（特定された核心的な問題）
+• 解決策：（具体的な対応方法）
+• 実行ステップ：（具体的なアクション）
+• 期待効果：（具体的な成果）
+• 留意点：（実践時の注意事項）
+• 必ず短く簡潔でわかりやすい（平たい表現）を使ってまとめる。（必ず200字以内）
+
+[継続確認]
+この話題について追加の質問やお悩みがありましたら、お気軽にお申し付けください。`;
 
 const rateLimit = new Map();
 
@@ -260,21 +239,46 @@ function checkRateLimit(userId) {
 const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職診断'];
 
 function determineModeAndLimit(userMessage) {
-  // Career counseling (exact match)
-  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
+  console.log('Checking message for career keywords:', userMessage);
+  
+  const hasCareerKeyword = careerKeywords.some(keyword => {
+    const includes = userMessage.includes(keyword);
+    if (includes) {
+      console.log(`Career keyword detected: ${keyword}`);
+    }
+    return includes;
+  });
+
+  if (hasCareerKeyword) {
+    console.log('Setting career mode');
     return { mode: 'career', limit: 200 };
   }
-  
-  // Memory recall - keep original patterns but add AND condition
-  if ((userMessage.includes('思い出して') || 
-      userMessage.includes('記録') || 
-      userMessage.includes('過去の') || 
-      userMessage.includes('今までの')) &&
-      userMessage.toLowerCase().includes('記録')) {
+
+  const lcMsg = userMessage.toLowerCase();
+  if (
+    lcMsg.includes('特性') ||
+    lcMsg.includes('分析') ||
+    lcMsg.includes('思考') ||
+    lcMsg.includes('傾向') ||
+    lcMsg.includes('パターン') ||
+    lcMsg.includes('コミュニケーション') ||
+    lcMsg.includes('対人関係') ||
+    lcMsg.includes('性格')
+  ) {
+    return { mode: 'characteristics', limit: 200 };
+  }
+  if (lcMsg.includes('思い出して') || lcMsg.includes('今までの話')) {
     return { mode: 'memoryRecall', limit: 200 };
   }
-
-  // Default mode - unchanged
+  if (
+    lcMsg.includes('人間関係') ||
+    lcMsg.includes('友人') ||
+    lcMsg.includes('同僚') ||
+    lcMsg.includes('恋愛') ||
+    lcMsg.includes('パートナー')
+  ) {
+    return { mode: 'humanRelationship', limit: 200 };
+  }
   return { mode: 'general', limit: 10 };
 }
 
@@ -288,6 +292,8 @@ function getSystemPromptForMode(mode) {
       return SYSTEM_PROMPT_MEMORY_RECALL;
     case 'humanRelationship':
       return SYSTEM_PROMPT_HUMAN_RELATIONSHIP;
+    case 'consultant':
+      return SYSTEM_PROMPT_CONSULTANT;
     default:
       return SYSTEM_PROMPT_GENERAL;
   }
@@ -295,34 +301,43 @@ function getSystemPromptForMode(mode) {
 
 async function storeInteraction(userId, role, content) {
   try {
-    await base('ConversationHistory').create([{
-      fields: {
-        UserID: userId,
-        Role: role,
-        Content: content,
-        Timestamp: new Date().toISOString(),
+    console.log(
+      `Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`
+    );
+    await base(INTERACTIONS_TABLE).create([
+      {
+        fields: {
+          UserID: userId,
+          Role: role,
+          Content: content,
+          Timestamp: new Date().toISOString(),
+        },
       },
-    }]);
-  } catch (error) {
-    console.error('Airtable:', error.message);
+    ]);
+  } catch (err) {
+    console.error('Error storing interaction:', err);
   }
 }
 
 async function fetchUserHistory(userId, limit) {
   try {
-    const records = await base('ConversationHistory')
+    console.log(`Fetching history for user ${userId}, limit: ${limit}`);
+    const records = await base(INTERACTIONS_TABLE)
       .select({
-        filterByFormula: `{UserID} = '${userId}'`,
+        filterByFormula: `{UserID} = "${userId}"`,
         sort: [{ field: 'Timestamp', direction: 'desc' }],
         maxRecords: limit,
       })
       .all();
-    return records.map(record => ({
-      role: record.get('Role'),
-      content: record.get('Content'),
+    console.log(`Found ${records.length} records for user`);
+
+    const reversed = records.reverse();
+    return reversed.map((r) => ({
+      role: r.get('Role') === 'assistant' ? 'assistant' : 'user',
+      content: r.get('Content') || '',
     }));
   } catch (error) {
-    console.error('Airtable:', error.message);
+    console.error('Error fetching history:', error);
     return [];
   }
 }
@@ -511,84 +526,30 @@ function validateMessageLength(message) {
   return message;
 }
 
-// Helper function to limit history within token bounds
-function limitHistoryTokens(history, maxTokens = 120000) { // Leave buffer for system prompt and response
-  let totalTokens = 0;
-  let limitedHistory = [];
-  
-  // Start from most recent messages
-  for (let i = history.length - 1; i >= 0; i--) {
-    const item = history[i];
-    if (!item || !item.content) continue;
-    
-    // Rough token estimation (1 token ≈ 4 characters)
-    const estimatedTokens = String(item.content).length / 4;
-    
-    if (totalTokens + estimatedTokens > maxTokens) {
-      break;
-    }
-    
-    totalTokens += estimatedTokens;
-    limitedHistory.unshift(item); // Add to start to maintain order
-  }
-  
-  return limitedHistory;
-}
-
-async function processWithAI(systemPrompt, userMessage, history, mode, userId, client, replyToken) {
+async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   let selectedModel = 'chatgpt-4o-latest';
   
-  // For memory recall mode
-  if (mode === 'memoryRecall') {
-    try {
-      const fullHistory = await fetchUserHistory(userId, 200);
-      const validHistory = fullHistory
-        .filter(item => item && item.content != null)
-        .map(item => ({
-          role: item.role || 'user',
-          content: String(item.content).trim(),
-        }));
+  // Mental health counseling topics (highest priority)
+  const counselingTopics = [
+    'メンタル', '心理',
+  ];
 
-      if (validHistory.length > 0) {
-        const limitedHistory = limitHistoryTokens(validHistory);
-        const summaryMessages = [
-          { role: 'system', content: SYSTEM_PROMPT_MEMORY_RECALL },
-          ...limitedHistory
-        ];
+  // Business/career consultant topics (second priority)
+  const consultantTopics = [
+    'ビジネス', '仕事', '悩み', '問題', 'キャリア', 
+    '法律', '医療', '健康', 'コミュニケーション'
+  ];
+  
+  // Priority order check
+  const needsCounseling = counselingTopics.some(topic => 
+    userMessage.includes(topic)
+  );
 
-        const summaryResponse = await openai.chat.completions.create({
-          model: selectedModel,
-          messages: summaryMessages,
-          temperature: 0.7,
-        });
+  const needsConsultant = consultantTopics.some(topic => 
+    userMessage.includes(topic)
+  );
 
-        const chatSummary = summaryResponse.choices[0].message.content;
-        await client.replyMessage(replyToken, {
-          type: 'text',
-          text: '💭 これまでのチャット履歴の要約：\n' + chatSummary
-        });
-
-        const messages = [
-          { role: 'system', content: systemPrompt },
-          { role: 'assistant', content: chatSummary },
-          { role: 'user', content: userMessage }
-        ];
-
-        const completion = await openai.chat.completions.create({
-          model: selectedModel,
-          messages,
-          temperature: 0.7,
-        });
-
-        return completion.choices[0].message.content;
-      }
-    } catch (err) {
-      console.error('Memory recall error:', err.message);
-      return '申し訳ありません。記録の取得中にエラーが発生しました。';
-    }
-  }
-
-  // For career counseling mode
+  // Career counseling mode check (highest priority trigger)
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
     try {
       console.log('Career-related query detected, fetching job market trends...');
@@ -598,12 +559,10 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         .filter(h => h.role === 'assistant' && h.content.includes('あなたの特徴：'))
         .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
       
-      // First message - searching notification
-      const searchingMessages = [{
+      await client.pushMessage(userId, {
         type: 'text',
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
-      }];
-      await client.replyMessage(replyToken, searchingMessages);
+      });
 
       const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
       console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
@@ -613,36 +572,13 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       if (jobTrendsData?.analysis) {
         console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
         
-        // Always summarize the analysis to ensure it fits LINE's limits
-        const summaryMessages = [
-          { 
-            role: "system", 
-            content: "あなたは求人市場分析の専門家です。以下の分析結果を600文字以内で要約してください。マークダウン記法は使用せず、改行は最小限に抑えてください。職種名、必要なスキル、将来性の情報を簡潔に含めてください。" 
-          },
-          { 
-            role: "user", 
-            content: jobTrendsData.analysis 
-          }
-        ];
-
-        const summaryCompletion = await openai.chat.completions.create({
-          model: "chatgpt-4o-latest",
-          messages: summaryMessages,
-          temperature: 0.7,
-          max_tokens: 500
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
         });
 
-        const summarizedAnalysis = summaryCompletion.choices[0].message.content;
-        
-        const analysisMessages = [{
-          type: 'text',
-          text: 'あなたの特性と市場分析に基づいた検索結果：\n' + summarizedAnalysis
-        }];
-        
-        await client.replyMessage(replyToken, analysisMessages);
-
         if (jobTrendsData.urls) {
-          await client.replyMessage(replyToken, {
+          await client.pushMessage(userId, {
             type: 'text',
             text: '📎 参考求人情報：\n' + jobTrendsData.urls
           });
@@ -661,109 +597,165 @@ ${jobTrendsData.analysis}
       console.error('Perplexity search error:', err);
     }
   }
+  
+  // Mental health counseling mode (second priority)
+  else if (needsCounseling || mode === 'counseling') {
+    mode = 'counseling';
+    systemPrompt = SYSTEM_PROMPT_CAREER + `
 
-  // For all other modes
-  try {
-    const limitedHistory = limitHistoryTokens(history);
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...limitedHistory,
-      { role: 'user', content: userMessage }
-    ];
-
-    const completion = await openai.chat.completions.create({
-      model: selectedModel,
-      messages,
-      temperature: 0.7,
-    });
-
-    return completion.choices[0].message.content;
-  } catch (err) {
-    console.error('AI processing error:', err.message);
-    return '申し訳ありません。処理中にエラーが発生しました。';
+[注意事項]
+• 話題が仕事や経営の相談に移った場合は、コンサルタントモードへの切り替えを提案してください
+• 話題が一般的な内容になった場合は、チャットモードへの切り替えを提案してください`;
+    
+    if (needsCounseling && history[history.length - 1]?.role === 'user') {
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '💭 お気持ちに寄り添ってお話をうかがわせていただきます。'
+      });
+    }
   }
+  
+  // Consultant mode (third priority)
+  else if (needsConsultant || mode === 'consultant') {
+    selectedModel = 'o1-preview-2024-09-12';
+    systemPrompt = SYSTEM_PROMPT_CONSULTANT + `
+
+[注意事項]
+• 話題がメンタルヘルスに関わる場合は、カウンセリングモードへの切り替えを提案してください
+• 話題が一般的な内容になった場合は、チャットモードへの切り替えを提案してください`;
+    mode = 'consultant';
+    
+    if (needsConsultant && history[history.length - 1]?.role === 'user') {
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '💡 より詳しくサポートするため、コンサルタントモードに切り替えさせていただきました。'
+      });
+    }
+  }
+  
+  // General chat mode (lowest priority)
+  else {
+    mode = 'chat';
+    systemPrompt = `あなたは親しみやすいチャットボットです。
+
+[対応可能な話題]
+• 日常的な会話や雑談
+• 質問への回答やアドバイス
+  - 趣味や娯楽について
+  - 料理やレシピについて
+  - 旅行先や観光スポットについて
+  - 映画や音楽の感想
+  - 季節のイベントについて
+  - 一般的な生活の知恵
+• 一般的な情報提供
+
+[対応しない話題]
+• ビジネスや仕事の相談
+• 個人的な悩みや問題解決
+• キャリアに関する相談
+• メンタルヘルスに関する相談
+• 法律や医療に関する相談
+
+[注意事項]
+1. フレンドリーに会話してください
+2. 簡潔に回答してください
+3. 確実な情報のみを提供してください
+4. 専門的な相談には、コンサルタントモードへの切り替えを提案してください
+5. 対応できない話題の場合は、その旨を明確に伝えてください`;
+  }
+
+  console.log(`Using model: ${selectedModel}`);
+
+  const finalPrompt = applyAdditionalInstructions(
+    systemPrompt,
+    mode,
+    history,
+    userMessage
+  );
+
+  let messages = [];
+  let gptOptions = {
+    model: selectedModel,
+    messages,
+    temperature: 0.7,
+  };
+
+  if (selectedModel === 'o1-preview-2024-09-12') {
+    gptOptions.temperature = 1;
+    const systemPrefix = `[System Inst]: ${finalPrompt}\n---\n`;
+    messages.push({
+      role: 'user',
+      content: systemPrefix + ' ' + userMessage,
+    });
+    history.forEach((item) => {
+      messages.push({
+        role: 'user',
+        content: `(${item.role} said:) ${item.content}`,
+      });
+    });
+  } else {
+    messages.push({ role: 'system', content: finalPrompt });
+    messages.push(
+      ...history.map((item) => ({
+        role: item.role,
+        content: item.content,
+      }))
+    );
+    messages.push({ role: 'user', content: userMessage });
+  }
+
+  console.log(`Loaded ${history.length} messages in mode=[${mode}], model=${selectedModel}`);
+
+  const aiDraft = await tryPrimaryThenBackup(gptOptions);
+
+  const criticOutput = await runCriticPass(aiDraft);
+  if (criticOutput && !criticOutput.includes('問題ありません')) {
+    return criticOutput;
+  }
+  return aiDraft;
 }
 
 async function handleEvent(event) {
+  console.log('Received LINE event:', JSON.stringify(event, null, 2));
+
   if (event.type !== 'message' || event.message.type !== 'text') {
+    console.log('Not a text message, ignoring.');
+    return null;
+  }
+  const userId = event.source?.userId || 'unknown';
+  const userMessage = validateMessageLength(event.message.text.trim());
+
+  console.log(`User ${userId} said: "${userMessage}"`);
+
+  const isSafe = securityFilterPrompt(userMessage);
+  if (!isSafe) {
+    const refusal = '申し訳ありません。このリクエストには対応できません。';
+    await storeInteraction(userId, 'assistant', refusal);
+    await client.replyMessage(event.replyToken, { type: 'text', text: refusal });
     return null;
   }
 
-  const userId = event.source?.userId || 'unknown';
-  const userMessage = event.message.text.trim();
-  const replyToken = event.replyToken;
+  await storeInteraction(userId, 'user', userMessage);
+
+  const { mode, limit } = determineModeAndLimit(userMessage);
+  console.log(`Determined mode=${mode}, limit=${limit}`);
+
+  const history = await fetchUserHistory(userId, limit);
+
+  const systemPrompt = getSystemPromptForMode(mode);
+
+  const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId, client);
+
+  await storeInteraction(userId, 'assistant', aiReply);
+
+  const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
+  console.log('Replying to LINE user with:', lineMessage.text);
 
   try {
-    await storeInteraction(userId, 'user', userMessage);
-    const { mode, limit } = determineModeAndLimit(userMessage);
-    const history = await fetchUserHistory(userId, limit);
-
-    if (mode === 'career') {
-      // First message - searching notification
-      const searchingMessages = [{
-        type: 'text',
-        text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
-      }];
-      await client.replyMessage(replyToken, searchingMessages);
-
-      // Construct search query with user traits
-      const userTraits = extractUserTraits(history);
-      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
-      console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
-      
-      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
-      
-      if (jobTrendsData?.analysis) {
-        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
-        
-        // Summarize the analysis
-        const summaryMessages = [
-          { 
-            role: "system", 
-            content: "あなたは求人市場分析の専門家です。以下の分析結果を600文字以内で要約してください。マークダウン記法は使用せず、改行は最小限に抑えてください。職種名、必要なスキル、将来性の情報を簡潔に含めてください。" 
-          },
-          { 
-            role: "user", 
-            content: jobTrendsData.analysis 
-          }
-        ];
-
-        const summaryCompletion = await openai.chat.completions.create({
-          model: "chatgpt-4o-latest",
-          messages: summaryMessages,
-          temperature: 0.7,
-          max_tokens: 500
-        });
-
-        const summarizedAnalysis = summaryCompletion.choices[0].message.content;
-        
-        // Send the analysis
-        const analysisMessages = [{
-          type: 'text',
-          text: 'あなたの特性と市場分析に基づいた検索結果：\n' + summarizedAnalysis
-        }];
-        
-        await client.replyMessage(replyToken, analysisMessages);
-
-        // Send URLs if available
-        if (jobTrendsData.urls && jobTrendsData.urls.length > 0) {
-          await client.replyMessage(replyToken, {
-            type: 'text',
-            text: '📎 参考求人情報：\n' + jobTrendsData.urls.join('\n')
-          });
-        }
-
-        // Store the interaction
-        await storeInteraction(userId, 'assistant', summarizedAnalysis);
-      }
-    }
-    // ... rest of the existing code ...
-  } catch (error) {
-    console.error('Error in handleEvent:', error);
-    await client.replyMessage(replyToken, {
-      type: 'text',
-      text: '申し訳ありません。現在サービスが混み合っております。しばらく経ってからお試しください。'
-    });
+    await client.replyMessage(event.replyToken, lineMessage);
+    console.log('Successfully replied to user.');
+  } catch (err) {
+    console.error('Error replying to user:', err);
   }
 }
 
@@ -772,31 +764,35 @@ app.get('/', (req, res) => {
 });
 
 app.post('/webhook', line.middleware(config), (req, res) => {
+  console.log('Webhook was called! Events:', req.body.events);
   Promise.all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
-    .catch(() => res.status(200).end());
+    .catch((err) => {
+      console.error('Webhook error:', err);
+      res.status(200).json({});
+    });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT);
+app.listen(PORT, () => {
+  console.log(`Listening on port ${PORT}`);
+});
 
-// Consistent text sanitization function
-function sanitizeForLINE(rawText) {
-  if (!rawText) return '';
-  
-  return rawText
-    // 1. Remove emojis
-    .replace(/[\u{1F300}-\u{1FAFF}]/gu, '')
-    // 2. Remove zero-width spaces and BOM
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')
-    // 3. Replace Japanese quotes with regular quotes
-    .replace(/[「」]/g, '"')
-    // 4. Keep only basic Japanese chars and simple punctuation
-    .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF\w\s.,'"?!-]/g, '')
-    // 5. Normalize Unicode
-    .normalize('NFKC')
-    // 6. Clean spaces
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 1900);
-}
+const RATE_LIMIT_CLEANUP_INTERVAL = 1000 * 60 * 60;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, timestamp] of rateLimit.entries()) {
+    if (now - timestamp > RATE_LIMIT_CLEANUP_INTERVAL) {
+      rateLimit.delete(userId);
+    }
+  }
+}, RATE_LIMIT_CLEANUP_INTERVAL);
+
+app.use((err, req, res, next) => {
+  if (err.timeout) {
+    console.error('Request timeout:', err);
+    res.status(200).json({});
+  }
+  next();
+});
