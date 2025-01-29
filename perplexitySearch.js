@@ -142,21 +142,18 @@ class PerplexitySearch {
         temperature: 0.7
       });
 
-      // Multi-step text cleaning
-      let rawText = response.choices[0]?.message?.content || '';
+      const rawText = response.choices[0]?.message?.content || '';
       
       console.log('Raw text:', rawText.substring(0, 100));
       
-      // Enhanced text cleaning without Unicode property escapes
-      const cleanText = rawText
+      let cleanText = rawText
         .replace(/[\uFFFD\uD800-\uDFFF]/g, '')  // Remove invalid UTF-8 characters
-        .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF\u0020-\u007E々。、：！？「」『』（）・\s]/g, '')  // Keep only valid characters
-        .normalize('NFKC')  // Normalize Unicode to compose characters
-        .replace(/\s+/g, ' ')  // Replace multiple spaces with a single space
+        .replace(/[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF\u0020-\u007E々。、：！？「」『』（）・\s]/g, '')  // Keep valid Japanese characters
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')  // Remove zero-width spaces and BOM
+        .normalize('NFKC')                      // Normalize Unicode to compose characters
+        .replace(/\s+/g, ' ')                   // Replace multiple spaces with a single space
         .trim()
-        .slice(0, 1900);  // Ensure the text is within the LINE message limit
-
-      cleanText = cleanText.replace(/[\u200B-\u200D\uFEFF]/g, '');
+        .slice(0, 1900);                        // Ensure the text is within the LINE message limit
 
       console.log('Clean text length:', cleanText.length);
       console.log('Clean text content:', cleanText.substring(0, 100));
