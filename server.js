@@ -583,20 +583,11 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
   // Career counseling mode check (highest priority trigger)
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
     try {
-      console.log('Career-related query detected...');
+      console.log('Career-related query detected, fetching job market trends...');
       
       await client.replyMessage(event.replyToken, {
         type: 'text',
         text: '🔍 適職診断の検索を開始します。少々お待ちください...'
-      });
-
-      // キャリアモードの分析結果を送信
-      while (!checkRateLimit(userId)) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: careerAnalysis
       });
 
       // 特性分析を別メッセージで送信
@@ -638,7 +629,18 @@ ${jobTrendsData.analysis}
         systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
       }
     } catch (err) {
-      console.error('Analysis error:', err);
+      console.error('Perplexity search error:', err);
+      if (err.statusCode === 429) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+          await client.pushMessage(userId, {
+            type: 'text',
+            text: '申し訳ありません。しばらく待ってから再度お試しください。'
+          });
+        } catch (retryErr) {
+          console.error('Retry failed:', retryErr);
+        }
+      }
     }
   }
   
