@@ -564,7 +564,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
       });
 
-      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
+      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない振興職業や従来の職業も全て含む）を3つ程度、職場･人間関係･社風喪含めて、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
       console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
       
       const jobTrendsData = await perplexity.getJobTrends(searchQuery);
