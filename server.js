@@ -685,46 +685,59 @@ ${jobTrendsData.analysis}
 }
 
 async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') return null;
-  
+  if (event.type !== 'message' || event.message.type !== 'text') {
+    return null;
+  }
+
   const userId = event.source?.userId || 'unknown';
-  const userMessage = validateMessageLength(event.message.text.trim());
+  const userMessage = event.message.text.trim();
+  console.log(`User ${userId} said: "${userMessage}"`);
 
   try {
-    if (!securityFilterPrompt(userMessage)) {
-      return client.replyMessage(event.replyToken, { 
-        type: 'text', 
-        text: '申し訳ありません。このリクエストには対応できません。' 
-      });
-    }
-
+    // Store user message
     await storeInteraction(userId, 'user', userMessage);
+
+    // Determine mode and get history
     const { mode, limit } = determineModeAndLimit(userMessage);
     const history = await fetchUserHistory(userId, limit);
     
-    // Increased timeout to 150 seconds (2.5 minutes)
-    const aiReply = await Promise.race([
-      processWithAI(getSystemPromptForMode(mode), userMessage, history, mode, userId, client, event.replyToken),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('AI response timeout')), 150000)
-      )
-    ]);
+    // If career mode, use Perplexity
+    if (mode === 'career') {
+      console.log('Career-related query detected, fetching job market trends...');
+      const perplexityResponse = await perplexity.getJobTrends(userMessage);
+      
+      if (perplexityResponse) {
+        // Clean the text for LINE
+        const cleanText = sanitizeForLINE(perplexityResponse.text || '');
+        
+        // Create LINE message object
+        const lineMessage = {
+          type: 'text',
+          text: cleanText || '申し訳ありません。有効な回答を生成できませんでした。'
+        };
 
-    if (!aiReply) {
-      throw new Error('No AI reply received');
+        // Send to LINE
+        await client.replyMessage(event.replyToken, lineMessage);
+        
+        // Store the response
+        await storeInteraction(userId, 'assistant', cleanText);
+        
+        console.log('Successfully sent Perplexity response to LINE');
+        return;
+      }
     }
 
-    await storeInteraction(userId, 'assistant', aiReply);
-    return client.replyMessage(event.replyToken, { 
-      type: 'text', 
-      text: aiReply.slice(0, 2000) 
-    });
+    // ... rest of existing handleEvent code for non-career modes ...
   } catch (error) {
     console.error('Error in handleEvent:', error);
-    return client.replyMessage(event.replyToken, { 
-      type: 'text', 
-      text: '申し訳ありません。処理中にエラーが発生しました。もう一度お試しください。' 
-    });
+    
+    // Send error message to user
+    const errorMessage = {
+      type: 'text',
+      text: '申し訳ありません。現在サービスが混み合っております。しばらく経ってからお試しください。'
+    };
+    
+    await client.replyMessage(event.replyToken, errorMessage);
   }
 }
 
