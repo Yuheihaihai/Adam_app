@@ -1,4 +1,4 @@
-const axios = require('axios');
+const { OpenAI } = require('openai');
 
 class PerplexitySearch {
   constructor(apiKey) {
@@ -7,7 +7,12 @@ class PerplexitySearch {
       throw new Error('Perplexity API key is required');
     }
     
-    this.apiKey = apiKey;
+    this.client = new OpenAI({ 
+      apiKey: apiKey,
+      baseURL: "https://api.perplexity.ai/v1",  // Updated endpoint
+      timeout: 25000,
+      maxRetries: 2
+    });
   }
 
   async enhanceKnowledge(history, userMessage) {
@@ -16,20 +21,17 @@ class PerplexitySearch {
     try {
       console.log('Enhancing knowledge with Perplexity for:', userMessage);
       
-      const response = await axios.post('https://api.perplexity.ai/chat/completions', {
-        query: this.constructSearchQuery(history, userMessage),
-        model: 'sonar',
+      const response = await this.client.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: "system", content: "You are a helpful assistant." },
+          { role: "user", content: this.constructSearchQuery(history, userMessage) }
+        ],
         max_tokens: 256,
         temperature: 0.7
-      }, {
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 25000  // 25 second timeout
       });
 
-      return response.data.text;
+      return response.choices[0].message.content;
     } catch (error) {
       console.error('Perplexity knowledge enhancement error:', error);
       return null;
@@ -71,20 +73,17 @@ class PerplexitySearch {
 
     try {
       console.log('Processing allowed query:', query);
-      const response = await axios.post('https://api.perplexity.ai/chat/completions', {
-        query: query,
-        model: 'sonar',
+      const response = await this.client.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: "system", content: "You are a helpful assistant." },
+          { role: "user", content: query }
+        ],
         max_tokens: 150,
         temperature: 0.7
-      }, {
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 25000  // 25 second timeout
       });
 
-      return response.data.text || '情報を取得できませんでした。';
+      return response.choices[0].message.content || '情報を取得できませんでした。';
     } catch (error) {
       console.error('Perplexity query error:', error);
       return '申し訳ありません。情報を取得できませんでした。';
@@ -103,11 +102,10 @@ class PerplexitySearch {
     try {
       console.log('🔍 Sending request to Perplexity API for job trends...');
       
-      const requestBody = {
-        model: "sonar",
-        messages: [{
-          role: "system",
-          content: `あなたは「Adam」というカウンセラーです。
+      const response = await this.client.chat.completions.create({
+        model: "gpt-3.5-turbo",
+        messages: [
+          { role: "system", content: `あなたは「Adam」というカウンセラーです。
           下記の観点から情報を提供してください：
 
           [分析の観点]
@@ -131,26 +129,15 @@ class PerplexitySearch {
              - 自己理解の程度
              - モチベーションの源泉
 
-          返答は必ず日本語で、200文字以内に収めてください。`
-        }, {
-          role: "user",
-          content: query
-        }]
-      };
-
-      const response = await axios.post('https://api.perplexity.ai/chat/completions', 
-        requestBody,
-        {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 25000
-        }
-      );
+          返答は必ず日本語で、200文字以内に収めてください。` },
+          { role: "user", content: query }
+        ],
+        max_tokens: 200,
+        temperature: 0.7
+      });
 
       // Process the response
-      const analysis = response.data.choices[0].message.content.slice(0, 1900);
+      const analysis = response.choices[0].message.content.slice(0, 1900);
       return {
         analysis: analysis,
         urls: []
