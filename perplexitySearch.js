@@ -103,31 +103,30 @@ class PerplexitySearch {
     try {
       console.log('🔍 Sending request to Perplexity API for job trends...');
       
-      const response = await axios.post('https://api.perplexity.ai/chat/completions', {
-        query: query,
-        model: 'sonar',
-        max_tokens: 500
-      }, {
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 25000  // 25 second timeout
-      });
+      const requestBody = {
+        model: "sonar",  // Keep using sonar
+        messages: [{
+          role: "user",
+          content: query
+        }]
+      };
 
-      // Extract the text and URLs from the response
-      const analysis = response.data.text.slice(0, 1000); // Safety limit
-      const urls = response.data.urls || [];
+      const response = await axios.post('https://api.perplexity.ai/chat/completions', 
+        requestBody,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 25000
+        }
+      );
 
-      // Convert URLs to hyperlinks
-      const hyperlinks = urls.map(url => {
-        const domain = new URL(url).hostname;
-        return `<${domain}|${url}>`; // LINE's hyperlink format or adjust as needed
-      }).join('\n');
-
+      // Process the response with 1900 character limit
+      const analysis = response.data.choices[0].message.content.slice(0, 1900);
       return {
         analysis: analysis,
-        urls: hyperlinks
+        urls: []  // Perplexity chat completions don't return URLs
       };
     } catch (error) {
       console.error('Perplexity search error:', error);
