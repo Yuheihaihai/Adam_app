@@ -554,7 +554,12 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     try {
       console.log('Career-related query detected, fetching job market trends...');
       
-      // Send initial message using the client parameter that's already passed to processWithAI
+      // Add rate limit check before push message
+      if (!checkRateLimit(userId)) {
+        console.log('Rate limit exceeded, waiting...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
       await client.pushMessage(userId, {
         type: 'text',
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
@@ -596,6 +601,19 @@ ${jobTrendsData.analysis}
       }
     } catch (err) {
       console.error('Perplexity search error:', err);
+      if (err.statusCode === 429) {
+        // Add retry logic with exponential backoff
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Retry the message
+        try {
+          await client.pushMessage(userId, {
+            type: 'text',
+            text: '申し訳ありません。しばらく待ってから再度お試しください。'
+          });
+        } catch (retryErr) {
+          console.error('Retry failed:', retryErr);
+        }
+      }
     }
   }
   
