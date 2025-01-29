@@ -16,7 +16,7 @@ class PerplexitySearch {
     try {
       console.log('Enhancing knowledge with Perplexity for:', userMessage);
       
-      const response = await axios.post('https://api.perplexity.ai/search', {
+      const response = await axios.post('https://api.perplexity.ai/chat/completions', {
         query: this.constructSearchQuery(history, userMessage),
         model: 'sonar',
         max_tokens: 256,
@@ -71,7 +71,7 @@ class PerplexitySearch {
 
     try {
       console.log('Processing allowed query:', query);
-      const response = await axios.post('https://api.perplexity.ai/search', {
+      const response = await axios.post('https://api.perplexity.ai/chat/completions', {
         query: query,
         model: 'sonar',
         max_tokens: 150,
@@ -103,7 +103,7 @@ class PerplexitySearch {
     try {
       console.log('🔍 Sending request to Perplexity API for job trends...');
       
-      const response = await axios.post('https://api.perplexity.ai/search', {
+      const response = await axios.post('https://api.perplexity.ai/chat/completions', {
         query: query,
         model: 'sonar',
         max_tokens: 500
