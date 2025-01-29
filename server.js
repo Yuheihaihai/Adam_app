@@ -6,11 +6,17 @@ const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
 app.use(timeout('60s'));
+
+console.log('Environment Check:');
+console.log('LINE Channel Token exists:', !!process.env.CHANNEL_ACCESS_TOKEN);
+console.log('LINE Channel Secret exists:', !!process.env.CHANNEL_SECRET);
+console.log('Perplexity API Key exists:', !!process.env.PERPLEXITY_API_KEY);
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
@@ -526,6 +532,44 @@ function validateMessageLength(message) {
   return message;
 }
 
+// Add rate limiting control
+let lastPushTimestamp = 0;
+const PUSH_COOLDOWN_MS = 2000; // 2秒
+
+async function safePushMessage(userId, message) {
+  const now = Date.now();
+  const elapsed = now - lastPushTimestamp;
+
+  if (elapsed < PUSH_COOLDOWN_MS) {
+    const waitMs = PUSH_COOLDOWN_MS - elapsed;
+    await new Promise(resolve => setTimeout(resolve, waitMs));
+  }
+
+  try {
+    await client.pushMessage(userId, message);
+    lastPushTimestamp = Date.now();
+  } catch (err) {
+    if (err.statusCode === 429) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      await client.pushMessage(userId, message);
+      lastPushTimestamp = Date.now();
+    }
+  }
+}
+
+const perplexityLimiter = {
+  lastCallTime: 0,
+  minInterval: 60000, // 1 minute in milliseconds
+  canMakeCall() {
+    const now = Date.now();
+    if (now - this.lastCallTime >= this.minInterval) {
+      this.lastCallTime = now;
+      return true;
+    }
+    return false;
+  }
+};
+
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   let selectedModel = 'chatgpt-4o-latest';
   
@@ -554,13 +598,13 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     try {
       console.log('Career-related query detected, fetching job market trends...');
       
-      // Add rate limit check before push message
-      if (!checkRateLimit(userId)) {
-        console.log('Rate limit exceeded, waiting...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!perplexityLimiter.canMakeCall()) {
+        console.log('Rate limit reached for Perplexity API');
+        return 'Sorry, please try again in a minute.';
       }
       
-      await client.pushMessage(userId, {
+      // Initial reply using replyMessage
+      await client.replyMessage(event.replyToken, {
         type: 'text',
         text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
       });
@@ -584,36 +628,18 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         });
 
         if (jobTrendsData.urls) {
-          await client.replyMessage(event.replyToken, {
+          await safePushMessage(userId, {
             type: 'text',
             text: '📎 参考求人情報：\n' + jobTrendsData.urls
           });
         }
-
-        perplexityContext = `
-[あなたの特性と市場分析に基づいた検索結果]
-${jobTrendsData.analysis}
-
-[分析の観点]
-上記の職種提案を考慮しながら、以下の点について分析してください：
-`;
-        systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
       }
     } catch (err) {
       console.error('Perplexity search error:', err);
-      if (err.statusCode === 429) {
-        // Add retry logic with exponential backoff
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        // Retry the message
-        try {
-          await client.pushMessage(userId, {
-            type: 'text',
-            text: '申し訳ありません。しばらく待ってから再度お試しください。'
-          });
-        } catch (retryErr) {
-          console.error('Retry failed:', retryErr);
-        }
-      }
+      await safePushMessage(userId, {
+        type: 'text',
+        text: '申し訳ありません。検索に失敗しました。しばらく待ってから再度お試しください。'
+      });
     }
   }
   
