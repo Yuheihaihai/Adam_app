@@ -724,6 +724,44 @@ ${jobTrendsData.analysis}
   return aiDraft;
 }
 
+const MAX_RETRIES = 3;
+const TIMEOUT_PER_ATTEMPT = 25000; // 25 seconds per attempt
+
+async function handleChatRecallWithRetries(userId, messageText) {
+  let lastError = null;
+  
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    console.log(`🔄 Chat recall attempt ${attempt}/${MAX_RETRIES}`);
+    
+    try {
+      const result = await Promise.race([
+        fetchAndAnalyzeHistory(userId),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Timeout')), TIMEOUT_PER_ATTEMPT);
+        })
+      ]);
+      
+      console.log(`✅ Chat recall succeeded on attempt ${attempt}`);
+      return result;
+      
+    } catch (error) {
+      lastError = error;
+      console.log(`⚠️ Attempt ${attempt} failed: ${error.message}`);
+      
+      if (attempt < MAX_RETRIES) {
+        console.log('Retrying...');
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1s delay between retries
+      }
+    }
+  }
+
+  console.log('❌ All retry attempts failed');
+  return {
+    type: 'text',
+    text: '申し訳ございません。数回試みましたが処理を完了できませんでした。より具体的な質問や、別の観点からお尋ねいただけますと幸いです。'
+  };
+}
+
 async function handleEvent(event) {
   console.log('Received LINE event:', JSON.stringify(event, null, 2));
 
