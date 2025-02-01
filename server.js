@@ -483,6 +483,8 @@ function securityFilterPrompt(userMessage) {
 }
 
 async function runCriticPass(aiDraft) {
+  console.log('🔍 Starting critic pass with o3-mini-2025-01-31');
+  
   const baseCriticPrompt = `
   Adamがユーザーに送る文章をあなたが分析し、現実的で丁寧な表現であるか、またユーザーの特性やニーズに合っているかを評価してください。以下の手順に従ってください：
 	1.	実現可能性の確認:
@@ -510,10 +512,12 @@ ${aiDraft}
   };
 
   try {
+    console.log('💭 Critic model:', criticOptions.model);
     const criticResponse = await openai.chat.completions.create(criticOptions);
+    console.log('✅ Critic pass completed');
     return criticResponse.choices?.[0]?.message?.content || '';
   } catch (err) {
-    console.error('Critic pass error:', err);
+    console.error('❌ Critic pass error:', err);
     return '';
   }
 }
