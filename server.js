@@ -504,7 +504,7 @@ ${aiDraft}
   const messages = [{ role: 'user', content: baseCriticPrompt }];
 
   const criticOptions = {
-    model: 'o1-preview-2024-09-12',
+    model: 'o3-mini-2025-01-31',
     messages,
     temperature: 1,
   };
@@ -617,7 +617,7 @@ ${jobTrendsData.analysis}
   
   // Consultant mode (third priority)
   else if (needsConsultant || mode === 'consultant') {
-    selectedModel = 'o1-preview-2024-09-12';
+    selectedModel = 'o3-mini-2025-01-31';
     systemPrompt = SYSTEM_PROMPT_CONSULTANT + `
 
 [注意事項]
@@ -680,7 +680,7 @@ ${jobTrendsData.analysis}
     temperature: 0.7,
   };
 
-  if (selectedModel === 'o1-preview-2024-09-12') {
+  if (selectedModel === 'o3-mini-2025-01-31') {
     gptOptions.temperature = 1;
     const systemPrefix = `[System Inst]: ${finalPrompt}\n---\n`;
     messages.push({
