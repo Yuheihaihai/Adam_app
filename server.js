@@ -543,7 +543,7 @@ const SHARE_URL = 'https://twitter.com/intent/tweet?' +
 
 const POSITIVE_KEYWORDS = [
   '素晴らしい', '助かった', 'ありがとう', '感謝', 'すごい', 
-  '役立った', '嬉しい', '助けになった', '期待', '良かった'
+  '役立った', '嬉しい', '助けになった', '期待', '良かった','参考にします'
 ];
 
 const PERSONAL_REFERENCES = ['adam', 'あなた', 'きみ', '君'];
@@ -564,8 +564,11 @@ function checkHighEngagement(userMessage, history) {
     return false;
   }
 
-  // 両方の条件を満たす必要がある
-  return hasPersonalReference && hasPositiveKeyword;
+  // メッセージが5文字より長いことを確認
+  const isLongEnough = userMessage.length > 5;
+
+  // 全ての条件を満たす必要がある
+  return hasPersonalReference && hasPositiveKeyword && isLongEnough;
 }
 
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
