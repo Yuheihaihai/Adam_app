@@ -546,8 +546,15 @@ const POSITIVE_KEYWORDS = [
   '役立った', '嬉しい', '助けになった', '期待', '良かった'
 ];
 
+const PERSONAL_REFERENCES = ['adam', 'あなた', 'きみ', '君'];
+
 function checkHighEngagement(userMessage, history) {
-  // ポジティブキーワードを含む
+  // 人称への言及をチェック（必須）
+  const hasPersonalReference = PERSONAL_REFERENCES.some(ref => 
+    userMessage.toLowerCase().includes(ref)
+  );
+
+  // ポジティブキーワードを含む（必須）
   const hasPositiveKeyword = POSITIVE_KEYWORDS.some(keyword => 
     userMessage.includes(keyword)
   );
@@ -557,10 +564,8 @@ function checkHighEngagement(userMessage, history) {
     return false;
   }
 
-  // 閾値を20文字に下げる
-  const isDetailedFeedback = userMessage.length > 20;
-  
-  return hasPositiveKeyword && isDetailedFeedback;
+  // 両方の条件を満たす必要がある
+  return hasPersonalReference && hasPositiveKeyword;
 }
 
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
