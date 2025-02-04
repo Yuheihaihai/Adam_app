@@ -582,6 +582,23 @@ function checkHighEngagement(userMessage, history) {
 }
 
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
+  console.log('Processing message in mode:', mode);  // デバッグログ追加
+  
+  if (mode === 'share') {
+    console.log('Share mode detected, sending share message');  // デバッグログ追加
+    try {
+      const shareMessage = {
+        type: 'text',
+        text: `温かいお言葉をありがとうございます。\n\nもし良ければ、Adamとの対話が誰かのお役に立つかもしれません。\n\nシェアはこちらから：\n${SHARE_URL}\n\n（シェアは任意です。Adamとの対話は続けられます）`
+      };
+      
+      await client.pushMessage(userId, shareMessage);
+      console.log('Share message sent successfully');  // デバッグログ追加
+    } catch (error) {
+      console.error('Error sending share message:', error);
+    }
+  }
+
   let selectedModel = 'chatgpt-4o-latest';
   
   // Mental health counseling topics (highest priority)
