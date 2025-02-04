@@ -535,6 +535,34 @@ function validateMessageLength(message) {
   return message;
 }
 
+const SHARE_URL = 'https://twitter.com/intent/tweet?' + 
+  new URLSearchParams({
+    text: '発達障害に特化したAIカウンセラー「Adam」です。特性理解やキャリア相談ができます。無料でLINEから利用できます！🤖\n\n#ADHD #ASD #発達障害 #神経多様性',
+    url: 'https://lin.ee/bQX74kw'
+  }).toString();
+
+const POSITIVE_KEYWORDS = [
+  '素晴らしい', '助かった', 'ありがとう', '感謝', 'すごい', 
+  '役立った', '嬉しい', '助けになった', '期待', '良かった'
+];
+
+function checkHighEngagement(userMessage, history) {
+  // ポジティブキーワードを含む
+  const hasPositiveKeyword = POSITIVE_KEYWORDS.some(keyword => 
+    userMessage.includes(keyword)
+  );
+  
+  // 単なる「ありがとう」は除外
+  if (userMessage.trim() === 'ありがとう' || userMessage.trim() === 'ありがとうございます') {
+    return false;
+  }
+
+  // 閾値を20文字に下げる
+  const isDetailedFeedback = userMessage.length > 20;
+  
+  return hasPositiveKeyword && isDetailedFeedback;
+}
+
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   let selectedModel = 'chatgpt-4o-latest';
   
@@ -715,30 +743,59 @@ ${jobTrendsData.analysis}
 
   console.log(`Loaded ${history.length} messages in mode=[${mode}], model=${selectedModel}`);
 
-  const aiDraft = await tryPrimaryThenBackup(gptOptions);
+  const aiReply = await tryPrimaryThenBackup(gptOptions);
 
-  const criticOutput = await runCriticPass(aiDraft);
+  const criticOutput = await runCriticPass(aiReply);
   if (criticOutput && !criticOutput.includes('問題ありません')) {
     return criticOutput;
   }
-  return aiDraft;
+
+  // Check engagement after AI response
+  if (checkHighEngagement(userMessage, history)) {
+    console.log('High engagement detected, attempting to send share message');  // デバッグログ
+    
+    try {
+      // シェア提案メッセージを送信
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: `温かいお言葉をありがとうございます。\n\nもし良ければ、Adamとの対話が他の方のお役に立つかもしれません。こちらのリンクからシェアしていただけると嬉しいです：\n${SHARE_URL}\n\n（シェアは任意です。Adamとの対話は続けられます）`
+      });
+      console.log('Share message sent successfully');  // デバッグログ
+    } catch (error) {
+      console.error('Error sending share message:', error);  // エラーログ
+    }
+  }
+
+  return aiReply;
 }
 
+// Add timeout handling with retries and proper error handling
 const MAX_RETRIES = 3;
 const TIMEOUT_PER_ATTEMPT = 25000; // 25 seconds per attempt
+
+async function processMessage(userId, messageText) {
+  if (messageText.includes('思い出して') || messageText.includes('記憶')) {
+    return handleChatRecallWithRetries(userId, messageText);
+  }
+  // ... existing message handling code ...
+}
 
 async function handleChatRecallWithRetries(userId, messageText) {
   let lastError = null;
   
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    console.log(`🔄 Chat recall attempt ${attempt}/${MAX_RETRIES}`);
+    console.log(`🔄 Chat recall attempt ${attempt}/${MAX_RETRIES} for user ${userId}`);
     
     try {
+      // Create a timeout promise
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error(`Timeout on attempt ${attempt}`)), TIMEOUT_PER_ATTEMPT);
+      });
+
+      // Race between the chat recall and timeout
       const result = await Promise.race([
         fetchAndAnalyzeHistory(userId),
-        new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Timeout')), TIMEOUT_PER_ATTEMPT);
-        })
+        timeoutPromise
       ]);
       
       console.log(`✅ Chat recall succeeded on attempt ${attempt}`);
@@ -748,18 +805,43 @@ async function handleChatRecallWithRetries(userId, messageText) {
       lastError = error;
       console.log(`⚠️ Attempt ${attempt} failed: ${error.message}`);
       
+      // If we have more attempts, wait before retrying
       if (attempt < MAX_RETRIES) {
-        console.log('Retrying...');
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 1s delay between retries
+        console.log(`Waiting 1 second before attempt ${attempt + 1}...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
   }
 
-  console.log('❌ All retry attempts failed');
+  // If all attempts failed, return a user-friendly message
+  console.log(`❌ All ${MAX_RETRIES} attempts failed. Last error: ${lastError?.message}`);
   return {
     type: 'text',
-    text: '申し訳ございません。数回試みましたが処理を完了できませんでした。より具体的な質問や、別の観点からお尋ねいただけますと幸いです。'
+    text: `申し訳ございません。${MAX_RETRIES}回試みましたが、処理を完了できませんでした。\n少し時間をおいてから、もう一度お試しいただけますでしょうか？`
   };
+}
+
+async function fetchAndAnalyzeHistory(userId) {
+  const startTime = Date.now();
+  console.log(`📚 Fetching chat history for user ${userId}`);
+  
+  try {
+    const history = await fetchUserHistory(userId, 200);
+    console.log(`📝 Found ${history.length} records in ${Date.now() - startTime}ms`);
+    
+    // Process the history and generate response
+    const response = await generateHistoryResponse(history);
+    
+    console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
+    return {
+      type: 'text',
+      text: response
+    };
+    
+  } catch (error) {
+    console.error(`❌ Error in fetchAndAnalyzeHistory: ${error.message}`);
+    throw error;
+  }
 }
 
 async function handleEvent(event) {
