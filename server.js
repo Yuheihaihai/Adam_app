@@ -549,6 +549,13 @@ const POSITIVE_KEYWORDS = [
 const PERSONAL_REFERENCES = ['adam', 'あなた', 'きみ', '君'];
 
 function checkHighEngagement(userMessage, history) {
+  // デバッグログを追加
+  console.log('Checking engagement:', {
+    message: userMessage,
+    hasPersonalRef: PERSONAL_REFERENCES.some(ref => userMessage.toLowerCase().includes(ref)),
+    hasPositive: POSITIVE_KEYWORDS.some(keyword => userMessage.includes(keyword))
+  });
+
   // 人称への言及をチェック（必須）
   const hasPersonalReference = PERSONAL_REFERENCES.some(ref => 
     userMessage.toLowerCase().includes(ref)
@@ -564,11 +571,8 @@ function checkHighEngagement(userMessage, history) {
     return false;
   }
 
-  // メッセージが5文字より長いことを確認
-  const isLongEnough = userMessage.length > 5;
-
-  // 全ての条件を満たす必要がある
-  return hasPersonalReference && hasPositiveKeyword && isLongEnough;
+  // 文字数制限なしで、人称とポジティブキーワードのみをチェック
+  return hasPersonalReference && hasPositiveKeyword;
 }
 
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
