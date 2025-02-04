@@ -549,10 +549,10 @@ const SHARE_URL = 'https://twitter.com/intent/tweet?' +
 
 const POSITIVE_KEYWORDS = [
   '素晴らしい', '助かった', 'ありがとう', '感謝', 'すごい', 
-  '役立った', '嬉しい', '助けになった', '期待', '良かった', '参考にします','いいね','便利'
+  '役立った', '嬉しい', '助けになった', '期待', '良かった', '参考にします','いいね','便利','おすすめしたい','シェア'
 ];
 
-const PERSONAL_REFERENCES = ['adam', 'あなた', 'きみ', '君','Adam'];
+const PERSONAL_REFERENCES = ['adam', 'あなた', 'きみ', '君','Adam',''];
 
 function checkHighEngagement(userMessage, history) {
   // デバッグログを追加
