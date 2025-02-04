@@ -543,16 +543,16 @@ function validateMessageLength(message) {
 
 const SHARE_URL = 'https://twitter.com/intent/tweet?' + 
   new URLSearchParams({
-    text: '発達障害に特化したAIカウンセラー「Adam」です。特性理解やキャリア相談ができます。無料でLINEから利用できます！🤖\n\n#ADHD #ASD #発達障害 #神経多様性',
+    text: '発達障害に特化したAIカウンセラー「Adam」です。特性理解やキャリア相談ができます。無料でLINEから利用できます！🤖',
     url: 'https://lin.ee/bQX74kw'
   }).toString();
 
 const POSITIVE_KEYWORDS = [
   '素晴らしい', '助かった', 'ありがとう', '感謝', 'すごい', 
-  '役立った', '嬉しい', '助けになった', '期待', '良かった', '参考にします'
+  '役立った', '嬉しい', '助けになった', '期待', '良かった', '参考にします','いいね','便利'
 ];
 
-const PERSONAL_REFERENCES = ['adam', 'あなた', 'きみ', '君'];
+const PERSONAL_REFERENCES = ['adam', 'あなた', 'きみ', '君','Adam'];
 
 function checkHighEngagement(userMessage, history) {
   // デバッグログを追加
@@ -774,10 +774,12 @@ ${jobTrendsData.analysis}
     
     try {
       // シェア提案メッセージを送信
-      await client.pushMessage(userId, {
+      const shareMessage = {
         type: 'text',
-        text: `温かいお言葉をありがとうございます。\n\nもし良ければ、Adamとの対話が他の方のお役に立つかもしれません。こちらのリンクからシェアしていただけると嬉しいです：\n${SHARE_URL}\n\n（シェアは任意です。Adamとの対話は続けられます）`
-      });
+        text: `温かいお言葉をありがとうございます。\n\nもし良ければ、Adamとの対話が誰かのお役に立つかもしれません。\n\nシェアはこちらから：\n${SHARE_URL}\n\n（シェアは任意です。Adamとの対話は続けられます）`
+      };
+      
+      await client.pushMessage(userId, shareMessage);
       console.log('Share message sent successfully');  // デバッグログ
     } catch (error) {
       console.error('Error sending share message:', error);  // エラーログ
