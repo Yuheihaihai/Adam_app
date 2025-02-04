@@ -283,6 +283,12 @@ function determineModeAndLimit(userMessage) {
   ) {
     return { mode: 'humanRelationship', limit: 200 };
   }
+  if (
+    PERSONAL_REFERENCES.some(ref => lcMsg.includes(ref)) && 
+    POSITIVE_KEYWORDS.some(keyword => lcMsg.includes(keyword))
+  ) {
+    return { mode: 'share', limit: 10 };
+  }
   return { mode: 'general', limit: 10 };
 }
 
@@ -543,7 +549,7 @@ const SHARE_URL = 'https://twitter.com/intent/tweet?' +
 
 const POSITIVE_KEYWORDS = [
   '素晴らしい', '助かった', 'ありがとう', '感謝', 'すごい', 
-  '役立った', '嬉しい', '助けになった', '期待', '良かった','参考にします'
+  '役立った', '嬉しい', '助けになった', '期待', '良かった', '参考にします'
 ];
 
 const PERSONAL_REFERENCES = ['adam', 'あなた', 'きみ', '君'];
