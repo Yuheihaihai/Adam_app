@@ -544,7 +544,7 @@ function validateMessageLength(message) {
 const SHARE_URL = 'https://twitter.com/intent/tweet?' + 
   new URLSearchParams({
     text: 'AIカウンセラー「Adam」が発達障害の特性理解やキャリア相談をサポート。無料でLINEから利用できます！🤖\n\n#ADHD #ASD #発達障害 #神経多様性',
-    url: 'https://lin.ee/bQX74kw'
+    url: 'https://line.me/R/ti/p/@767cfbjv'
   }).toString();
 
 const POSITIVE_KEYWORDS = [
