@@ -543,7 +543,7 @@ function validateMessageLength(message) {
 
 const SHARE_URL = 'https://twitter.com/intent/tweet?' + 
   new URLSearchParams({
-    text: '発達障害に特化したAIカウンセラー「Adam」です。特性理解やキャリア相談ができます。無料でLINEから利用できます！🤖',
+    text: 'AIカウンセラー「Adam」が発達障害の特性理解やキャリア相談をサポート。無料でLINEから利用できます！🤖\n\n#ADHD #ASD #発達障害 #神経多様性',
     url: 'https://lin.ee/bQX74kw'
   }).toString();
 
