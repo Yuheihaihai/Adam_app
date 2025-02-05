@@ -617,9 +617,17 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     userMessage.includes(topic)
   );
 
-  const needsConsultant = consultantTopics.some(topic => 
-    userMessage.includes(topic)
-  );
+  // Add these consultation request patterns
+  const consultationRequests = [
+    'アドバイスください', 'アドバイス下さい',
+    '相談したい', '相談させてください', '相談させて下さい',
+    'コンサルお願い', 'アドバイスお願い',
+    '助言ください', '助言下さい'
+  ];
+
+  // Modify the consultant mode check
+  const needsConsultant = consultantTopics.some(topic => userMessage.includes(topic)) &&
+    consultationRequests.some(request => userMessage.includes(request));
 
   // Career counseling mode check (highest priority trigger)
   if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
