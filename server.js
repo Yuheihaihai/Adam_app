@@ -552,7 +552,7 @@ const POSITIVE_KEYWORDS = [
   '役立った', '嬉しい', '助けになった', '期待', '良かった', '参考にします','いいね','便利','おすすめしたい','シェア','共有'
 ];
 
-const PERSONAL_REFERENCES = ['adam', 'あなた', 'きみ', '君','Adam',''];
+const PERSONAL_REFERENCES = ['adam', 'あなた', 'きみ', '君', 'Adam'];
 
 function checkHighEngagement(userMessage, history) {
   // デバッグログを追加
@@ -572,12 +572,13 @@ function checkHighEngagement(userMessage, history) {
     userMessage.includes(keyword)
   );
   
-  // 単なる「ありがとう」は除外
-  if (userMessage.trim() === 'ありがとう' || userMessage.trim() === 'ありがとうございます') {
+  // 単なる「ありがとう」系の短文は除外
+  const simpleThankYous = ['ありがとう', 'ありがとうございます', 'thanks', 'thank you'];
+  if (simpleThankYous.includes(userMessage.toLowerCase().trim())) {
     return false;
   }
 
-  // 文字数制限なしで、人称とポジティブキーワードのみをチェック
+  // 両方の条件を満たす場合のみtrueを返す
   return hasPersonalReference && hasPositiveKeyword;
 }
 
