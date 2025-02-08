@@ -227,6 +227,9 @@ const SYSTEM_PROMPT_CONSULTANT = `あなたは優秀な「Adam」という非常
 
 const rateLimit = new Map();
 
+// グローバル変数: 各ユーザーの保留中の画像説明情報を管理するためのMap
+const pendingImageExplanations = new Map();
+
 function checkRateLimit(userId) {
   const now = Date.now();
   const cooldown = 1000;
@@ -891,18 +894,57 @@ async function fetchAndAnalyzeHistory(userId) {
 }
 
 async function handleEvent(event) {
-  console.log('Received LINE event:', JSON.stringify(event, null, 2));
-
-  if (event.type !== 'message' || event.message.type !== 'text') {
-    console.log('Not a text message, ignoring.');
-    return null;
+  if (event.type !== 'message') {
+    return Promise.resolve(null);
   }
-  const userId = event.source?.userId || 'unknown';
-  const userMessage = validateMessageLength(event.message.text.trim());
 
-  console.log(`User ${userId} said: "${userMessage}"`);
+  const userId = event.source.userId;
 
-  const isSafe = securityFilterPrompt(userMessage);
+  try {
+    // Handle image messages
+    if (event.message.type === 'image') {
+      console.log('Processing image message...');
+      return handleImage(event);
+    }
+
+    // Handle text messages with existing logic
+    if (event.message.type === 'text') {
+      const userMessage = event.message.text.trim();
+      return handleText(event);
+    }
+
+    console.log(`Unsupported message type: ${event.message.type}`);
+    return Promise.resolve(null);
+
+  } catch (error) {
+    console.error('Error in handleEvent:', error);
+    return Promise.resolve(null);
+  }
+}
+
+async function handleText(event) {
+  const userId = event.source.userId;
+  const userMessage = event.message.text.trim();
+
+  // pendingImageExplanations のチェック（はい/いいえ 判定）
+  if (pendingImageExplanations.has(userId)) {
+    if (userMessage === "はい") {
+      const explanationText = pendingImageExplanations.get(userId);
+      pendingImageExplanations.delete(userId);
+      console.log("ユーザーの「はい」が検出されました。画像生成を開始します。");
+      return handleImageExplanation(event, explanationText);
+    } else if (userMessage === "いいえ") {
+      pendingImageExplanations.delete(userId);
+      console.log("ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。");
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: "承知しました。引き続きテキストでの回答を行います。"
+      });
+    }
+  }
+
+  // セキュリティチェック
+  const isSafe = await securityFilterPrompt(userMessage);
   if (!isSafe) {
     const refusal = '申し訳ありません。このリクエストには対応できません。';
     await storeInteraction(userId, 'assistant', refusal);
@@ -910,27 +952,109 @@ async function handleEvent(event) {
     return null;
   }
 
+  // 最近の会話履歴の取得
+  const history = await fetchUserHistory(userId, 10);
+  const lastAssistantMessage = history.filter(item => item.role === 'assistant').pop();
+
+  // 画像説明の提案トリガーチェック：isConfusionRequest のみを使用
+  let triggerImageExplanation = false;
+  if (isConfusionRequest(userMessage)) {
+    triggerImageExplanation = true;
+  }
+
+  // トリガーされた場合、pending 状態として前回の回答を保存し、yes/no で質問
+  if (triggerImageExplanation) {
+    if (lastAssistantMessage) {
+      pendingImageExplanations.set(userId, lastAssistantMessage.content);
+    } else {
+      pendingImageExplanations.set(userId, "説明がありません。");
+    }
+    const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
+    console.log("画像による説明の提案をユーザーに送信:", suggestionMessage);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: suggestionMessage
+    });
+  }
+
+  // 通常のテキスト処理へ進む
   await storeInteraction(userId, 'user', userMessage);
 
   const { mode, limit } = determineModeAndLimit(userMessage);
-  console.log(`Determined mode=${mode}, limit=${limit}`);
+  console.log(`mode=${mode}, limit=${limit}`);
 
-  const history = await fetchUserHistory(userId, limit);
-
+  const historyForAI = await fetchUserHistory(userId, limit);
   const systemPrompt = getSystemPromptForMode(mode);
 
-  const aiReply = await processWithAI(systemPrompt, userMessage, history, mode, userId, client);
+  const aiReply = await processWithAI(
+    systemPrompt,
+    userMessage,
+    historyForAI,
+    mode,
+    userId,
+    client
+  );
 
   await storeInteraction(userId, 'assistant', aiReply);
 
   const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
-  console.log('Replying to LINE user with:', lineMessage.text);
+  console.log('LINEユーザーへの返信:', lineMessage.text);
 
   try {
     await client.replyMessage(event.replyToken, lineMessage);
-    console.log('Successfully replied to user.');
+    console.log('ユーザーへの返信に成功しました。');
   } catch (err) {
-    console.error('Error replying to user:', err);
+    console.error('ユーザーへの返信時のエラー:', err);
+  }
+  return null;
+}
+
+// Add image handler function (modified to store the image description in Airtable)
+async function handleImage(event) {
+  try {
+    const stream = await client.getMessageContent(event.message.id);
+    const chunks = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+    }
+    const buffer = Buffer.concat(chunks);
+    const base64Image = buffer.toString('base64');
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What's in this image? Give me a detailed description of the image and the context of the image in Japanese" },
+            { 
+              type: "image_url", 
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`,
+                detail: "auto"
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 300
+    });
+
+    const imageDescription = response.choices[0].message.content;
+    const userId = event.source.userId;
+    // Store the image description in Airtable.
+    await storeInteraction(userId, 'assistant', imageDescription);
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: imageDescription
+    });
+  } catch (error) {
+    console.error('Error:', error);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'Sorry, I had trouble analyzing that image.'
+    });
   }
 }
 
@@ -971,3 +1095,66 @@ app.use((err, req, res, next) => {
   }
   next();
 });
+
+function isConfusionRequest(message) {
+  const lowered = message.toLowerCase();
+  
+  // Only consider messages that are at most 10 characters long.
+  if (lowered.length > 10) return false;
+  
+  return (
+    lowered.includes("わから") ||
+    lowered.includes("分から") ||
+    lowered.includes("わかりません") ||
+    lowered.includes("分かりません") ||
+    lowered.includes("よくわから") ||
+    lowered.includes("よく分から") ||
+    lowered.includes("わかん") ||
+    lowered.includes("分かん") ||
+    lowered.includes("理解できない") ||
+    lowered.includes("不明") ||
+    lowered.includes("不明瞭") ||
+    lowered.includes("不明確") ||
+    lowered.includes("意味不明") ||
+    lowered.includes("わかんない")
+  );
+}
+
+async function handleImageExplanation(event, explanationText) {
+  try {
+    const promptForImage = "Illustrate the following explanation visually in a simple diagram: " + explanationText;
+    console.log("Generating image explanation with prompt:", promptForImage);
+
+    const response = await openai.images.generate({
+      model: "dall-e-3",
+      prompt: promptForImage,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    const imageUrl = response.data[0].url;
+    console.log("Generated image URL:", imageUrl);
+
+    // Store the image explanation in Airtable.
+    await storeInteraction(event.source.userId, 'assistant', `Image explanation provided: ${imageUrl}`);
+
+    // Send two messages: one text message and one image message.
+    await client.replyMessage(event.replyToken, [
+      {
+        type: 'text',
+        text: "こちらは画像による説明です。\n" + explanationText
+      },
+      {
+        type: 'image',
+        originalContentUrl: imageUrl,
+        previewImageUrl: imageUrl,
+      }
+    ]);
+  } catch (error) {
+    console.error("Error generating image explanation:", error);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: "【システム通知】申し訳ありません。画像での説明生成に失敗しました。もう一度お試しください。"
+    });
+  }
+}
