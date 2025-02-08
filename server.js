@@ -867,7 +867,7 @@ async function handleChatRecallWithRetries(userId, messageText) {
   console.log(`❌ All ${MAX_RETRIES} attempts failed. Last error: ${lastError?.message}`);
   return {
     type: 'text',
-    text: `申し訳ございません。${MAX_RETRIES}回試みましたが、処理を完了できませんでした。\n少し時間をおいてから、もう一度お試しいただけますでしょうか？`
+    text: `申し訳ございません。${MAX_RETRIES}回試みましたが、処理を完了できませんでした。\n少し時間をおいてから、もう一度お試しください。`
   };
 }
 
@@ -927,6 +927,11 @@ async function handleText(event) {
   const userId = event.source.userId;
   const userMessage = event.message.text.trim();
 
+  // 特定の問い合わせ（ASD支援の質問例や使い方の案内）を検出
+  if (userMessage.includes("ASD症支援であなたが対応できる具体的な質問例") && userMessage.includes("使い方")) {
+    return handleASDUsageInquiry(event);
+  }
+  
   // pendingImageExplanations のチェック（はい/いいえ 判定）
   if (pendingImageExplanations.has(userId)) {
     if (userMessage === "はい") {
@@ -1021,13 +1026,14 @@ async function handleImage(event) {
     const buffer = Buffer.concat(chunks);
     const base64Image = buffer.toString('base64');
 
+    // 画像の内容を解析するために、OpenAI API (または適切な画像解析API) を呼び出す
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "user",
           content: [
-            { type: "text", text: "What's in this image? Give me a detailed description of the image and the context of the image in Japanese" },
+            { type: "text", text: "この画像の内容を日本語で詳しく説明してください。" },
             { 
               type: "image_url", 
               image_url: {
@@ -1043,7 +1049,7 @@ async function handleImage(event) {
 
     const imageDescription = response.choices[0].message.content;
     const userId = event.source.userId;
-    // Store the image description in Airtable.
+    // 画像の説明をログおよびAirtableに記録
     await storeInteraction(userId, 'assistant', imageDescription);
 
     return client.replyMessage(event.replyToken, {
@@ -1051,10 +1057,10 @@ async function handleImage(event) {
       text: imageDescription
     });
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Error in handleImage:', error);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'Sorry, I had trouble analyzing that image.'
+      text: '画像の解析に失敗しました。しばらくしてから再度お試しください。'
     });
   }
 }
@@ -1158,4 +1164,24 @@ async function handleImageExplanation(event, explanationText) {
       text: "【システム通知】申し訳ありません。画像での説明生成に失敗しました。もう一度お試しください。"
     });
   }
+}
+
+async function handleASDUsageInquiry(event) {
+  const explanation = `私はASDやADHDなど発達障害の方々の支援を行うアシスタント「Adam」です。
+  
+【具体的な質問例】
+・「集中力が続かず困っています。どうすれば改善できますか？」
+・「仕事中にイライラすることが多いのですが、対処法は？」
+・「人とのコミュニケーションで悩みがあり、アドバイスをお願いします。」
+・「日常生活でのストレスの感じ方や対処方法について教えてください。」
+
+【使い方】
+・お気軽に相談内容や質問をテキストで送信してください。
+・必要に応じて、送信された画像の内容を解析し、アドバイスに反映します。
+どんな相談でも、あなたの状況に合わせた具体的なサポートを提供します。`;
+  
+  await client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: explanation
+  });
 }
