@@ -1392,3 +1392,17 @@ async function handleVisionExplanation(event) {
     text: explanation.trim(),
   });
 }
+
+function handleFollowEvent(event) {
+    // Create a greeting message that's clear and friendly.
+    const greetingMessage = {
+        type: 'text',
+        text: "こんにちは！私はあなたのバーチャルアシスタントのAdamです。お名前（ニックネーム）を伺ってもよろしいでしょうか？お好きな趣味は何ですか？まずはお互いのことをよく知り合うことから始めましょう。使い方についてはメニューキーボード左上の「使い方を確認」を押してください。"
+    };
+
+    // You would send this message as a reply to the follow event.
+    // This is typically done by calling LINE's reply API with the greetingMessage.
+    return greetingMessage;
+}
+
+module.exports = { handleFollowEvent };
