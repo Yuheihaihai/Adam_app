@@ -604,7 +604,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     }
   }
 
-  let selectedModel = 'chatgpt-4o-latest';
+  let selectedModel = 'gpt-4o';
   
   // Mental health counseling topics (highest priority)
   const counselingTopics = [
