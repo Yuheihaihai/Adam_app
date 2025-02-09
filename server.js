@@ -1048,7 +1048,24 @@ async function handleImage(event) {
           violations.push(category);
         }
       }
-      const violationText = `申し訳ありません。この画像はコンテンツポリシーに違反している可能性があります。違反カテゴリ: ${violations.join(', ')}。`;
+      // Map violation categories to Japanese terms
+      const categoryTranslations = {
+        "sexual": "性的",
+        "sexual/minors": "未成年者に関する性的",
+        "harassment": "嫌がらせ",
+        "harassment/threatening": "脅迫的な嫌がらせ",
+        "hate": "憎悪",
+        "hate/threatening": "脅迫的な憎悪",
+        "illicit": "不正行為",
+        "illicit/violent": "暴力的な不正行為",
+        "self-harm": "自傷行為",
+        "self-harm/intent": "自傷行為の意図",
+        "self-harm/instructions": "自傷行為の助言",
+        "violence": "暴力",
+        "violence/graphic": "グラフィックな暴力"
+      };
+      // Use the translation mapping to create the violation text in Japanese
+      const violationText = `申し訳ありません。この画像はコンテンツポリシーに違反している可能性があります。違反カテゴリ：${violations.map(category => categoryTranslations[category] || category).join('、')}。`;
       await client.replyMessage(event.replyToken, {
         type: 'text',
         text: violationText
