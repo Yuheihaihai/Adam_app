@@ -1403,7 +1403,11 @@ async function handleFollowEvent(event) {
     const userId = event.source.userId;
     const greetingMessage = {
       type: 'text',
-      text: "こんにちは！私はあなたのバーチャルアシスタントのAdamです。お名前（ニックネーム）を伺ってもよろしいでしょうか？お好きな趣味は何ですか？まずはお互いのことをよく知り合うことから始めましょう。使い方についてはメニューキーボード左上の「使い方を確認」を押してください。"
+      text: "こんにちは！私はあなたのバーチャルアシスタントのAdamです。\n\n" +
+            "まずはお互いのことをよく知り合うことから始めましょう。\n\n" +
+            "お名前（ニックネーム）を伺ってもよろしいでしょうか？\n" +
+            "お好きな趣味は何ですか？\n\n" +
+            "⚠️ 使い方についてはメニューキーボード左上の「使い方を確認」を押してください。"
     };
 
     // Store the greeting in conversation history
