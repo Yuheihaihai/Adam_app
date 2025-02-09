@@ -1265,6 +1265,10 @@ async function handleASDUsageInquiry(event) {
 
 どんな相談でも、あなたの状況に合わせた具体的なサポートを提供します。`;
   
+  // Store the explanation message in Airtable.
+  await storeInteraction(event.source.userId, 'assistant', explanation.trim());
+  
+  // Send the reply to the user.
   await client.replyMessage(event.replyToken, {
     type: 'text',
     text: explanation
