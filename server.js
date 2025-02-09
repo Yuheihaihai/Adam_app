@@ -1018,6 +1018,7 @@ async function handleText(event) {
 // Add image handler function (modified to store the image description in Airtable)
 async function handleImage(event) {
   try {
+    // Retrieve the image sent by the user
     const stream = await client.getMessageContent(event.message.id);
     const chunks = [];
     for await (const chunk of stream) {
@@ -1025,8 +1026,37 @@ async function handleImage(event) {
     }
     const buffer = Buffer.concat(chunks);
     const base64Image = buffer.toString('base64');
+    const dataUrl = `data:image/jpeg;base64,${base64Image}`;
 
-    // 画像の内容を解析するために、OpenAI API (または適切な画像解析API) を呼び出す
+    // Moderate the image using OpenAI's moderation endpoint
+    const moderationResp = await openai.moderations.create({
+      model: "omni-moderation-latest",
+      input: [
+        {
+          type: "image_url",
+          image_url: { url: dataUrl }
+        }
+      ],
+    });
+
+    const moderationResult = moderationResp.results && moderationResp.results[0];
+    if (moderationResult && moderationResult.flagged) {
+      // Build a list of violation categories that are flagged
+      let violations = [];
+      for (let category in moderationResult.categories) {
+        if (moderationResult.categories[category] === true) {
+          violations.push(category);
+        }
+      }
+      const violationText = `申し訳ありません。この画像はコンテンツポリシーに違反している可能性があります。違反カテゴリ: ${violations.join(', ')}。`;
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: violationText
+      });
+      return;
+    }
+
+    // If no violation is found, continue to generate a description for the image.
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -1037,7 +1067,7 @@ async function handleImage(event) {
             { 
               type: "image_url", 
               image_url: {
-                url: `data:image/jpeg;base64,${base64Image}`,
+                url: dataUrl,
                 detail: "auto"
               }
             }
@@ -1049,13 +1079,13 @@ async function handleImage(event) {
 
     const imageDescription = response.choices[0].message.content;
     const userId = event.source.userId;
-    // 画像の説明をログおよびAirtableに記録
     await storeInteraction(userId, 'assistant', imageDescription);
 
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: imageDescription
     });
+
   } catch (error) {
     console.error('Error in handleImage:', error);
     return client.replyMessage(event.replyToken, {
@@ -1191,4 +1221,16 @@ async function handleASDUsageInquiry(event) {
     type: 'text',
     text: explanation
   });
+}
+
+// Add this function to check the image for policy violations
+async function securityFilterImage(imageBuffer) {
+  // This is a dummy implementation.
+  // In a real-world scenario, you could call an image moderation API here.
+  // For example, if the file size is suspiciously small, we simulate a violation.
+  if (imageBuffer.length < 100) {
+    return { isSafe: false, reason: "画像サイズが小さすぎます" };
+  }
+  // Otherwise, assume it's safe.
+  return { isSafe: true, reason: "" };
 }
