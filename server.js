@@ -1180,14 +1180,44 @@ app.get('/', (req, res) => {
   res.send('Adam App Cloud v2.3 is running. Ready for LINE requests.');
 });
 
-app.post('/webhook', line.middleware(config), (req, res) => {
-  console.log('Webhook was called! Events:', req.body.events);
-  Promise.all(req.body.events.map(handleEvent))
-    .then((result) => res.json(result))
-    .catch((err) => {
-      console.error('Webhook error:', err);
-      res.status(200).json({});
+// Webhookエンドポイントの設定
+app.post('/webhook', (req, res) => {
+    console.log('Webhook was called! Events:', req.body.events);
+    
+    const events = req.body.events;
+    if (!events || !Array.isArray(events)) {
+        return res.status(200).end();
+    }
+
+    // イベントを処理
+    events.forEach(async (event) => {
+        if (event.type === 'follow') {
+            console.log('Follow event detected:', event);
+            try {
+                const message = handleFollowEvent(event);
+                // LINE Messaging APIを使用して返信
+                await axios.post(
+                    'https://api.line.me/v2/bot/message/reply',
+                    {
+                        replyToken: event.replyToken,
+                        messages: [message]
+                    },
+                    {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${process.env.LINE_ACCESS_TOKEN}`
+                        }
+                    }
+                );
+                console.log('Welcome message sent successfully');
+            } catch (error) {
+                console.error('Error sending welcome message:', error);
+            }
+        }
     });
+
+    // LINE Platformへ200 OKを返す
+    return res.status(200).end();
 });
 
 const PORT = process.env.PORT || 3000;
