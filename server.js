@@ -6,13 +6,11 @@ const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
-const axios = require('axios');
 
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
 app.use(timeout('60s'));
-app.use(express.json());
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
@@ -1180,44 +1178,14 @@ app.get('/', (req, res) => {
   res.send('Adam App Cloud v2.3 is running. Ready for LINE requests.');
 });
 
-// Webhookエンドポイントの設定
-app.post('/webhook', (req, res) => {
-    console.log('Webhook was called! Events:', req.body.events);
-    
-    const events = req.body.events;
-    if (!events || !Array.isArray(events)) {
-        return res.status(200).end();
-    }
-
-    // イベントを処理
-    events.forEach(async (event) => {
-        if (event.type === 'follow') {
-            console.log('Follow event detected:', event);
-            try {
-                const message = handleFollowEvent(event);
-                // LINE Messaging APIを使用して返信
-                await axios.post(
-                    'https://api.line.me/v2/bot/message/reply',
-                    {
-                        replyToken: event.replyToken,
-                        messages: [message]
-                    },
-                    {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${process.env.LINE_ACCESS_TOKEN}`
-                        }
-                    }
-                );
-                console.log('Welcome message sent successfully');
-            } catch (error) {
-                console.error('Error sending welcome message:', error);
-            }
-        }
+app.post('/webhook', line.middleware(config), (req, res) => {
+  console.log('Webhook was called! Events:', req.body.events);
+  Promise.all(req.body.events.map(handleEvent))
+    .then((result) => res.json(result))
+    .catch((err) => {
+      console.error('Webhook error:', err);
+      res.status(200).json({});
     });
-
-    // LINE Platformへ200 OKを返す
-    return res.status(200).end();
 });
 
 const PORT = process.env.PORT || 3000;
@@ -1426,37 +1394,15 @@ async function handleVisionExplanation(event) {
 }
 
 function handleFollowEvent(event) {
-    const replyToken = event.replyToken;
-    // 挨拶メッセージの定義
+    // Create a greeting message that's clear and friendly.
     const greetingMessage = {
         type: 'text',
         text: "こんにちは！私はあなたのバーチャルアシスタントのAdamです。お名前（ニックネーム）を伺ってもよろしいでしょうか？お好きな趣味は何ですか？まずはお互いのことをよく知り合うことから始めましょう。使い方についてはメニューキーボード左上の「使い方を確認」を押してください。"
     };
 
-    // LINEのReply APIに対してメッセージを送信
-    sendReply(replyToken, greetingMessage);
-}
-
-function sendReply(replyToken, message) {
-    axios.post(
-        'https://api.line.me/v2/bot/message/reply',
-        {
-            replyToken: replyToken,
-            messages: [message]
-        },
-        {
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${process.env.LINE_ACCESS_TOKEN}` // 環境変数に格納されたアクセストークンを利用
-            }
-        }
-    )
-    .then((response) => {
-        console.log("Reply sent successfully:", response.data);
-    })
-    .catch((error) => {
-        console.error("Error sending reply:", error);
-    });
+    // You would send this message as a reply to the follow event.
+    // This is typically done by calling LINE's reply API with the greetingMessage.
+    return greetingMessage;
 }
 
 module.exports = { handleFollowEvent };
