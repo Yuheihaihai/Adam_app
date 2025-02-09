@@ -1251,3 +1251,42 @@ async function securityFilterImage(imageBuffer) {
   // Otherwise, assume it's safe.
   return { isSafe: true, reason: "" };
 }
+
+/**
+ * processChatMessage uses a reasoning model ("o3-mini") with a specified reasoning effort.
+ * It returns an object containing the final visible answer and the hidden chain-of-thought token details.
+ *
+ * Reasoning Effort:
+ * The parameter reasoning_effort ("medium" in this example) directs the model to generate additional reasoning tokens,
+ * which are used for internal complex problem solving before creating the final answer.
+ */
+async function processChatMessage(prompt, userId) {
+  const response = await openai.chat.completions.create({
+    model: "o3-mini",
+    reasoning_effort: "medium", // Instructs the model on how much extra internal reasoning to perform
+    messages: [
+      { role: "user", content: prompt }
+    ],
+    store: true,
+    // Optionally set max_completion_tokens if needed.
+  });
+
+  const finalAnswer = response.choices[0].message.content;
+  const reasoningTokenDetails = response.usage && response.usage.completion_tokens_details;
+  return { finalAnswer, reasoningTokenDetails };
+}
+
+// Generate the final answer and then output the reasoning token details to the Terminal.
+(async () => {
+  const prompt = "Example prompt that requires multi-step reasoning.";
+  const userId = "sampleUser123";
+
+  // Process the user's prompt using the reasoning model
+  const { finalAnswer, reasoningTokenDetails } = await processChatMessage(prompt, userId);
+  
+  // Display the final visible answer first
+  console.log("Final assistant response:", finalAnswer);
+  
+  // Generate (log) the chain-of-thought details after the final answer.
+  console.log(`Reasoning tokens details for user ${userId}:`, reasoningTokenDetails);
+})();
