@@ -6,11 +6,13 @@ const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
+const axios = require('axios');
 
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
 app.use(timeout('60s'));
+app.use(express.json());
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
@@ -1394,15 +1396,37 @@ async function handleVisionExplanation(event) {
 }
 
 function handleFollowEvent(event) {
-    // Create a greeting message that's clear and friendly.
+    const replyToken = event.replyToken;
+    // 挨拶メッセージの定義
     const greetingMessage = {
         type: 'text',
         text: "こんにちは！私はあなたのバーチャルアシスタントのAdamです。お名前（ニックネーム）を伺ってもよろしいでしょうか？お好きな趣味は何ですか？まずはお互いのことをよく知り合うことから始めましょう。使い方についてはメニューキーボード左上の「使い方を確認」を押してください。"
     };
 
-    // You would send this message as a reply to the follow event.
-    // This is typically done by calling LINE's reply API with the greetingMessage.
-    return greetingMessage;
+    // LINEのReply APIに対してメッセージを送信
+    sendReply(replyToken, greetingMessage);
+}
+
+function sendReply(replyToken, message) {
+    axios.post(
+        'https://api.line.me/v2/bot/message/reply',
+        {
+            replyToken: replyToken,
+            messages: [message]
+        },
+        {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.LINE_ACCESS_TOKEN}` // 環境変数に格納されたアクセストークンを利用
+            }
+        }
+    )
+    .then((response) => {
+        console.log("Reply sent successfully:", response.data);
+    })
+    .catch((error) => {
+        console.error("Error sending reply:", error);
+    });
 }
 
 module.exports = { handleFollowEvent };
