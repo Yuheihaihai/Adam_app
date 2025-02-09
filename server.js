@@ -1315,3 +1315,34 @@ async function processChatMessage(prompt, userId) {
   // Generate (log) the chain-of-thought details after the final answer.
   console.log(`Reasoning tokens details for user ${userId}:`, reasoningTokenDetails);
 })();
+
+/**
+ * handleVisionExplanation sends an explanation regarding vision recognition and generation functions.
+ *
+ * The explanation outlines:
+ * 1. Vision Recognition:
+ *    - The assistant analyzes images (provided via URL or Base64) to deliver an overall summary and identify major objects.
+ *    - It does not provide detailed spatial or fine-grained analysis.
+ *
+ * 2. Vision Generation:
+ *    - When necessary, the assistant can generate images (e.g., using the dall-e-3 model) to supplement textual explanations.
+ *
+ * Note:
+ * - This explanation is triggered only when the user asks a clear question about vision (using defined keywords and a question mark).
+ */
+async function handleVisionExplanation(event) {
+  const explanation = `
+【Vision 機能のご案内】
+1. 画像認識機能:
+　・送信された画像（URLまたはBase64形式）から全体の概要や主要なオブジェクトを解析します。
+　・詳細な位置情報や細かい解析は行いません。
+2. 画像生成機能:
+　・必要に応じて、テキスト説明を補強するために画像を生成します（例: dall-e-3 を使用）。
+※画像に関する詳細な解析が難しい場合は、画像の内容をテキストでご説明いただくとより詳しい回答が可能です。
+  `;
+  
+  await client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: explanation.trim(),
+  });
+}
