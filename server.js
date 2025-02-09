@@ -919,7 +919,23 @@ async function handleEvent(event) {
 
     // Handle text messages with existing logic
     if (event.message.type === 'text') {
-      const userMessage = event.message.text.trim();
+      const userText = event.message.text.trim();
+      // If the user clearly asks about vision capabilities using both technical and simpler words, answer accordingly.
+      if (
+        (
+          userText.toLowerCase().includes("vision") ||
+          userText.includes("画像認識") ||
+          userText.includes("画像生成") ||
+          userText.includes("画像について") ||
+          userText.includes("写真について") ||
+          userText.includes("画像") ||
+          userText.includes("写真")
+        ) &&
+        (userText.endsWith("？") || userText.endsWith("?"))
+      ) {
+        await handleVisionExplanation(event);
+        return; // Stop further processing for this event.
+      }
       return handleText(event);
     }
 
