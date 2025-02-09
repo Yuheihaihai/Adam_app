@@ -607,7 +607,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       };
       
       await client.pushMessage(userId, shareMessage);
-      console.log('Share message sent successfully');  // デバッグログ追加
+      console.log('Share message sent successfully');  // デバッグログ
     } catch (error) {
       console.error('Error sending share message:', error);
     }
@@ -1329,6 +1329,7 @@ async function processChatMessage(prompt, userId) {
  *
  * Note:
  * - This explanation is triggered only when the user asks a clear question about vision (using defined keywords and a question mark).
+ * - The message is stored in Airtable once sent out to users.
  */
 async function handleVisionExplanation(event) {
   const explanation = `
@@ -1340,7 +1341,11 @@ async function handleVisionExplanation(event) {
 　・必要に応じて、テキスト説明を補強するために画像を生成します（例: dall-e-3 を使用）。
 ※画像に関する詳細な解析が難しい場合は、画像の内容をテキストでご説明いただくとより詳しい回答が可能です。
   `;
-  
+
+  // Store the explanation message in Airtable
+  await storeInteraction(event.source.userId, 'assistant', explanation.trim());
+
+  // Send the message reply to the user
   await client.replyMessage(event.replyToken, {
     type: 'text',
     text: explanation.trim(),
