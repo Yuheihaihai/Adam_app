@@ -941,6 +941,11 @@ async function fetchAndAnalyzeHistory(userId) {
 }
 
 async function handleEvent(event) {
+  if (event.type === 'follow') {
+    console.log('Handling follow event for user:', event.source.userId);
+    return handleFollowEvent(event);
+  }
+
   if (event.type !== 'message') {
     return Promise.resolve(null);
   }
@@ -1393,16 +1398,26 @@ async function handleVisionExplanation(event) {
   });
 }
 
-function handleFollowEvent(event) {
-    // Create a greeting message that's clear and friendly.
+async function handleFollowEvent(event) {
+  try {
+    const userId = event.source.userId;
     const greetingMessage = {
-        type: 'text',
-        text: "こんにちは！私はあなたのバーチャルアシスタントのAdamです。お名前（ニックネーム）を伺ってもよろしいでしょうか？お好きな趣味は何ですか？まずはお互いのことをよく知り合うことから始めましょう。使い方についてはメニューキーボード左上の「使い方を確認」を押してください。"
+      type: 'text',
+      text: "こんにちは！私はあなたのバーチャルアシスタントのAdamです。お名前（ニックネーム）を伺ってもよろしいでしょうか？お好きな趣味は何ですか？まずはお互いのことをよく知り合うことから始めましょう。使い方についてはメニューキーボード左上の「使い方を確認」を押してください。"
     };
 
-    // You would send this message as a reply to the follow event.
-    // This is typically done by calling LINE's reply API with the greetingMessage.
-    return greetingMessage;
+    // Store the greeting in conversation history
+    await storeInteraction(userId, 'assistant', greetingMessage.text);
+
+    // Actually send the message using the replyToken
+    await client.replyMessage(event.replyToken, greetingMessage);
+    console.log('Greeting message sent successfully to user:', userId);
+    
+    return null;
+  } catch (error) {
+    console.error('Error handling follow event:', error);
+    return Promise.resolve(null);
+  }
 }
 
 module.exports = { handleFollowEvent };
