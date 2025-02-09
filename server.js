@@ -505,6 +505,28 @@ function securityFilterPrompt(userMessage) {
   return true;
 }
 
+// Helper function to fetch the most recent past AI messages for a specific user.
+// Adjust this implementation to work with your actual data source (e.g., Airtable, database, etc.).
+async function fetchPastAiMessages(userId, limit = 10) {
+  try {
+    // Example using a pseudo Airtable integration:
+    // const records = await airtableBase('AIInteractions')
+    //   .select({
+    //     filterByFormula: `{userId} = '${userId}'`,
+    //     maxRecords: limit,
+    //     sort: [{ field: 'timestamp', direction: 'desc' }]
+    //   })
+    //   .firstPage();
+    // return records.map(record => record.get('content')).join("\n");
+    
+    // Temporary placeholder implementation (replace with your actual logic):
+    return "過去のAIの返答1\n過去のAIの返答2\n過去のAIの返答3\n過去のAIの返答4\n過去のAIの返答5";
+  } catch (error) {
+    console.error("Error fetching past AI messages:", error);
+    return "";
+  }
+}
+
 async function runCriticPass(aiDraft, userId) {
   console.log('🔍 Starting critic pass with o3-mini-2025-01-31');
   
