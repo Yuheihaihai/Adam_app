@@ -559,7 +559,7 @@ async function runCriticPass(aiDraft, userId) {
 ${aiDraft}
 
 ユーザーの質問:
-${userMessage}
+${event.message.text}
 
 過去のAIの返答:
 ${pastAiReturns}
