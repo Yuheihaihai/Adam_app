@@ -1081,7 +1081,7 @@ async function handleText(event) {
 // Add image handler function (modified to store the image description in Airtable)
 async function handleImage(event) {
   try {
-    // Retrieve the image sent by the user
+    // 送信された画像の取得
     const stream = await client.getMessageContent(event.message.id);
     const chunks = [];
     for await (const chunk of stream) {
@@ -1091,7 +1091,7 @@ async function handleImage(event) {
     const base64Image = buffer.toString('base64');
     const dataUrl = `data:image/jpeg;base64,${base64Image}`;
 
-    // Moderate the image using OpenAI's moderation endpoint
+    // OpenAIのモデレーションエンドポイントで画像のチェック
     const moderationResp = await openai.moderations.create({
       model: "omni-moderation-latest",
       input: [
@@ -1104,14 +1104,12 @@ async function handleImage(event) {
 
     const moderationResult = moderationResp.results && moderationResp.results[0];
     if (moderationResult && moderationResult.flagged) {
-      // Build a list of violation categories that are flagged
       let violations = [];
       for (let category in moderationResult.categories) {
         if (moderationResult.categories[category] === true) {
           violations.push(category);
         }
       }
-      // Map violation categories to Japanese terms
       const categoryTranslations = {
         "sexual": "性的",
         "sexual/minors": "未成年者に関する性的",
@@ -1127,7 +1125,6 @@ async function handleImage(event) {
         "violence": "暴力",
         "violence/graphic": "グラフィックな暴力"
       };
-      // Use the translation mapping to create the violation text in Japanese
       const violationText = `申し訳ありません。この画像はコンテンツポリシーに違反している可能性があります。違反カテゴリ：${violations.map(category => categoryTranslations[category] || category).join('、')}。`;
       await client.replyMessage(event.replyToken, {
         type: 'text',
@@ -1136,7 +1133,7 @@ async function handleImage(event) {
       return;
     }
 
-    // If no violation is found, continue to generate a description for the image.
+    // 画像内容の説明生成
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -1159,11 +1156,13 @@ async function handleImage(event) {
 
     const imageDescription = response.choices[0].message.content;
     const userId = event.source.userId;
-    await storeInteraction(userId, 'assistant', `Image explanation provided: ${imageDescription}`);
+    // ユーザーのニックネームの代わりに常に「あなた」という表現を使用
+    const finalImageDescription = imageDescription.trim() + "\n\n（あなたがアップロードした画像です）";
+    await storeInteraction(userId, 'assistant', `Image explanation provided: ${finalImageDescription}`);
 
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: imageDescription
+      text: finalImageDescription
     });
 
   } catch (error) {
