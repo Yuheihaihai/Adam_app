@@ -959,18 +959,14 @@ async function handleEvent(event) {
     if (event.message.type === 'text') {
       const userText = event.message.text.trim();
       // If the user clearly asks about vision capabilities using both technical and simpler words, answer accordingly.
-      if (
-        (
-          userText.toLowerCase().includes("vision") ||
-          userText.includes("画像認識") ||
-          userText.includes("画像生成") ||
-          userText.includes("画像について") ||
-          userText.includes("写真について") ||
-          userText.includes("画像") ||
-          userText.includes("写真")
-        ) &&
-        (userText.endsWith("？") || userText.endsWith("?"))
-      ) {
+        if (
+          userText === "このアプリの画像認識機能について教えてください。" ||
+          userText === "このアプリの画像生成機能について教えてください。"
+        ) {
+          await handleVisionExplanation(event);
+          return; // Stop further processing for this event.
+        }
+       {
         await handleVisionExplanation(event);
         return; // Stop further processing for this event.
       }
@@ -1155,6 +1151,8 @@ async function handleImage(event) {
     });
 
     const imageDescription = response.choices[0].message.content;
+
+    // ユーザーのプロフィールからニックネームを取得（なければ "ユーザー" を使用）
     const userId = event.source.userId;
     // ユーザーのニックネームの代わりに常に「あなた」という表現を使用
     const finalImageDescription = imageDescription.trim() + "\n\n（あなたがアップロードした画像です）";
