@@ -556,7 +556,10 @@ ${userMessage}
 
 過去のAIの返答:
 ${pastAiReturns}
-  `;
+ 
+上記の内容において、特に画像認識や画像生成に関する表記が過去の返答と矛盾している場合、「画像生成や画像認識はできる」と回答してください。
+
+`;
 
   const messages = [{ role: 'user', content: baseCriticPrompt }];
   const criticOptions = {
