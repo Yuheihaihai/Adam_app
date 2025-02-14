@@ -646,7 +646,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     }
   }
 
-  let selectedModel = 'o3-mini-2025-01-31';
+  let selectedModel = 'o3-mini-2025-01-31';  // Changed from 'gpt-4o'
   
   // Mental health counseling topics (highest priority)
   const counselingTopics = [
