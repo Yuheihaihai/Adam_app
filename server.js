@@ -277,21 +277,17 @@ function checkRateLimit(userId) {
 const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職診断'];
 
 function determineModeAndLimit(userMessage) {
-  console.log('Checking message for career keywords:', userMessage);
+  console.log('Checking message for mode:', userMessage);
   
-  const hasCareerKeyword = careerKeywords.some(keyword => {
-    const includes = userMessage.includes(keyword);
-    if (includes) {
-      console.log(`Career keyword detected: ${keyword}`);
-    }
-    return includes;
-  });
+  // Only check the current message for career keywords, not the history
+  const hasCareerKeyword = careerKeywords.some(keyword => userMessage.includes(keyword));
 
   if (hasCareerKeyword) {
     console.log('Setting career mode');
     return { mode: 'career', limit: 200 };
   }
 
+  // Only check current message for characteristics keywords, not the history
   const lcMsg = userMessage.toLowerCase();
   if (
     lcMsg.includes('特性') ||
