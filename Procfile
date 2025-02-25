@@ -1,1 +1,1 @@
-web: node your-actual-file.js
+web: node app.js
