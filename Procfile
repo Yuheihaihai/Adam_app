@@ -1,1 +1,1 @@
-web: npm start
+web: node your-actual-file.js
