@@ -2,7 +2,7 @@
   "name": "line-openai-voice-chat",
   "version": "1.0.0",
   "scripts": {
-    "start": "node server.js",
+    "start": "node path/to/your/actual/entry/file.js",
     "dev": "nodemon server.js",
     "scheduler": "node scripts/runScheduler.js"
   },
@@ -27,5 +27,6 @@
   },
   "engines": {
     "node": "18.x"
-  }
+  },
+  "main": "path/to/your/actual/entry/file.js"
 }
