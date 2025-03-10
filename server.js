@@ -893,15 +893,20 @@ ${jobTrendsData.analysis}
         if (recommendedServices.length > 0) {
           console.log(`Found ${recommendedServices.length} service recommendations that meet confidence threshold and cooldown criteria`);
           
+          // Sort services by confidence score (highest first) and limit to top 3
+          recommendedServices.sort((a, b) => b.confidenceScore - a.confidenceScore);
+          const topRecommendations = recommendedServices.slice(0, 3);
+          console.log(`Limiting to top ${topRecommendations.length} recommendations with highest confidence scores`);
+          
           // Format service recommendations
           serviceRecommendations = '\n\n以下のサービスがあなたの状況に役立つかもしれません：\n';
           
           // Track successful recommendations for logging
           let successfulRecommendations = 0;
           
-          for (const service of recommendedServices) {
+          for (const service of topRecommendations) {
             serviceRecommendations += `・${service.description}『${service.name}』: ${service.url}\n`;
-            console.log(`Recommending service: ${service.name} to user ${userId}`);
+            console.log(`Recommending service: ${service.name} to user ${userId} (confidence: ${service.confidenceScore.toFixed(1)}%)`);
             
             try {
               // Record that we recommended this service
@@ -912,7 +917,7 @@ ${jobTrendsData.analysis}
             }
           }
           
-          console.log(`Successfully recorded ${successfulRecommendations} of ${recommendedServices.length} recommendations`);
+          console.log(`Successfully recorded ${successfulRecommendations} of ${topRecommendations.length} recommendations`);
         } else {
           console.log('No services to recommend after filtering (all potential matches were recently recommended)');
         }

@@ -125,6 +125,10 @@ class ServiceRecommender {
       // Calculate confidence score and check if it meets the threshold
       const confidenceScore = this._calculateConfidenceScore(service.criteria, userNeeds);
       console.log(`Confidence score for ${service.id}: ${(confidenceScore * 100).toFixed(1)}%`);
+      
+      // Add the confidence score to the service object for later sorting
+      service.confidenceScore = confidenceScore * 100; // Convert to percentage
+      
       return confidenceScore >= this.CONFIDENCE_THRESHOLD;
     });
     
