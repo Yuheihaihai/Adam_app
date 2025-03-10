@@ -28,36 +28,42 @@ class UserNeedsAnalyzer {
                 "has_income": boolean,
                 "has_training": boolean,
                 "remote_work_interest": boolean,
-                "career_transition": boolean
+                "career_transition": boolean,
+                "general_employment_interest": boolean
               },
               "social": {
                 "is_hikikomori": boolean,
                 "social_anxiety": boolean,
                 "isolation": boolean,
-                "seeking_community": boolean
+                "seeking_community": boolean,
+                "communication_difficulties": boolean
               },
               "mental_health": {
                 "shows_depression": boolean,
                 "shows_anxiety": boolean,
                 "seeking_therapy": boolean,
-                "stress_management": boolean
+                "stress_management": boolean,
+                "neurodivergent_traits": boolean
               },
               "education": {
                 "seeking_education": boolean,
                 "skill_development": boolean,
-                "certification_interest": boolean
+                "certification_interest": boolean,
+                "learning_difficulties": boolean
               },
               "daily_living": {
                 "housing_needs": boolean,
                 "financial_assistance": boolean,
                 "legal_support": boolean,
-                "healthcare_access": boolean
+                "healthcare_access": boolean,
+                "executive_function_challenges": boolean
               },
               "interests": {
                 "technology": boolean,
                 "creative_arts": boolean,
                 "physical_activities": boolean,
-                "intellectual_pursuits": boolean
+                "intellectual_pursuits": boolean,
+                "special_interests": boolean
               }
             }
             
@@ -65,6 +71,11 @@ class UserNeedsAnalyzer {
             - employment.has_income: 収入がないことを示す発言（例：「親に支援してもらっている」「無職」「収入がない」など）
             - employment.has_training: 就労訓練を受けていないことを示す発言（例：「訓練を受けていない」「プログラムがうまくいかなかった」など）
             - social.is_hikikomori: 引きこもり状態を示す発言（例：「家から出ない」「外出しない」「人と会わない」など）
+            - mental_health.neurodivergent_traits: 発達障害の特性を示す発言（例：「集中力が続かない」「人の気持ちがわからない」「こだわりが強い」「感覚過敏がある」など）
+            - social.communication_difficulties: コミュニケーションの困難さを示す発言（例：「空気が読めない」「会話が続かない」「誤解されることが多い」など）
+            - daily_living.executive_function_challenges: 実行機能の困難さを示す発言（例：「計画を立てるのが苦手」「片付けができない」「忘れ物が多い」「時間管理ができない」など）
+            - interests.special_interests: 特定の分野への強い興味を示す発言（例：「〜について何時間も調べる」「〜のことなら詳しい」「〜にはまっている」など）
+            - employment.general_employment_interest: 一般枠での就労希望を示す発言（例：「普通に働きたい」「障害者枠ではなく」「一般の仕事がしたい」など）
             
             会話の内容から判断できる場合はtrueとし、明確に否定されている場合のみfalseとしてください。情報がない場合はfalseとします。`
           },
