@@ -873,12 +873,24 @@ ${jobTrendsData.analysis}
           
           // Format service recommendations
           serviceRecommendations = '\n\n以下のサービスがあなたの状況に役立つかもしれません：\n';
-          recommendedServices.forEach(service => {
+          
+          // Track successful recommendations for logging
+          let successfulRecommendations = 0;
+          
+          for (const service of recommendedServices) {
             serviceRecommendations += `・${service.description}『${service.name}』: ${service.url}\n`;
             console.log(`Recommending service: ${service.name} to user ${userId}`);
-            // Record that we recommended this service
-            serviceRecommender.recordRecommendation(userId, service.id);
-          });
+            
+            try {
+              // Record that we recommended this service
+              await serviceRecommender.recordRecommendation(userId, service.id);
+              successfulRecommendations++;
+            } catch (recordError) {
+              console.error(`Failed to record recommendation for ${service.id}:`, recordError);
+            }
+          }
+          
+          console.log(`Successfully recorded ${successfulRecommendations} of ${recommendedServices.length} recommendations`);
         } else {
           console.log('No services to recommend after filtering (all potential matches were recently recommended)');
         }
