@@ -553,6 +553,16 @@ async function fetchPastAiMessages(userId, limit = 10) {
 async function runCriticPass(aiDraft, userMessage, userId) {
   console.log('🔍 Starting critic pass with o3-mini-2025-01-31');
   
+  // Extract service recommendations if present
+  let serviceRecommendationSection = '';
+  const recommendationMatch = aiDraft.match(/以下のサービスがあなたの状況に役立つかもしれません：[\s\S]*$/);
+  if (recommendationMatch) {
+    serviceRecommendationSection = recommendationMatch[0];
+    console.log('Found service recommendations in AI response, preserving them');
+    // Remove recommendations from the draft for critic review
+    aiDraft = aiDraft.replace(recommendationMatch[0], '');
+  }
+  
   // Fetch 10 past AI return messages for this user.
   const pastAiReturns = await fetchPastAiMessages(userId, 10);
 
@@ -625,10 +635,22 @@ ${pastAiReturns}
     console.log('💭 Critic model:', criticOptions.model);
     const criticResponse = await openai.chat.completions.create(criticOptions);
     console.log('✅ Critic pass completed');
-    return criticResponse.choices?.[0]?.message?.content || '';
+    let criticOutput = criticResponse.choices?.[0]?.message?.content || '';
+    
+    // Reattach service recommendations if they were present
+    if (serviceRecommendationSection) {
+      console.log('Reattaching service recommendations to critic output');
+      criticOutput = criticOutput.trim() + '\n\n' + serviceRecommendationSection;
+    }
+    
+    return criticOutput;
   } catch (err) {
     console.error('❌ Critic pass error:', err);
-    return '';
+    // If critic fails, return original with recommendations
+    if (serviceRecommendationSection) {
+      return aiDraft.trim() + '\n\n' + serviceRecommendationSection;
+    }
+    return aiDraft;
   }
 }
 
@@ -910,7 +932,7 @@ ${jobTrendsData.analysis}
 
   // Add service recommendations to the system prompt if any were found
   const promptWithRecommendations = finalPrompt + (serviceRecommendations ? 
-    `\n\n[サービス推奨]\n回答の最後に、以下のサービス情報を自然な形で含めてください：${serviceRecommendations}` : '');
+    `\n\n[サービス推奨 - 重要]\n以下のサービス情報を必ず回答の最後に含めてください。これは重要な情報であり、ユーザーに提供する必要があります：${serviceRecommendations}\n\n回答の最後に「以下のサービスがあなたの状況に役立つかもしれません：」という文言に続けて、上記のサービス情報を必ず含めてください。` : '');
 
   let messages = [];
   let gptOptions = {
