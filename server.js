@@ -859,22 +859,27 @@ ${jobTrendsData.analysis}
       const matchingServices = serviceRecommender.findMatchingServices(userNeeds);
       console.log('Matching services before filtering:', matchingServices.length);
       
-      const recommendedServices = await serviceRecommender.getFilteredRecommendations(userId, userNeeds);
-      console.log('Filtered services after cooldown check:', recommendedServices.length);
-      
-      if (recommendedServices.length > 0) {
-        console.log(`Found ${recommendedServices.length} service recommendations`);
-        
-        // Format service recommendations
-        serviceRecommendations = '\n\n以下のサービスがあなたの状況に役立つかもしれません：\n';
-        recommendedServices.forEach(service => {
-          serviceRecommendations += `・${service.description}『${service.name}』: ${service.url}\n`;
-          console.log(`Recommending service: ${service.name} to user ${userId}`);
-          // Record that we recommended this service
-          serviceRecommender.recordRecommendation(userId, service.id);
-        });
+      // Skip the rest of the service matching process if no services match
+      if (matchingServices.length === 0) {
+        console.log('No matching services found, skipping service recommendation step');
       } else {
-        console.log('No services to recommend at this time');
+        const recommendedServices = await serviceRecommender.getFilteredRecommendations(userId, userNeeds);
+        console.log('Filtered services after cooldown check:', recommendedServices.length);
+        
+        if (recommendedServices.length > 0) {
+          console.log(`Found ${recommendedServices.length} service recommendations`);
+          
+          // Format service recommendations
+          serviceRecommendations = '\n\n以下のサービスがあなたの状況に役立つかもしれません：\n';
+          recommendedServices.forEach(service => {
+            serviceRecommendations += `・${service.description}『${service.name}』: ${service.url}\n`;
+            console.log(`Recommending service: ${service.name} to user ${userId}`);
+            // Record that we recommended this service
+            serviceRecommender.recordRecommendation(userId, service.id);
+          });
+        } else {
+          console.log('No services to recommend after filtering');
+        }
       }
     } catch (error) {
       console.error('Error in service recommendation process:', error);
