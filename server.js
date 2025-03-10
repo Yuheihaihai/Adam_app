@@ -856,18 +856,20 @@ ${jobTrendsData.analysis}
       console.log('User needs analysis result:', JSON.stringify(userNeeds));
       
       // Get service recommendations
+      console.log('Starting service matching process with confidence threshold...');
       const matchingServices = serviceRecommender.findMatchingServices(userNeeds);
-      console.log('Matching services before filtering:', matchingServices.length);
+      console.log(`Matching services before filtering: ${matchingServices.length} services met the confidence threshold`);
       
       // Skip the rest of the service matching process if no services match
       if (matchingServices.length === 0) {
-        console.log('No matching services found, skipping service recommendation step');
+        console.log('No matching services found that meet the confidence threshold, skipping service recommendation step');
       } else {
+        console.log('Checking for cooldown period on previously recommended services...');
         const recommendedServices = await serviceRecommender.getFilteredRecommendations(userId, userNeeds);
-        console.log('Filtered services after cooldown check:', recommendedServices.length);
+        console.log(`Filtered services after cooldown check: ${recommendedServices.length} services available to recommend`);
         
         if (recommendedServices.length > 0) {
-          console.log(`Found ${recommendedServices.length} service recommendations`);
+          console.log(`Found ${recommendedServices.length} service recommendations that meet confidence threshold and cooldown criteria`);
           
           // Format service recommendations
           serviceRecommendations = '\n\n以下のサービスがあなたの状況に役立つかもしれません：\n';
@@ -878,11 +880,12 @@ ${jobTrendsData.analysis}
             serviceRecommender.recordRecommendation(userId, service.id);
           });
         } else {
-          console.log('No services to recommend after filtering');
+          console.log('No services to recommend after filtering (all potential matches were recently recommended)');
         }
       }
     } catch (error) {
       console.error('Error in service recommendation process:', error);
+      console.error(error.stack); // Add stack trace for better debugging
     }
   }
 

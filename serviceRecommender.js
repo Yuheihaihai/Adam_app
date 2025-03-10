@@ -1,15 +1,40 @@
 // serviceRecommender.js - Matches user needs with available services
 const services = require('./services');
 
+// Define constants at the module level to prevent accidental changes
+const DEFAULT_CONFIDENCE_THRESHOLD = 0.6; // 60% confidence threshold
+const DEFAULT_COOLDOWN_DAYS = 7;
+
 class ServiceRecommender {
   constructor(airtableBase) {
     this.airtableBase = airtableBase;
     this.RECOMMENDATIONS_TABLE = 'ServiceRecommendations';
     this.tableExists = false;
-    this.CONFIDENCE_THRESHOLD = 0.6; // 60% confidence threshold
+    
+    // Set confidence threshold with validation
+    this._setConfidenceThreshold(DEFAULT_CONFIDENCE_THRESHOLD);
     
     // Check if table exists
     this._checkTableExists();
+    
+    // Freeze critical properties to prevent accidental modification
+    Object.defineProperty(this, 'CONFIDENCE_THRESHOLD', {
+      writable: false,
+      configurable: false
+    });
+  }
+  
+  // Private method to set confidence threshold with validation
+  _setConfidenceThreshold(threshold) {
+    // Validate threshold is a number between 0 and 1
+    const validatedThreshold = typeof threshold === 'number' && 
+                              threshold >= 0 && 
+                              threshold <= 1 ? 
+                              threshold : DEFAULT_CONFIDENCE_THRESHOLD;
+    
+    // Set the threshold
+    this.CONFIDENCE_THRESHOLD = validatedThreshold;
+    console.log(`Service matching confidence threshold set to ${(this.CONFIDENCE_THRESHOLD * 100).toFixed(0)}%`);
   }
   
   async _checkTableExists() {
@@ -34,6 +59,12 @@ class ServiceRecommender {
   // Find services that match user needs
   findMatchingServices(userNeeds) {
     try {
+      // Ensure we're using the correct threshold
+      if (this.CONFIDENCE_THRESHOLD !== DEFAULT_CONFIDENCE_THRESHOLD) {
+        console.warn(`Confidence threshold was changed from ${DEFAULT_CONFIDENCE_THRESHOLD * 100}% to ${this.CONFIDENCE_THRESHOLD * 100}%. Resetting to default.`);
+        this._setConfidenceThreshold(DEFAULT_CONFIDENCE_THRESHOLD);
+      }
+      
       const matchingServices = services.filter(service => {
         // Calculate confidence score and check if it meets the threshold
         const confidenceScore = this._calculateConfidenceScore(service.criteria, userNeeds);
@@ -78,23 +109,6 @@ class ServiceRecommender {
     }
   }
 
-  // Helper method to check if service criteria match user needs (strict matching)
-  _checkCriteriaMatch(criteria, userNeeds) {
-    for (const category in criteria) {
-      if (!userNeeds[category]) continue;
-      
-      for (const indicator in criteria[category]) {
-        const requiredValue = criteria[category][indicator];
-        const userValue = userNeeds[category][indicator] || false;
-        
-        if (requiredValue !== userValue) {
-          return false;
-        }
-      }
-    }
-    return true;
-  }
-
   // Check if service was recently recommended to user
   async wasRecentlyRecommended(userId, serviceId) {
     try {
@@ -114,7 +128,7 @@ class ServiceRecommender {
       if (records.length === 0) return false;
       
       const service = services.find(s => s.id === serviceId);
-      const cooldownDays = service?.cooldown_days || 7;
+      const cooldownDays = service?.cooldown_days || DEFAULT_COOLDOWN_DAYS;
       const lastRecommended = new Date(records[0].get('Timestamp'));
       const daysSince = (Date.now() - lastRecommended) / (1000 * 60 * 60 * 24);
       
@@ -152,6 +166,7 @@ class ServiceRecommender {
   // Get filtered recommendations (not recently recommended)
   async getFilteredRecommendations(userId, userNeeds) {
     try {
+      // Use the findMatchingServices method which already applies the confidence threshold
       const matchingServices = this.findMatchingServices(userNeeds);
       
       const filteredServices = [];
