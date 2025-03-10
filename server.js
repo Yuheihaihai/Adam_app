@@ -7,7 +7,7 @@ const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
 
-// Service hub components
+// Import service hub components
 const UserNeedsAnalyzer = require('./userNeedsAnalyzer');
 const ServiceRecommender = require('./serviceRecommender');
 
@@ -34,22 +34,6 @@ const INTERACTIONS_TABLE = 'ConversationHistory';
 // Initialize service hub components
 const userNeedsAnalyzer = new UserNeedsAnalyzer(process.env.OPENAI_API_KEY);
 const serviceRecommender = new ServiceRecommender(base);
-
-// Ensure ServiceRecommendations table exists
-(async function checkServiceRecommendationsTable() {
-  try {
-    console.log('Checking if ServiceRecommendations table exists...');
-    // Try to fetch a record from the table to see if it exists
-    await base('ServiceRecommendations').select({ maxRecords: 1 }).firstPage();
-    console.log('ServiceRecommendations table exists');
-  } catch (error) {
-    if (error.message.includes('could not be found')) {
-      console.log('ServiceRecommendations table does not exist. Please create it in Airtable with fields: UserID, ServiceID, Timestamp');
-    } else {
-      console.error('Error checking ServiceRecommendations table:', error);
-    }
-  }
-})();
 
 const SYSTEM_PROMPT_GENERAL = `
 あなたは「Adam」というアシスタントです。
