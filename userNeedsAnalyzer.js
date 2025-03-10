@@ -18,7 +18,7 @@ class UserNeedsAnalyzer {
         messages: [
           {
             role: "system",
-            content: `あなたは会話分析の専門家です。ユーザーとアシスタントの会話履歴を分析し、ユーザーのニーズや状況を特定してください。
+            content: `あなたは会話分析の専門家です。ユーザーとアシスタントの会話履歴を分析し、ユーザーのニーズや状況を特定してください。JSON形式で回答してください。
             
             以下のカテゴリに分類された指標について、会話から判断できる場合はtrueを設定してください：
             
@@ -70,7 +70,7 @@ class UserNeedsAnalyzer {
           },
           {
             role: "user",
-            content: `以下の会話履歴を分析してください：\n\n${conversationText}`
+            content: `以下の会話履歴を分析し、JSONオブジェクトとして結果を返してください：\n\n${conversationText}`
           }
         ],
         response_format: { type: "json_object" }
