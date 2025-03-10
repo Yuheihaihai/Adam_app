@@ -560,7 +560,7 @@ async function runCriticPass(aiDraft, userMessage, userId) {
     serviceRecommendationSection = recommendationMatch[0];
     console.log('Found service recommendations in AI response, preserving them');
     // Remove recommendations from the draft for critic review
-    aiDraft = aiDraft.replace(recommendationMatch[0], '');
+    aiDraft = aiDraft.replace(recommendationMatch[0], '').trim();
   }
   
   // Fetch 10 past AI return messages for this user.
@@ -932,7 +932,7 @@ ${jobTrendsData.analysis}
 
   // Add service recommendations to the system prompt if any were found
   const promptWithRecommendations = finalPrompt + (serviceRecommendations ? 
-    `\n\n[サービス推奨 - 重要]\n以下のサービス情報を必ず回答の最後に含めてください。これは重要な情報であり、ユーザーに提供する必要があります：${serviceRecommendations}\n\n回答の最後に「以下のサービスがあなたの状況に役立つかもしれません：」という文言に続けて、上記のサービス情報を必ず含めてください。` : '');
+    `\n\n[サービス推奨 - 重要]\n以下のサービス情報を必ず回答の最後に含めてください。これは重要な情報であり、ユーザーに提供する必要があります：${serviceRecommendations}\n\n回答の最後に「以下のサービスがあなたの状況に役立つかもしれません：」という文言に続けて、上記のサービス情報を必ず含めてください。この情報は削除したり、省略したりしないでください。` : '');
 
   let messages = [];
   let gptOptions = {
@@ -969,7 +969,14 @@ ${jobTrendsData.analysis}
 
   const aiReply = await tryPrimaryThenBackup(gptOptions);
 
-  const criticOutput = await runCriticPass(aiReply, userMessage, userId);
+  // Ensure service recommendations are included in the final response
+  let finalResponse = aiReply;
+  if (serviceRecommendations && !aiReply.includes('以下のサービスがあなたの状況に役立つかもしれません：')) {
+    console.log('Service recommendations not found in AI response, appending them');
+    finalResponse = aiReply.trim() + '\n\n' + serviceRecommendations.trim();
+  }
+
+  const criticOutput = await runCriticPass(finalResponse, userMessage, userId);
   if (criticOutput && !criticOutput.includes('問題ありません')) {
     return criticOutput;
   }
