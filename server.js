@@ -7,6 +7,10 @@ const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
 
+// Service hub components
+const UserNeedsAnalyzer = require('./userNeedsAnalyzer');
+const ServiceRecommender = require('./serviceRecommender');
+
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
@@ -26,6 +30,26 @@ const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
   .base(process.env.AIRTABLE_BASE_ID);
 const INTERACTIONS_TABLE = 'ConversationHistory';
+
+// Initialize service hub components
+const userNeedsAnalyzer = new UserNeedsAnalyzer(process.env.OPENAI_API_KEY);
+const serviceRecommender = new ServiceRecommender(base);
+
+// Ensure ServiceRecommendations table exists
+(async function checkServiceRecommendationsTable() {
+  try {
+    console.log('Checking if ServiceRecommendations table exists...');
+    // Try to fetch a record from the table to see if it exists
+    await base('ServiceRecommendations').select({ maxRecords: 1 }).firstPage();
+    console.log('ServiceRecommendations table exists');
+  } catch (error) {
+    if (error.message.includes('could not be found')) {
+      console.log('ServiceRecommendations table does not exist. Please create it in Airtable with fields: UserID, ServiceID, Timestamp');
+    } else {
+      console.error('Error checking ServiceRecommendations table:', error);
+    }
+  }
+})();
 
 const SYSTEM_PROMPT_GENERAL = `
 あなたは「Adam」というアシスタントです。
@@ -672,7 +696,7 @@ function checkHighEngagement(userMessage, history) {
   // 両方の条件を満たす場合のみtrueを返す
   return hasPersonalReference && hasPositiveKeyword;
 }
-
+  
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   console.log('Processing message in mode:', mode);  // デバッグログ追加
   
@@ -839,12 +863,50 @@ ${jobTrendsData.analysis}
 
   console.log(`Using model: ${selectedModel}`);
 
+  // Analyze user needs if we have enough history (at least 5 messages)
+  let serviceRecommendations = '';
+  if (history.length >= 3) { // Changed from 5 to 3 for testing
+    try {
+      console.log('Analyzing user needs from conversation history...');
+      const userNeeds = await userNeedsAnalyzer.analyzeUserNeeds(history);
+      console.log('User needs analysis result:', JSON.stringify(userNeeds));
+      
+      // Get service recommendations
+      const matchingServices = serviceRecommender.findMatchingServices(userNeeds);
+      console.log('Matching services before filtering:', matchingServices.length);
+      
+      const recommendedServices = await serviceRecommender.getFilteredRecommendations(userId, userNeeds);
+      console.log('Filtered services after cooldown check:', recommendedServices.length);
+      
+      if (recommendedServices.length > 0) {
+        console.log(`Found ${recommendedServices.length} service recommendations`);
+        
+        // Format service recommendations
+        serviceRecommendations = '\n\n以下のサービスがあなたの状況に役立つかもしれません：\n';
+        recommendedServices.forEach(service => {
+          serviceRecommendations += `・${service.description}『${service.name}』: ${service.url}\n`;
+          console.log(`Recommending service: ${service.name} to user ${userId}`);
+          // Record that we recommended this service
+          serviceRecommender.recordRecommendation(userId, service.id);
+        });
+      } else {
+        console.log('No services to recommend at this time');
+      }
+    } catch (error) {
+      console.error('Error in service recommendation process:', error);
+    }
+  }
+
   const finalPrompt = applyAdditionalInstructions(
     systemPrompt,
     mode,
     history,
     userMessage
   );
+
+  // Add service recommendations to the system prompt if any were found
+  const promptWithRecommendations = finalPrompt + (serviceRecommendations ? 
+    `\n\n[サービス推奨]\n回答の最後に、以下のサービス情報を自然な形で含めてください：${serviceRecommendations}` : '');
 
   let messages = [];
   let gptOptions = {
@@ -855,7 +917,7 @@ ${jobTrendsData.analysis}
 
   if (selectedModel === 'gpt-4o-latest') {
     gptOptions.temperature = 1;
-    const systemPrefix = `[System Inst]: ${finalPrompt}\n---\n`;
+    const systemPrefix = `[System Inst]: ${promptWithRecommendations}\n---\n`;
     messages.push({
       role: 'user',
       content: systemPrefix + ' ' + userMessage,
@@ -867,7 +929,7 @@ ${jobTrendsData.analysis}
       });
     });
   } else {
-    messages.push({ role: 'system', content: finalPrompt });
+    messages.push({ role: 'system', content: promptWithRecommendations });
     messages.push(
       ...history.map((item) => ({
         role: item.role,
