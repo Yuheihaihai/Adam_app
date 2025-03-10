@@ -34,10 +34,11 @@ class ServiceRecommender {
   findMatchingServices(userNeeds) {
     try {
       const matchingServices = services.filter(service => {
-        // Check if all criteria match
-        return this._checkCriteriaMatch(service.criteria, userNeeds);
+        // Calculate confidence score and check if it meets the threshold
+        const confidenceScore = this._calculateConfidenceScore(service.criteria, userNeeds);
+        return confidenceScore >= 0.9; // 90% confidence threshold
       });
-      console.log(`Found ${matchingServices.length} matching services based on user needs`);
+      console.log(`Found ${matchingServices.length} matching services based on user needs with 90% confidence threshold`);
       return matchingServices;
     } catch (error) {
       console.error('Error finding matching services:', error);
@@ -45,7 +46,39 @@ class ServiceRecommender {
     }
   }
 
-  // Helper method to check if service criteria match user needs
+  // Calculate confidence score for service match (0.0 to 1.0)
+  _calculateConfidenceScore(criteria, userNeeds) {
+    try {
+      let totalCriteria = 0;
+      let matchedCriteria = 0;
+      
+      for (const category in criteria) {
+        if (!userNeeds[category]) continue;
+        
+        for (const indicator in criteria[category]) {
+          totalCriteria++;
+          const requiredValue = criteria[category][indicator];
+          const userValue = userNeeds[category][indicator] || false;
+          
+          if (requiredValue === userValue) {
+            matchedCriteria++;
+          }
+        }
+      }
+      
+      // Avoid division by zero
+      if (totalCriteria === 0) return 0;
+      
+      const confidenceScore = matchedCriteria / totalCriteria;
+      console.log(`Confidence score: ${(confidenceScore * 100).toFixed(1)}%`);
+      return confidenceScore;
+    } catch (error) {
+      console.error('Error calculating confidence score:', error);
+      return 0;
+    }
+  }
+
+  // Helper method to check if service criteria match user needs (kept for backward compatibility)
   _checkCriteriaMatch(criteria, userNeeds) {
     try {
       for (const category in criteria) {
