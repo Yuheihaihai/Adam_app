@@ -6,6 +6,7 @@ class ServiceRecommender {
     this.airtableBase = airtableBase;
     this.RECOMMENDATIONS_TABLE = 'ServiceRecommendations';
     this.tableExists = false;
+    this.CONFIDENCE_THRESHOLD = 0.6; // 60% confidence threshold
     
     // Check if table exists
     this._checkTableExists();
@@ -17,8 +18,11 @@ class ServiceRecommender {
       this.tableExists = true;
       console.log('ServiceRecommendations table exists and is accessible');
     } catch (error) {
-      if (error.message.includes('could not be found')) {
+      if (error.message && error.message.includes('could not be found')) {
         console.log('ServiceRecommendations table does not exist. Some functionality will be limited.');
+        this.tableExists = false;
+      } else if (error.error === 'NOT_AUTHORIZED' || (error.statusCode && error.statusCode === 403)) {
+        console.log('Not authorized to access ServiceRecommendations table. Some functionality will be limited.');
         this.tableExists = false;
       } else {
         console.error('Error checking ServiceRecommendations table:', error);
@@ -29,13 +33,52 @@ class ServiceRecommender {
 
   // Find services that match user needs
   findMatchingServices(userNeeds) {
-    return services.filter(service => {
-      // Check if all criteria match
-      return this._checkCriteriaMatch(service.criteria, userNeeds);
-    });
+    try {
+      const matchingServices = services.filter(service => {
+        // Calculate confidence score and check if it meets the threshold
+        const confidenceScore = this._calculateConfidenceScore(service.criteria, userNeeds);
+        console.log(`Confidence score for ${service.id}: ${(confidenceScore * 100).toFixed(1)}%`);
+        return confidenceScore >= this.CONFIDENCE_THRESHOLD;
+      });
+      console.log(`Found ${matchingServices.length} matching services based on user needs with ${this.CONFIDENCE_THRESHOLD * 100}% confidence threshold`);
+      return matchingServices;
+    } catch (error) {
+      console.error('Error finding matching services:', error);
+      return [];
+    }
   }
 
-  // Helper method to check if service criteria match user needs
+  // Calculate confidence score for service match (0.0 to 1.0)
+  _calculateConfidenceScore(criteria, userNeeds) {
+    try {
+      let totalCriteria = 0;
+      let matchedCriteria = 0;
+      
+      for (const category in criteria) {
+        if (!userNeeds[category]) continue;
+        
+        for (const indicator in criteria[category]) {
+          totalCriteria++;
+          const requiredValue = criteria[category][indicator];
+          const userValue = userNeeds[category][indicator] || false;
+          
+          if (requiredValue === userValue) {
+            matchedCriteria++;
+          }
+        }
+      }
+      
+      // Avoid division by zero
+      if (totalCriteria === 0) return 0;
+      
+      return matchedCriteria / totalCriteria;
+    } catch (error) {
+      console.error('Error calculating confidence score:', error);
+      return 0;
+    }
+  }
+
+  // Helper method to check if service criteria match user needs (strict matching)
   _checkCriteriaMatch(criteria, userNeeds) {
     for (const category in criteria) {
       if (!userNeeds[category]) continue;
@@ -87,7 +130,7 @@ class ServiceRecommender {
     try {
       // If table doesn't exist, skip recording
       if (!this.tableExists) {
-        console.log(`Table doesn't exist, skipping recommendation recording for user ${userId}, service ${serviceId}`);
+        console.log(`Table doesn't exist or not accessible, skipping recommendation recording for user ${userId}, service ${serviceId}`);
         return;
       }
       
@@ -108,21 +151,26 @@ class ServiceRecommender {
 
   // Get filtered recommendations (not recently recommended)
   async getFilteredRecommendations(userId, userNeeds) {
-    const matchingServices = this.findMatchingServices(userNeeds);
-    console.log(`Found ${matchingServices.length} matching services based on user needs`);
-    
-    const filteredServices = [];
-    
-    for (const service of matchingServices) {
-      const wasRecent = await this.wasRecentlyRecommended(userId, service.id);
-      if (!wasRecent) {
-        filteredServices.push(service);
-      } else {
-        console.log(`Service ${service.id} was recently recommended to user ${userId}, skipping`);
+    try {
+      const matchingServices = this.findMatchingServices(userNeeds);
+      
+      const filteredServices = [];
+      
+      for (const service of matchingServices) {
+        const wasRecent = await this.wasRecentlyRecommended(userId, service.id);
+        if (!wasRecent) {
+          filteredServices.push(service);
+        } else {
+          console.log(`Service ${service.id} was recently recommended to user ${userId}, skipping`);
+        }
       }
+      
+      console.log(`Filtered services after cooldown check: ${filteredServices.length}`);
+      return filteredServices;
+    } catch (error) {
+      console.error('Error getting filtered recommendations:', error);
+      return [];
     }
-    
-    return filteredServices;
   }
 }
 
