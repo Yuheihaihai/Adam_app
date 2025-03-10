@@ -699,7 +699,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     }
   }
 
-  let selectedModel = 'chatgpt-4o-latest';  // Changed from 'o3-mini-2025-01-31'
+  let selectedModel = 'gpt-4o';  // Changed from 'chatgpt-4o-latest'
   
   // Mental health counseling topics (highest priority)
   const counselingTopics = [
@@ -797,7 +797,7 @@ ${jobTrendsData.analysis}
   
   // Consultant mode (third priority)
   else if (needsConsultant || mode === 'consultant') {
-    selectedModel = 'chatgpt-4o-latest';
+    selectedModel = 'gpt-4o';
     systemPrompt = SYSTEM_PROMPT_CONSULTANT + `
 
 [注意事項]
@@ -899,7 +899,7 @@ ${jobTrendsData.analysis}
     temperature: 0.7,
   };
 
-  if (selectedModel === 'gpt-4o-latest') {
+  if (selectedModel === 'gpt-4o') {
     gptOptions.temperature = 1;
     const systemPrefix = `[System Inst]: ${promptWithRecommendations}\n---\n`;
     messages.push({

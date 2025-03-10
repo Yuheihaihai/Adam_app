@@ -14,7 +14,7 @@ class UserNeedsAnalyzer {
       ).join('\n\n');
 
       const response = await this.openai.chat.completions.create({
-        model: "gpt-4o-latest",
+        model: "gpt-4o",
         messages: [
           {
             role: "system",
