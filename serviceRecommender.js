@@ -159,12 +159,96 @@ class ServiceRecommender {
         }
       });
       
-      // Calculate confidence score (0.0 to 1.0)
-      return totalCriteria > 0 ? matchCount / totalCriteria : 0;
+      // Calculate base confidence score (0.0 to 1.0)
+      let baseConfidence = totalCriteria > 0 ? matchCount / totalCriteria : 0;
+      
+      // Apply emotional context adjustment
+      const emotionalContextFactor = this._calculateEmotionalContextFactor(userNeeds);
+      const adjustedConfidence = baseConfidence * emotionalContextFactor;
+      
+      return adjustedConfidence;
     } catch (error) {
       console.error('Error calculating confidence score:', error);
       return 0;
     }
+  }
+  
+  // Calculate a factor to adjust confidence based on emotional context
+  _calculateEmotionalContextFactor(userNeeds) {
+    try {
+      // Default factor is 1.0 (no adjustment)
+      let factor = 1.0;
+      
+      // Check for primarily emotional needs
+      const emotionalNeedsCount = this._countEmotionalNeeds(userNeeds);
+      const practicalNeedsCount = this._countPracticalNeeds(userNeeds);
+      
+      // If emotional needs significantly outweigh practical needs, reduce confidence
+      if (emotionalNeedsCount > 0 && emotionalNeedsCount > practicalNeedsCount * 2) {
+        // Reduce confidence by up to 40% based on the ratio
+        const ratio = Math.min(emotionalNeedsCount / (practicalNeedsCount || 1), 5);
+        factor = Math.max(0.6, 1 - (ratio * 0.08));
+        console.log(`Emotional context adjustment: ${factor.toFixed(2)} (${emotionalNeedsCount} emotional vs ${practicalNeedsCount} practical needs)`);
+      }
+      
+      return factor;
+    } catch (error) {
+      console.error('Error calculating emotional context factor:', error);
+      return 1.0; // Default to no adjustment in case of error
+    }
+  }
+  
+  // Count emotional needs in user profile
+  _countEmotionalNeeds(userNeeds) {
+    let count = 0;
+    
+    // Mental health emotional indicators
+    if (userNeeds.mental_health) {
+      if (userNeeds.mental_health.shows_depression) count++;
+      if (userNeeds.mental_health.shows_anxiety) count++;
+    }
+    
+    // Social emotional indicators
+    if (userNeeds.social) {
+      if (userNeeds.social.isolation) count++;
+      if (userNeeds.social.social_anxiety) count++;
+    }
+    
+    // Check for romantic/relationship needs (if available in the schema)
+    if (userNeeds.relationships && userNeeds.relationships.seeking_romantic_connection) {
+      count += 2; // Give higher weight to explicit romantic needs
+    }
+    
+    return count;
+  }
+  
+  // Count practical needs in user profile
+  _countPracticalNeeds(userNeeds) {
+    let count = 0;
+    
+    // Employment practical indicators
+    if (userNeeds.employment) {
+      if (userNeeds.employment.seeking_job) count++;
+      if (userNeeds.employment.has_training) count++;
+      if (userNeeds.employment.general_employment_interest) count++;
+    }
+    
+    // Education practical indicators
+    if (userNeeds.education) {
+      if (userNeeds.education.seeking_education) count++;
+      if (userNeeds.education.skill_development) count++;
+      if (userNeeds.education.certification_interest) count++;
+    }
+    
+    // Daily living practical indicators
+    if (userNeeds.daily_living) {
+      if (userNeeds.daily_living.housing_needs) count++;
+      if (userNeeds.daily_living.financial_assistance) count++;
+      if (userNeeds.daily_living.legal_support) count++;
+      if (userNeeds.daily_living.healthcare_access) count++;
+    }
+    
+    return count;
   }
   
   // Check if service was recently recommended to user

@@ -901,11 +901,38 @@ ${jobTrendsData.analysis}
           // Format service recommendations
           serviceRecommendations = '\n\n以下のサービスがあなたの状況に役立つかもしれません：\n';
           
+          // Check if primarily emotional needs
+          const hasEmotionalNeeds = _hasEmotionalNeeds(userNeeds);
+          if (hasEmotionalNeeds) {
+            // Use more empathetic introduction for emotional needs
+            serviceRecommendations = '\n\n私はAIとして直接的な感情的サポートには限界がありますが、以下のサービスがあなたの気持ちに寄り添えるかもしれません：\n';
+          }
+          
           // Track successful recommendations for logging
           let successfulRecommendations = 0;
           
           for (const service of topRecommendations) {
-            serviceRecommendations += `・${service.description}『${service.name}』: ${service.url}\n`;
+            // Add more context-sensitive description based on service type
+            let contextNote = '';
+            
+            // Add context notes for emotional support services
+            if (service.tags && (
+              service.tags.includes('emotional_support') || 
+              service.tags.includes('emotional_connection') || 
+              service.tags.includes('social_connection')
+            )) {
+              contextNote = '（感情的なつながりやサポートを提供）';
+            } 
+            // Add context notes for employment services
+            else if (service.tags && (
+              service.tags.includes('employment') || 
+              service.tags.includes('training') || 
+              service.tags.includes('general_employment')
+            )) {
+              contextNote = '（就労や職業訓練のサポート）';
+            }
+            
+            serviceRecommendations += `・${service.description}${contextNote}『${service.name}』: ${service.url}\n`;
             console.log(`Recommending service: ${service.name} to user ${userId} (confidence: ${service.confidenceScore.toFixed(1)}%)`);
             
             try {
@@ -1589,3 +1616,26 @@ async function handleFollowEvent(event) {
 }
 
 module.exports = { handleFollowEvent };
+
+// Add this method to the appropriate location in server.js
+// Helper function to check if user has primarily emotional needs
+function _hasEmotionalNeeds(userNeeds) {
+  // Check for relationship needs
+  if (userNeeds.relationships) {
+    if (userNeeds.relationships.seeking_romantic_connection ||
+        userNeeds.relationships.seeking_emotional_support ||
+        userNeeds.relationships.desire_for_intimacy ||
+        userNeeds.relationships.loneliness) {
+      return true;
+    }
+  }
+  
+  // Check for social isolation combined with mental health indicators
+  if (userNeeds.social && userNeeds.social.isolation && 
+      userNeeds.mental_health && (userNeeds.mental_health.shows_depression || 
+                                 userNeeds.mental_health.shows_anxiety)) {
+    return true;
+  }
+  
+  return false;
+}

@@ -64,6 +64,13 @@ class UserNeedsAnalyzer {
                 "physical_activities": boolean,
                 "intellectual_pursuits": boolean,
                 "special_interests": boolean
+              },
+              "relationships": {
+                "seeking_romantic_connection": boolean,
+                "seeking_emotional_support": boolean,
+                "loneliness": boolean,
+                "desire_for_intimacy": boolean,
+                "relationship_difficulties": boolean
               }
             }
             
@@ -76,6 +83,10 @@ class UserNeedsAnalyzer {
             - daily_living.executive_function_challenges: 実行機能の困難さを示す発言（例：「計画を立てるのが苦手」「片付けができない」「忘れ物が多い」「時間管理ができない」など）
             - interests.special_interests: 特定の分野への強い興味を示す発言（例：「〜について何時間も調べる」「〜のことなら詳しい」「〜にはまっている」など）
             - employment.general_employment_interest: 一般枠での就労希望を示す発言（例：「普通に働きたい」「障害者枠ではなく」「一般の仕事がしたい」など）
+            - relationships.seeking_romantic_connection: 恋愛関係を求める発言（例：「好きになってほしい」「恋愛がしたい」「パートナーが欲しい」「疑似恋愛」など）
+            - relationships.seeking_emotional_support: 感情的なサポートを求める発言（例：「寂しい」「話を聞いてほしい」「理解してほしい」など）
+            - relationships.loneliness: 孤独感を示す発言（例：「寂しい」「一人」「誰もいない」など）
+            - relationships.desire_for_intimacy: 親密さを求める発言（例：「触れ合いたい」「抱きしめられたい」「近くにいてほしい」など）
             
             会話の内容から判断できる場合はtrueとし、明確に否定されている場合のみfalseとしてください。情報がない場合はfalseとします。`
           },
@@ -93,7 +104,8 @@ class UserNeedsAnalyzer {
       // Return empty structure in case of error
       return {
         employment: {}, social: {}, mental_health: {},
-        education: {}, daily_living: {}, interests: {}
+        education: {}, daily_living: {}, interests: {},
+        relationships: {}
       };
     }
   }
