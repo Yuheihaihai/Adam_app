@@ -1478,3 +1478,86 @@ app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
   console.log(`Visit: http://localhost:${PORT} (if local)\n`);
 });
+
+/**
+ * Checks if a message indicates user confusion or a request for explanation
+ * @param {string} text - The message text to check
+ * @return {boolean} - True if the message indicates confusion
+ */
+function isConfusionRequest(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  const confusionPatterns = [
+    'わからない', '分からない', '理解できない', '意味がわからない', '意味が分からない',
+    '何これ', 'なにこれ', '何だこれ', 'なんだこれ', '何だろう', 'なんだろう',
+    'どういう意味', 'どういうこと', '説明して', '教えて', 'よくわからない',
+    'よく分からない', '何が起きてる', '何が起きている', 'なにが起きてる',
+    '何が書いてある', '何て書いてある', '何と書いてある', 'これは何',
+    'これはなに', 'これって何', 'これってなに', '何が表示されてる',
+    '何が表示されている', 'なにが表示されてる', 'これ何', 'これなに'
+  ];
+  
+  return confusionPatterns.some(pattern => text.includes(pattern));
+}
+
+/**
+ * Handles vision explanation requests
+ * @param {Object} event - The LINE event object
+ * @return {Promise<void>}
+ */
+async function handleVisionExplanation(event) {
+  const userId = event.source.userId;
+  
+  try {
+    // Get user's recent history to find the last image
+    const history = await fetchUserHistory(userId, 10);
+    
+    // Find the most recent image message
+    const lastImageMessage = history
+      .filter(item => item.role === 'user' && item.type === 'image')
+      .pop();
+    
+    if (!lastImageMessage) {
+      // No recent image found
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '最近の画像が見つかりませんでした。説明してほしい画像を送信してください。'
+      });
+      return;
+    }
+    
+    // Reply with explanation that we're processing the image
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '画像を確認しています。少々お待ちください。画像の内容について説明します。'
+    });
+    
+    // In a real implementation, you would process the image here
+    // For now, we'll just log that we would process it
+    console.log(`Would process image explanation for user ${userId}`);
+    
+    // Send a follow-up message with the explanation
+    // In a real implementation, this would be the result of image analysis
+    setTimeout(async () => {
+      try {
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: '画像の説明機能は現在開発中です。もうしばらくお待ちください。'
+        });
+      } catch (error) {
+        console.error('Error sending follow-up explanation:', error);
+      }
+    }, 2000);
+  } catch (error) {
+    console.error('Error in handleVisionExplanation:', error);
+    // Try to send an error message
+    try {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '申し訳ありません。画像の処理中にエラーが発生しました。'
+      });
+    } catch (replyError) {
+      console.error('Error sending error reply:', replyError);
+    }
+  }
+}
