@@ -804,99 +804,102 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     // Add service recommendations if user preferences allow it
     if (userPrefs.showServiceRecommendations && serviceRecommendations && serviceRecommendations.length > 0) {
       console.log(`Processing ${serviceRecommendations.length} service recommendations`);
-      console.log(`Sample service structure: ${JSON.stringify(serviceRecommendations[0])}`);
       
-      // Map service IDs to full service objects if needed
-      let fullServiceRecommendations = serviceRecommendations;
-      if (serviceRecommendations[0] && (typeof serviceRecommendations[0] === 'string' || !serviceRecommendations[0].description)) {
-        const servicesModule = require('./services');
-        fullServiceRecommendations = serviceRecommendations.map(service => {
-          const serviceId = typeof service === 'string' ? service : service.id;
-          return servicesModule.services.find(s => s.id === serviceId) || service;
-        });
-      }
+      // Check if we should show services based on timing and frequency
+      const shouldShow = shouldShowServicesToday(userId, history) && 
+                        isAppropriateTimeForServices(history, userMessage);
       
-      // Get user preferences
-      const preferences = userPreferences.getUserPreferences(userId);
-      const maxRecommendations = preferences.maxRecommendations || 3;
-      const confidenceThreshold = preferences.minConfidenceScore || 0.6;
-      
-      // Create a simple presentation context instead of using the deleted function
-      const presentationContext = {
-        shouldBeMinimal: false,
-        hasSeenServicesBefore: false,
-        categoryFeedback: {},
-        preferredCategory: null
-      };
-      
-      // Check if user has seen services before (simplified)
-      if (history && history.length > 0) {
-        for (let i = 0; i < history.length; i++) {
-          const msg = history[i];
-          if (msg.role === 'assistant' && msg.content && 
-              (msg.content.includes('サービス') || 
-               msg.content.includes('お役立ち情報'))) {
-            presentationContext.hasSeenServicesBefore = true;
-            break;
+      if (!shouldShow) {
+        console.log('Skipping service recommendations due to timing or frequency constraints');
+      } else {
+        console.log(`Sample service structure: ${JSON.stringify(serviceRecommendations[0])}`);
+        
+        // Map service IDs to full service objects if needed
+        let fullServiceRecommendations = serviceRecommendations;
+        if (serviceRecommendations[0] && (typeof serviceRecommendations[0] === 'string' || !serviceRecommendations[0].description)) {
+          const servicesModule = require('./services');
+          fullServiceRecommendations = serviceRecommendations.map(service => {
+            const serviceId = typeof service === 'string' ? service : service.id;
+            return servicesModule.services.find(s => s.id === serviceId) || service;
+          });
+        }
+        
+        // Get user preferences
+        const preferences = userPreferences.getUserPreferences(userId);
+        const maxRecommendations = preferences.maxRecommendations || 3;
+        const confidenceThreshold = preferences.minConfidenceScore || 0.6;
+        
+        // Create a presentation context with our simplified approach
+        const presentationContext = {
+          shouldBeMinimal: false,
+          hasSeenServicesBefore: false,
+          categoryFeedback: preferences.categoryCooldowns || {},
+          preferredCategory: null
+        };
+        
+        // Check if user has seen services before
+        if (history && history.length > 0) {
+          for (let i = 0; i < history.length; i++) {
+            const msg = history[i];
+            if (msg.role === 'assistant' && msg.content && 
+                (msg.content.includes('サービス') || 
+                 msg.content.includes('お役立ち情報'))) {
+              presentationContext.hasSeenServicesBefore = true;
+              break;
+            }
           }
         }
-      }
-      
-      // Detect basic distress indicators for minimal presentation
-      const distressIndicators = [
-        'つらい', '苦しい', '死にたい', '自殺', '助けて', 
-        'しんどい', '無理', 'やばい', '辛い', '悲しい'
-      ];
-      
-      if (userMessage) {
-        for (const indicator of distressIndicators) {
-          if (userMessage.includes(indicator)) {
-            presentationContext.shouldBeMinimal = true;
-            break;
+        
+        // Detect distress indicators for minimal presentation
+        const distressIndicators = [
+          'つらい', '苦しい', '死にたい', '自殺', '助けて', 
+          'しんどい', '無理', 'やばい', '辛い', '悲しい'
+        ];
+        
+        if (userMessage) {
+          for (const indicator of distressIndicators) {
+            if (userMessage.includes(indicator)) {
+              presentationContext.shouldBeMinimal = true;
+              break;
+            }
           }
         }
-      }
-      
-      // Filter recommendations based on user preferences and context
-      let filteredRecommendations = fullServiceRecommendations
-        .filter(service => {
-          const confidence = service.confidence || service.confidenceScore || 0.8;
-          return confidence >= confidenceThreshold;
-        })
-        .slice(0, maxRecommendations);
-      
-      // Filter out categories that received negative feedback
-      if (presentationContext.categoryFeedback && Object.keys(presentationContext.categoryFeedback).length > 0) {
-        filteredRecommendations = filteredRecommendations.filter(service => {
-          // Determine service category based on criteria or tags
-          let serviceCategory = null;
-          if (service.criteria && service.criteria.topics) {
-            if (service.criteria.topics.includes('employment')) serviceCategory = 'career';
-            else if (service.criteria.topics.includes('mental_health')) serviceCategory = 'mental_health';
-            else if (service.criteria.topics.includes('social')) serviceCategory = 'social';
-            else if (service.criteria.topics.includes('daily_living')) serviceCategory = 'financial';
+        
+        // Apply cooldowns to filter out services in cooldown categories
+        fullServiceRecommendations = fullServiceRecommendations.filter(service => {
+          // Skip if no service
+          if (!service) return false;
+          
+          // Determine service category
+          const category = userPreferences._getServiceCategory(service);
+          
+          // Skip if category is in cooldown
+          if (category && preferences.categoryCooldowns && preferences.categoryCooldowns[category]) {
+            const cooldownUntil = new Date(preferences.categoryCooldowns[category]);
+            if (cooldownUntil > new Date()) {
+              console.log(`Filtering out service ${service.id} due to category cooldown until ${cooldownUntil}`);
+              return false;
+            }
           }
           
-          // Also check tags if category not determined
-          if (!serviceCategory && service.tags) {
-            if (service.tags.includes('employment') || service.tags.includes('career')) serviceCategory = 'career';
-            else if (service.tags.includes('mental_health')) serviceCategory = 'mental_health';
-            else if (service.tags.includes('social') || service.tags.includes('community')) serviceCategory = 'social';
-            else if (service.tags.includes('financial') || service.tags.includes('assistance')) serviceCategory = 'financial';
-          }
-          
-          // If this category received negative feedback, filter it out
-          if (serviceCategory && presentationContext.categoryFeedback[serviceCategory] === 'negative') {
-            console.log(`Filtering out service ${service.id} due to negative feedback for category ${serviceCategory}`);
+          // Skip if service has received negative feedback
+          if (preferences.implicitFeedback && 
+              preferences.implicitFeedback[service.id] === 'negative') {
+            console.log(`Filtering out service ${service.id} due to previous negative feedback`);
             return false;
           }
           
           return true;
         });
-      }
-      
-      // If we still have recommendations after filtering
-      if (filteredRecommendations.length > 0) {
+        
+        // Filter recommendations based on user preferences and context
+        let filteredRecommendations = fullServiceRecommendations
+          .filter(service => {
+            const confidence = service.confidence || service.confidenceScore || 0.8;
+            return confidence >= confidenceThreshold;
+          })
+          .slice(0, maxRecommendations);
+        
         // Determine the appropriate introduction text based on user needs and preferred category
         let introText = '\n\n【お役立ち情報】\n以下のサービスがお役に立つかもしれません：\n';
         
@@ -1005,19 +1008,32 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         
         // Only proceed if we have recommendations to show after all filtering
         if (finalRecommendations.length > 0) {
+          // Create a natural transition based on message content
+          const introText = createNaturalTransition(
+            responseText, 
+            priorityCategory, 
+            presentationContext.shouldBeMinimal
+          );
+          
           // Add service recommendations to the response with improved formatting
           responseText += introText;
           
           // Check if this is a new user (fewer than 3 interactions)
-          const isNewUser = history.length < 3;
+          const isNewUser = history.length < 5;
           
           // Add a subtle hint for new users about how to control service display
           if (isNewUser && !presentationContext.hasSeenServicesBefore) {
-            responseText += '（「サービス表示オフ」と言っていただくと、サービス情報を非表示にできます）\n\n';
+            responseText += '\n（「サービス表示オフ」と言っていただくと、サービス情報を非表示にできます）\n';
           }
+          
+          // Store shown services for later implicit feedback tracking
+          const shownServices = [];
           
           // Display the services with improved formatting
           finalRecommendations.forEach((service, index) => {
+            // Keep track of shown services
+            shownServices.push(service);
+            
             // Customize service presentation based on context
             if (presentationContext.shouldBeMinimal) {
               // Minimal presentation for users who seem overwhelmed
@@ -1034,6 +1050,15 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
               responseText += '\n';
             }
           });
+          
+          // Save recently shown services in preferences for future reference
+          if (!preferences.recentlyShownServices) {
+            preferences.recentlyShownServices = {};
+          }
+          preferences.recentlyShownServices[Date.now()] = finalRecommendations.map(
+            service => typeof service === 'string' ? service : service.id
+          );
+          userPreferences.updateUserPreferences(userId, preferences);
           
           // Record service recommendations
           try {
@@ -1186,9 +1211,9 @@ async function handleText(event) {
     const messageText = event.message.text;
     
     // Check for general help request
-    if (userMessage.toLowerCase() === 'ヘルプ' || 
-        userMessage.toLowerCase() === 'help' || 
-        userMessage.toLowerCase() === 'へるぷ') {
+    if (messageText.toLowerCase() === 'ヘルプ' || 
+        messageText.toLowerCase() === 'help' || 
+        messageText.toLowerCase() === 'へるぷ') {
       // Return the general help message
       await client.replyMessage(event.replyToken, {
         type: 'text',
@@ -1204,6 +1229,39 @@ async function handleText(event) {
     }
     
     const userMessage = event.message.text.trim();
+    
+    // Get user preferences to check for recently shown services
+    const preferences = userPreferences.getUserPreferences(userId);
+    
+    // Track implicit feedback for recently shown services
+    if (preferences && preferences.recentlyShownServices) {
+      // Get services shown in the last hour
+      const oneHourAgo = Date.now() - 3600000;
+      let recentServices = [];
+      
+      // Collect service IDs shown in the last hour
+      Object.entries(preferences.recentlyShownServices).forEach(([timestamp, services]) => {
+        if (parseInt(timestamp) > oneHourAgo) {
+          recentServices = [...recentServices, ...services];
+        }
+      });
+      
+      // If there are recent services, track implicit feedback
+      if (recentServices.length > 0) {
+        console.log(`Tracking implicit feedback for ${recentServices.length} recently shown services`);
+        userPreferences.trackImplicitFeedback(userId, userMessage, recentServices);
+        
+        // Clean up old entries
+        const newRecentlyShownServices = {};
+        Object.entries(preferences.recentlyShownServices).forEach(([timestamp, services]) => {
+          if (parseInt(timestamp) > oneHourAgo) {
+            newRecentlyShownServices[timestamp] = services;
+          }
+        });
+        preferences.recentlyShownServices = newRecentlyShownServices;
+        userPreferences.updateUserPreferences(userId, preferences);
+      }
+    }
 
     // Check for user preference commands
     const updatedPreferences = userPreferences.processPreferenceCommand(userId, userMessage);
@@ -1876,6 +1934,70 @@ const helpSystem = {
   }
 };
 
+/**
+ * Service recommendation frequency settings
+ * Controls how often services are shown to different user types
+ */
+const serviceFrequencySettings = {
+  newUser: { maxPerDay: 1, maxConsecutive: 2 },
+  regularUser: { maxPerDay: 3, maxConsecutive: 2 },
+  longTermUser: { maxPerDay: 5, maxConsecutive: 3 }
+};
+
+/**
+ * Determines if services should be shown to a user based on recent history
+ * Implements a gradual introduction system to prevent overwhelming users
+ * 
+ * @param {string} userId - The user's ID
+ * @param {Array} history - Conversation history
+ * @returns {boolean} - Whether to show services in this conversation
+ */
+function shouldShowServicesToday(userId, history) {
+  if (!history || history.length === 0) return true;
+  
+  // Determine user type based on conversation history
+  const isNewUser = history.length < 5;
+  const isLongTermUser = history.length > 20;
+  
+  let settings;
+  if (isNewUser) {
+    settings = serviceFrequencySettings.newUser;
+  } else if (isLongTermUser) {
+    settings = serviceFrequencySettings.longTermUser;
+  } else {
+    settings = serviceFrequencySettings.regularUser;
+  }
+  
+  // Count services shown in the last 24 hours
+  const oneDayAgo = new Date(Date.now() - 86400000);
+  const servicesLastDay = history.filter(msg => 
+    msg.role === 'assistant' && 
+    msg.content && 
+    (msg.content.includes('サービス') || msg.content.includes('お役立ち情報')) &&
+    (!msg.timestamp || new Date(msg.timestamp) > oneDayAgo)
+  );
+  
+  // Count consecutive messages with services
+  let consecutiveCount = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (msg.role === 'assistant' && 
+        msg.content && 
+        (msg.content.includes('サービス') || msg.content.includes('お役立ち情報'))) {
+      consecutiveCount++;
+    } else if (msg.role === 'user') {
+      // Only count consecutive assistant messages
+      break;
+    }
+  }
+  
+  console.log(`User ${userId}: ${servicesLastDay.length} services shown today, ${consecutiveCount} consecutive`);
+  
+  // Don't show services if we've hit either limit
+  return servicesLastDay.length < settings.maxPerDay && 
+         consecutiveCount < settings.maxConsecutive;
+}
+
 class UserPreferences {
   constructor() {
     this.preferences = {};
@@ -1883,7 +2005,9 @@ class UserPreferences {
       showServiceRecommendations: true,
       maxRecommendations: 3,
       minConfidenceScore: 0.6,
-      serviceInteractions: {} // Track interactions with services
+      serviceInteractions: {}, // Track interactions with services
+      implicitFeedback: {},    // Track implicit feedback about services
+      categoryCooldowns: {}    // Track category cooldowns
     };
     this.preferencesPath = path.join(__dirname, 'user_preferences.json');
     this._loadPreferences();
@@ -2124,6 +2248,152 @@ class UserPreferences {
     
     this._savePreferences();
   }
+
+  /**
+   * Track implicit feedback from user messages
+   * Analyzes messages for sentiment toward recommended services
+   * 
+   * @param {string} userId - The user's ID
+   * @param {string} message - The user's message
+   * @param {Array} recentServices - Recently recommended services
+   */
+  trackImplicitFeedback(userId, message, recentServices) {
+    if (!message || !recentServices || recentServices.length === 0) return;
+    
+    // Initialize user preferences if needed
+    if (!this.preferences[userId]) {
+      this.preferences[userId] = { ...this.defaultPreferences };
+    }
+    
+    // Ensure the implicitFeedback object exists
+    if (!this.preferences[userId].implicitFeedback) {
+      this.preferences[userId].implicitFeedback = {};
+    }
+    
+    // Negative patterns suggesting user doesn't want these services
+    const negativePatterns = [
+      'うざい', '邪魔', '関係ない', '見たくない', '要らない', 'いらない',
+      '不要', 'やめて', '止めて', '必要ない', '興味ない', '役に立たない'
+    ];
+    
+    // Positive patterns suggesting user may find services helpful
+    const positivePatterns = [
+      '助かる', 'ありがとう', '役立つ', '参考になる', 'いいね', 
+      '使ってみる', '連絡してみる', '確認してみる'
+    ];
+    
+    const lowerMessage = message.toLowerCase();
+    
+    // Check for negative feedback
+    const hasNegative = negativePatterns.some(pattern => lowerMessage.includes(pattern));
+    
+    // Check for positive feedback
+    const hasPositive = positivePatterns.some(pattern => lowerMessage.includes(pattern));
+    
+    if (hasNegative) {
+      console.log(`Detected negative implicit feedback from user ${userId}`);
+      
+      // Increase confidence threshold slightly to show fewer services
+      this.preferences[userId].minConfidenceScore = 
+        Math.min(0.9, this.preferences[userId].minConfidenceScore + 0.05);
+      
+      // For each recent service, record the negative feedback
+      for (const service of recentServices) {
+        const serviceId = typeof service === 'string' ? service : service.id;
+        if (serviceId) {
+          this.preferences[userId].implicitFeedback[serviceId] = 'negative';
+          console.log(`Recorded negative feedback for service ${serviceId}`);
+          
+          // Add this service category to cooldowns
+          this._addCategoryCooldown(userId, service, 3); // 3 days cooldown
+        }
+      }
+      
+      this._savePreferences();
+    } 
+    else if (hasPositive) {
+      console.log(`Detected positive implicit feedback from user ${userId}`);
+      
+      // Decrease confidence threshold slightly to show more relevant services
+      this.preferences[userId].minConfidenceScore = 
+        Math.max(0.4, this.preferences[userId].minConfidenceScore - 0.05);
+      
+      // For each recent service, record the positive feedback
+      for (const service of recentServices) {
+        const serviceId = typeof service === 'string' ? service : service.id;
+        if (serviceId) {
+          this.preferences[userId].implicitFeedback[serviceId] = 'positive';
+          console.log(`Recorded positive feedback for service ${serviceId}`);
+        }
+      }
+      
+      this._savePreferences();
+    }
+  }
+  
+  /**
+   * Add a category cooldown to prevent showing services from this category
+   * for a specified number of days
+   * 
+   * @param {string} userId - The user's ID
+   * @param {Object} service - The service object
+   * @param {number} days - Number of days for cooldown
+   */
+  _addCategoryCooldown(userId, service, days) {
+    if (!userId || !service) return;
+    
+    // Initialize user preferences if needed
+    if (!this.preferences[userId]) {
+      this.preferences[userId] = { ...this.defaultPreferences };
+    }
+    
+    // Ensure the categoryCooldowns object exists
+    if (!this.preferences[userId].categoryCooldowns) {
+      this.preferences[userId].categoryCooldowns = {};
+    }
+    
+    // Determine service category
+    const category = this._getServiceCategory(service);
+    
+    if (category) {
+      // Set cooldown until date
+      const cooldownUntil = new Date();
+      cooldownUntil.setDate(cooldownUntil.getDate() + days);
+      
+      this.preferences[userId].categoryCooldowns[category] = cooldownUntil.toISOString();
+      console.log(`Added cooldown for category ${category} until ${cooldownUntil.toISOString()}`);
+    }
+  }
+  
+  /**
+   * Get the category of a service based on its criteria or tags
+   * 
+   * @param {Object} service - The service object
+   * @returns {string|null} - The category name or null
+   */
+  _getServiceCategory(service) {
+    if (!service) return null;
+    
+    let category = null;
+    
+    // Check criteria topics first
+    if (service.criteria && service.criteria.topics) {
+      if (service.criteria.topics.includes('employment')) category = 'career';
+      else if (service.criteria.topics.includes('mental_health')) category = 'mental_health';
+      else if (service.criteria.topics.includes('social')) category = 'social';
+      else if (service.criteria.topics.includes('daily_living')) category = 'financial';
+    }
+    
+    // If no category found, check tags
+    if (!category && service.tags) {
+      if (service.tags.includes('employment') || service.tags.includes('career')) category = 'career';
+      else if (service.tags.includes('mental_health')) category = 'mental_health';
+      else if (service.tags.includes('social') || service.tags.includes('community')) category = 'social';
+      else if (service.tags.includes('financial') || service.tags.includes('assistance')) category = 'financial';
+    }
+    
+    return category || 'other';
+  }
 }
 
 // Initialize user preferences
@@ -2142,5 +2412,121 @@ async function recordServiceRecommendation(userId, serviceId, confidenceScore) {
   } catch (error) {
     console.error('Error recording service recommendation:', error);
   }
+}
+
+/**
+ * Determines if it's an appropriate time to show service recommendations
+ * based on conversation context
+ * 
+ * @param {Array} history - Conversation history
+ * @param {string} currentMessage - Current user message
+ * @returns {boolean} - Whether it's appropriate to show services now
+ */
+function isAppropriateTimeForServices(history, currentMessage) {
+  if (!history || history.length === 0) return true;
+  
+  // Don't interrupt a user who appears to be in distress
+  const distressIndicators = [
+    'つらい', '苦しい', '死にたい', '自殺', '助けて', 
+    'しんどい', '無理', 'やばい', '辛い', '悲しい'
+  ];
+  
+  const userIsDistressed = distressIndicators.some(indicator => 
+    currentMessage && currentMessage.includes(indicator)
+  );
+  
+  if (userIsDistressed) {
+    console.log('User appears distressed - showing minimal service presentation');
+    // We'll still show services but in minimal format, handled elsewhere
+  }
+  
+  // Don't show services if user just asked a follow-up question
+  if (currentMessage && 
+      (currentMessage.endsWith('?') || 
+       currentMessage.endsWith('？') || 
+       currentMessage.endsWith('か') || 
+       currentMessage.endsWith('かな') || 
+       currentMessage.endsWith('かね'))) {
+    console.log('User asked a question - postponing service recommendations');
+    return false;
+  }
+  
+  // Don't show services in the middle of a multi-turn explanation
+  if (history.length >= 4) {
+    const recentMessages = history.slice(-4);
+    const isExplanationFlow = recentMessages.filter(msg => 
+      msg.role === 'assistant' && 
+      msg.content && 
+      msg.content.length > 100 && 
+      !msg.content.includes('サービス')
+    ).length >= 2;
+    
+    if (isExplanationFlow) {
+      console.log('In the middle of an explanation - postponing service recommendations');
+      return false;
+    }
+  }
+  
+  // Don't show services right after user expressed gratitude or satisfaction
+  const gratitudeIndicators = [
+    'ありがとう', 'thanks', '感謝', '助かる', 'わかった', 
+    '理解', 'なるほど', 'OK', 'そうね'
+  ];
+  
+  const userExpressedGratitude = gratitudeIndicators.some(indicator => 
+    currentMessage && currentMessage.includes(indicator)
+  );
+  
+  if (userExpressedGratitude && currentMessage.length < 30) {
+    console.log('User expressed brief gratitude - postponing service recommendations');
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Creates natural-sounding transitions to service recommendations
+ * based on conversation context
+ * 
+ * @param {string} responseContent - The AI response content
+ * @param {string} priorityCategory - The priority service category if any
+ * @param {boolean} shouldBeMinimal - Whether to use minimal format
+ * @returns {string} - A natural transition text
+ */
+function createNaturalTransition(responseContent, priorityCategory, shouldBeMinimal) {
+  // If using minimal format, use more gentle transitions
+  if (shouldBeMinimal) {
+    return '\n\nもし良ければ、参考にしてみてください：';
+  }
+  
+  // Match transition to response content context
+  if (responseContent.includes('お役に立てれば') || 
+      responseContent.includes('お力になれれば') ||
+      responseContent.includes('サポート') ||
+      responseContent.includes('助け')) {
+    
+    return '\n\n具体的には、以下のサービスがお役に立つかもしれません：';
+  } 
+  else if (responseContent.includes('専門') || responseContent.includes('相談')) {
+    return '\n\n専門的なサポートとして、以下のサービスも検討されてみてはいかがでしょうか：';
+  }
+  
+  // Category-specific transitions
+  if (priorityCategory === 'mental_health') {
+    return '\n\n【メンタルヘルスサポート】\nこちらのサービスが心の健康をサポートするかもしれません：';
+  }
+  else if (priorityCategory === 'career') {
+    return '\n\n【キャリア支援】\nお仕事に関連して、以下のサービスが参考になるかもしれません：';
+  }
+  else if (priorityCategory === 'social') {
+    return '\n\n【コミュニティサポート】\n社会とのつながりをサポートする以下のサービスがあります：';
+  }
+  else if (priorityCategory === 'financial') {
+    return '\n\n【生活支援】\n経済面での支援に関する以下のサービスが参考になるかもしれません：';
+  }
+  
+  // Default transition
+  return '\n\n【お役立ち情報】\n以下のサービスがお役に立つかもしれません：';
 }
 
