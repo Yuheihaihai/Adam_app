@@ -985,10 +985,25 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     if (mode === 'career' && perplexityData) {
       console.log('\n🔄 [3B] INTEGRATING ML DATA INTO PROMPT');
       
+      // Record baseline prompt size before adding ML data
+      const baselinePromptSize = JSON.stringify(messages).length;
+      console.log(`    ├─ Baseline prompt size before ML data: ${baselinePromptSize} bytes`);
+      
+      // Log the basic system instruction content before ML augmentation
+      const systemInstructions = messages.find(m => m.role === 'system')?.content || '';
+      console.log(`    ├─ Base system instructions: ${systemInstructions.substring(0, 100)}...`);
+      
       if (perplexityData.jobTrends) {
         console.log('    ├─ Adding job market trends:');
         console.log(`    │  └─ Market analysis: ${perplexityData.jobTrends.analysis ? perplexityData.jobTrends.analysis.length : 0} characters`);
         console.log(`    │  └─ Job URLs: ${perplexityData.jobTrends.urls ? 'Included' : 'Not available'}`);
+        
+        // Extract key market insights for logging
+        const marketInsights = extractKeyInsights(perplexityData.jobTrends.analysis, 3);
+        console.log('    │  └─ Key market insights:');
+        marketInsights.forEach((insight, i) => {
+          console.log(`    │     ${i+1}. ${insight.substring(0, 40)}...`);
+        });
         
         messages.push({
           role: 'system',
@@ -1010,6 +1025,13 @@ ${perplexityData.jobTrends.urls || '情報を取得できませんでした。'}
         console.log('    └─ Adding user characteristics analysis:');
         console.log(`       └─ Analysis: ${perplexityData.knowledge.length} characters`);
         
+        // Extract key characteristics for logging
+        const userCharacteristics = extractKeyInsights(perplexityData.knowledge, 3);
+        console.log('       └─ Key user characteristics:');
+        userCharacteristics.forEach((characteristic, i) => {
+          console.log(`          ${i+1}. ${characteristic.substring(0, 40)}...`);
+        });
+        
         messages.push({
           role: 'system',
           content: `
@@ -1021,6 +1043,13 @@ ${perplexityData.knowledge}
 `
         });
       }
+      
+      // Log the ML data impact on prompt size
+      const mlAugmentedPromptSize = JSON.stringify(messages).length;
+      const promptSizeIncrease = mlAugmentedPromptSize - baselinePromptSize;
+      const percentIncrease = ((promptSizeIncrease / baselinePromptSize) * 100).toFixed(1);
+      console.log(`    ├─ ML-augmented prompt size: ${mlAugmentedPromptSize} bytes`);
+      console.log(`    └─ ML data added ${promptSizeIncrease} bytes (${percentIncrease}% increase)`);
     }
     
     // Add user message after all context
@@ -1057,6 +1086,74 @@ ${perplexityData.knowledge}
           console.log(`    ├─ Temperature: ${requestOptions.temperature}`);
           console.log(`    ├─ Max tokens: ${requestOptions.max_tokens}`);
           console.log(`    ├─ Total prompt components: ${messages.length}`);
+          
+          // Pre-response analysis: Show what information we expect the ML data to provide
+          if (mode === 'career' && perplexityData) {
+            console.log('    ├─ Expected ML influence on response:');
+            
+            if (perplexityData.jobTrends && perplexityData.jobTrends.analysis) {
+              // Extract key job sectors from the market data
+              const jobSectors = extractJobSectors(perplexityData.jobTrends.analysis);
+              console.log('    │  └─ Expected job sectors in response:');
+              jobSectors.forEach((sector, i) => {
+                if (i < 3) {
+                  console.log(`    │     - ${sector}`);
+                }
+              });
+              
+              // Add more detailed analysis of job trends data
+              console.log('    │  └─ Market data influence details:');
+              // Check for salary information
+              const hasSalary = perplexityData.jobTrends.analysis.includes('年収') || 
+                               perplexityData.jobTrends.analysis.includes('給与') ||
+                               perplexityData.jobTrends.analysis.includes('賃金');
+              console.log(`    │     - Salary information: ${hasSalary ? '含まれる✅' : '含まれない❌'}`);
+              
+              // Check for skill requirements
+              const hasSkills = perplexityData.jobTrends.analysis.includes('スキル') || 
+                               perplexityData.jobTrends.analysis.includes('能力') ||
+                               perplexityData.jobTrends.analysis.includes('資格');
+              console.log(`    │     - Skill requirements: ${hasSkills ? '含まれる✅' : '含まれない❌'}`);
+              
+              // Check for future trends
+              const hasFutureTrends = perplexityData.jobTrends.analysis.includes('将来') || 
+                                     perplexityData.jobTrends.analysis.includes('今後') ||
+                                     perplexityData.jobTrends.analysis.includes('予測');
+              console.log(`    │     - Future predictions: ${hasFutureTrends ? '含まれる✅' : '含まれない❌'}`);
+            }
+            
+            if (perplexityData.knowledge) {
+              // Extract personality traits from user characteristics
+              const personalityTraits = extractPersonalityTraits(perplexityData.knowledge);
+              console.log('    │  └─ Expected personality traits addressed:');
+              personalityTraits.forEach((trait, i) => {
+                if (i < 3) {
+                  console.log(`    │     - ${trait}`);
+                }
+              });
+              
+              // Add more detailed analysis of user characteristics data
+              console.log('    │  └─ User characteristics influence details:');
+              
+              // Check for communication style
+              const hasCommunication = perplexityData.knowledge.includes('コミュニケーション') || 
+                                      perplexityData.knowledge.includes('対話') ||
+                                      perplexityData.knowledge.includes('会話');
+              console.log(`    │     - Communication style: ${hasCommunication ? '分析済み✅' : '未分析❌'}`);
+              
+              // Check for decision-making patterns
+              const hasDecisionMaking = perplexityData.knowledge.includes('決断') || 
+                                       perplexityData.knowledge.includes('判断') ||
+                                       perplexityData.knowledge.includes('選択');
+              console.log(`    │     - Decision patterns: ${hasDecisionMaking ? '分析済み✅' : '未分析❌'}`);
+              
+              // Check for values and priorities
+              const hasValues = perplexityData.knowledge.includes('価値観') || 
+                               perplexityData.knowledge.includes('大切') ||
+                               perplexityData.knowledge.includes('重視');
+              console.log(`    │     - Values/priorities: ${hasValues ? '分析済み✅' : '未分析❌'}`);
+            }
+          }
           
           // Call OpenAI API
           console.log('    ├─ Sending request to OpenAI API...');
@@ -1238,6 +1335,83 @@ ${perplexityData.knowledge}
       const timeTerms = ["2023年", "2024年", "2025年", "現在", "最近", "近年", "今日", "将来"];
       const timeTermsCount = timeTerms.filter(term => aiResponse.includes(term)).length;
       console.log(`   ├─ Temporal relevance: ${timeTermsCount}/${timeTerms.length} time references`);
+      
+      // Add detailed ML data impact on specific aspects of the response
+      console.log('   ├─ ML データが回答に与えた具体的な影響:');
+      
+      // 1. Check if the response mentions specific jobs/roles that were in the ML data
+      if (perplexityData.jobTrends && perplexityData.jobTrends.analysis) {
+        // Extract job roles from ML data
+        const jobRoleRegex = /([\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}A-Za-z]+?)(エンジニア|デザイナー|マネージャー|ディレクター|コンサルタント|スペシャリスト|アナリスト)/gu;
+        const jobRolesInData = [];
+        let match;
+        const dataText = perplexityData.jobTrends.analysis;
+        while ((match = jobRoleRegex.exec(dataText)) !== null) {
+          jobRolesInData.push(match[0]);
+        }
+        
+        // Check which job roles from data are mentioned in response
+        const jobRolesInResponse = jobRolesInData.filter(role => aiResponse.includes(role));
+        console.log(`   │  ├─ ML データの職種が回答に反映: ${jobRolesInResponse.length}/${jobRolesInData.length > 0 ? jobRolesInData.length : '0'}`);
+        jobRolesInResponse.forEach((role, i) => {
+          if (i < 3) console.log(`   │  │  └─ ${role}`);
+        });
+      }
+      
+      // 2. Check if skill recommendations in response match skills mentioned in ML data
+      if (perplexityData.jobTrends && perplexityData.jobTrends.analysis) {
+        // Common skills that might be mentioned
+        const skillsToCheck = [
+          "プログラミング", "コミュニケーション", "英語", "マネジメント", 
+          "データ分析", "企画", "マーケティング", "営業", "AI", "機械学習"
+        ];
+        
+        // Filter skills that appear in both ML data and response
+        const dataText = perplexityData.jobTrends.analysis;
+        const skillsInData = skillsToCheck.filter(skill => dataText.includes(skill));
+        const skillsInResponse = skillsInData.filter(skill => aiResponse.includes(skill));
+        
+        console.log(`   │  ├─ ML データのスキルが回答に反映: ${skillsInResponse.length}/${skillsInData.length > 0 ? skillsInData.length : '0'}`);
+        skillsInResponse.forEach((skill, i) => {
+          if (i < 3) console.log(`   │  │  └─ ${skill}`);
+        });
+      }
+      
+      // 3. Check if user traits from ML data are reflected in career recommendations
+      if (perplexityData.knowledge) {
+        const userTraits = {
+          "論理的思考": ["論理的", "分析的", "体系的"],
+          "コミュニケーション能力": ["コミュニケーション", "対話", "会話"], 
+          "創造性": ["創造", "クリエイティブ", "新しい"],
+          "リーダーシップ": ["リーダー", "主導", "牽引"],
+          "忍耐力": ["忍耐", "根気", "継続"],
+          "協調性": ["協調", "チーム", "調和"]
+        };
+        
+        // Count traits that appear in both ML data and response
+        let traitsReflected = 0;
+        let traitsInData = 0;
+        const mentionedTraits = [];
+        
+        Object.entries(userTraits).forEach(([trait, keywords]) => {
+          // Check if trait is in ML data
+          const traitInData = keywords.some(keyword => perplexityData.knowledge.includes(keyword));
+          if (traitInData) {
+            traitsInData++;
+            // Check if trait is also in response
+            const traitInResponse = keywords.some(keyword => aiResponse.includes(keyword));
+            if (traitInResponse) {
+              traitsReflected++;
+              mentionedTraits.push(trait);
+            }
+          }
+        });
+        
+        console.log(`   │  └─ ML データの性格特性が回答に反映: ${traitsReflected}/${traitsInData > 0 ? traitsInData : '0'}`);
+        mentionedTraits.forEach((trait, i) => {
+          if (i < 3) console.log(`   │     └─ ${trait}`);
+        });
+      }
       
       // Final assessment based on indicators
       const influenceScore = (
@@ -2186,4 +2360,82 @@ Adamでは以下のようなASD(自閉症スペクトラム障害)に関する�
   });
   
   return;
+}
+
+// Helper functions for ML influence analysis
+function extractJobSectors(marketData) {
+  if (!marketData) return [];
+  
+  // List of common job sectors and related terms to look for
+  const sectorKeywords = {
+    'AI/機械学習': ['AI', '人工知能', '機械学習', 'ディープラーニング', 'データサイエンティスト'],
+    'ウェブ開発': ['ウェブ', 'Web', 'フロントエンド', 'バックエンド', 'フルスタック'],
+    'モバイル開発': ['モバイル', 'iOS', 'Android', 'アプリ開発'],
+    'クラウド': ['クラウド', 'AWS', 'Azure', 'GCP', 'DevOps'],
+    'サイバーセキュリティ': ['セキュリティ', 'サイバー', 'ハッキング', '脆弱性'],
+    'ブロックチェーン': ['ブロックチェーン', '暗号通貨', 'NFT', 'Web3'],
+    'IoT': ['IoT', 'インターネット・オブ・シングス', 'センサー', '組み込み'],
+    '医療/ヘルスケア': ['医療', 'ヘルスケア', '健康', '病院'],
+    '金融/フィンテック': ['金融', 'フィンテック', '銀行', '投資'],
+    '教育': ['教育', 'EdTech', '学習', '教師'],
+    '持続可能性': ['持続可能', 'SDGs', '環境', 'グリーン', 'カーボンニュートラル']
+  };
+  
+  // Count mentions of each sector
+  const sectorCounts = {};
+  Object.entries(sectorKeywords).forEach(([sector, keywords]) => {
+    sectorCounts[sector] = keywords.filter(keyword => 
+      marketData.includes(keyword)
+    ).length;
+  });
+  
+  // Return sectors sorted by mention count (only those with at least one mention)
+  return Object.entries(sectorCounts)
+    .filter(([_, count]) => count > 0)
+    .sort(([_, countA], [__, countB]) => countB - countA)
+    .map(([sector, _]) => sector);
+}
+
+function extractPersonalityTraits(text) {
+  if (!text) return [];
+  
+  const traits = [
+    ['論理的', '分析的', '理性的'],
+    ['創造的', '革新的', 'クリエイティブ'],
+    ['社交的', '外向的', 'コミュニケーション'],
+    ['慎重', '注意深い', '計画的'],
+    ['リーダーシップ', '指導的', 'マネジメント'],
+    ['サポート', '協力的', '支援'],
+    ['目標志向', '成果主義', '達成']
+  ];
+  
+  return traits
+    .filter(synonyms => synonyms.some(trait => text.includes(trait)))
+    .map(([trait, _]) => trait);
+}
+
+// Helper function to extract key insights from text
+function extractKeyInsights(text, count = 3) {
+  if (!text) return [];
+  
+  // Split by sentence end markers and filter for meaningful sentences
+  const sentences = text.split(/[。.?!]/).filter(s => s.length > 15);
+  
+  // Sort by length (shorter sentences are often more concise insights)
+  const sortedSentences = [...sentences].sort((a, b) => {
+    // Prioritize sentences with key indicator terms
+    const keyTerms = ['重要', '特徴', '傾向', '注目', '成長', '特性', '好み', '強み', '市場'];
+    const aScore = keyTerms.filter(term => a.includes(term)).length;
+    const bScore = keyTerms.filter(term => b.includes(term)).length;
+    
+    if (aScore !== bScore) return bScore - aScore;
+    
+    // Then consider length (prefer 20-50 character sentences)
+    const aLengthScore = Math.abs(35 - a.length);
+    const bLengthScore = Math.abs(35 - b.length);
+    return aLengthScore - bLengthScore;
+  });
+  
+  // Return top insights
+  return sortedSentences.slice(0, count).map(s => s.trim());
 }
