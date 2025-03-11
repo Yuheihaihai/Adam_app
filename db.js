@@ -3,14 +3,28 @@ require('dotenv').config();
 const { Pool } = require('pg');
 
 // PostgreSQL接続プール
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_DATABASE,
-  port: process.env.DB_PORT || 5432,
-  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
-});
+let poolConfig;
+
+if (process.env.DATABASE_URL) {
+  // Heroku環境の場合、DATABASE_URL環境変数を使用
+  poolConfig = {
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  };
+} else {
+  // ローカル環境の場合、個別の環境変数を使用
+  poolConfig = {
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_DATABASE,
+    port: process.env.DB_PORT || 5432,
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
+  };
+}
+
+console.log('Database configuration:', process.env.DATABASE_URL ? 'Using DATABASE_URL' : 'Using individual config params');
+const pool = new Pool(poolConfig);
 
 // データベース接続のテスト
 async function testConnection() {
