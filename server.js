@@ -818,11 +818,44 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       
       // Get user preferences
       const preferences = userPreferences.getUserPreferences(userId);
-      const maxRecommendations = preferences.maxServiceRecommendations || 3;
-      const confidenceThreshold = preferences.confidenceThreshold || 0.6;
+      const maxRecommendations = preferences.maxRecommendations || 3;
+      const confidenceThreshold = preferences.minConfidenceScore || 0.6;
       
-      // Analyze conversation context for service presentation
-      const presentationContext = analyzeConversationForServicePresentation(history, userMessage, userNeeds);
+      // Create a simple presentation context instead of using the deleted function
+      const presentationContext = {
+        shouldBeMinimal: false,
+        hasSeenServicesBefore: false,
+        categoryFeedback: {},
+        preferredCategory: null
+      };
+      
+      // Check if user has seen services before (simplified)
+      if (history && history.length > 0) {
+        for (let i = 0; i < history.length; i++) {
+          const msg = history[i];
+          if (msg.role === 'assistant' && msg.content && 
+              (msg.content.includes('サービス') || 
+               msg.content.includes('お役立ち情報'))) {
+            presentationContext.hasSeenServicesBefore = true;
+            break;
+          }
+        }
+      }
+      
+      // Detect basic distress indicators for minimal presentation
+      const distressIndicators = [
+        'つらい', '苦しい', '死にたい', '自殺', '助けて', 
+        'しんどい', '無理', 'やばい', '辛い', '悲しい'
+      ];
+      
+      if (userMessage) {
+        for (const indicator of distressIndicators) {
+          if (userMessage.includes(indicator)) {
+            presentationContext.shouldBeMinimal = true;
+            break;
+          }
+        }
+      }
       
       // Filter recommendations based on user preferences and context
       let filteredRecommendations = fullServiceRecommendations
