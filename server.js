@@ -803,6 +803,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     
     // Add service recommendations if user preferences allow it
     if (userPrefs.showServiceRecommendations && serviceRecommendations && serviceRecommendations.length > 0) {
+      console.log(`\n=== SERVICE RECOMMENDATION DECISION ===`);
       console.log(`Processing ${serviceRecommendations.length} service recommendations`);
       
       // Detect if user is asking for advice or sharing a problem
@@ -823,8 +824,15 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       );
       
       if (isExplicitAdviceRequest) {
-        console.log('Explicit advice request detected in processWithAI - will show service recommendations');
+        console.log('✅ Explicit advice request detected in processWithAI - will show service recommendations');
       }
+      
+      // Check timing and frequency constraints
+      const isTimeAppropriate = isAppropriateTimeForServices(history, userMessage);
+      console.log(`Is time appropriate: ${isTimeAppropriate}`);
+      
+      const isWithinFrequencyLimits = shouldShowServicesToday(userId, history, userMessage);
+      console.log(`Is within frequency limits: ${isWithinFrequencyLimits}`);
       
       // Check if we should show services - explicit advice requests always get recommendations
       const shouldShow = isExplicitAdviceRequest || 
@@ -832,22 +840,26 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
                          isAppropriateTimeForServices(history, userMessage) &&
                          isAskingForAdvice);
       
+      console.log(`\nFINAL DECISION: ${shouldShow ? '✅ SHOWING' : '❌ NOT SHOWING'} service recommendations`);
+      
       if (!shouldShow) {
         if (isExplicitAdviceRequest) {
           // This should not happen given our logic, but add a warning just in case
           console.warn('WARNING: Explicit advice request detected but services not shown - check logic!');
         } else if (!isAskingForAdvice) {
-          console.log('Skipping service recommendations: Not asking for advice');
+          console.log('Reason: Not asking for advice');
         } else if (!isAppropriateTimeForServices(history, userMessage)) {
-          console.log('Skipping service recommendations: Not an appropriate time based on conversation flow');
+          console.log('Reason: Not an appropriate time based on conversation flow');
         } else if (!shouldShowServicesToday(userId, history, userMessage)) {
-          console.log('Skipping service recommendations: Frequency/timing constraints');
+          console.log('Reason: Frequency/timing constraints');
         } else {
-          console.log('Skipping service recommendations: Unknown reason');
+          console.log('Reason: Unknown reason');
         }
+        console.log(`=== END SERVICE RECOMMENDATION DECISION ===\n`);
       } else {
-        console.log(`User is asking for advice. Showing service recommendations.`);
+        console.log(`Reason: ${isExplicitAdviceRequest ? 'Explicit advice request' : 'Detected advice need'}`);
         console.log(`Sample service structure: ${JSON.stringify(serviceRecommendations[0])}`);
+        console.log(`=== END SERVICE RECOMMENDATION DECISION ===\n`);
         
         // Map service IDs to full service objects if needed
         let fullServiceRecommendations = serviceRecommendations;
@@ -2624,6 +2636,18 @@ function createNaturalTransition(responseContent, priorityCategory, shouldBeMini
 function detectAdviceRequest(message, history = null) {
   if (!message) return false;
   
+  // Create a log object to track detection details
+  const detectionLog = {
+    messageLength: message.length,
+    detectedPatterns: [],
+    contextualScore: 0,
+    detectionReason: null,
+    result: false
+  };
+  
+  console.log(`\n=== ADVICE REQUEST DETECTION START ===`);
+  console.log(`Analyzing message (${message.length} chars): "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
+  
   // Convert to lowercase for matching
   const lowerMessage = message.toLowerCase();
   
@@ -2637,9 +2661,17 @@ function detectAdviceRequest(message, history = null) {
     '助言下さい', 'どうしたらいい', 'どうすればいい', 'おすすめを教えて'
   ];
   
+  // Track matched patterns
+  const matchedExplicitPatterns = explicitAdvicePatterns.filter(pattern => lowerMessage.includes(pattern));
+  
   // If it's an explicit advice request, immediately return true
-  if (explicitAdvicePatterns.some(pattern => lowerMessage.includes(pattern))) {
-    console.log('Explicit advice request detected - high confidence');
+  if (matchedExplicitPatterns.length > 0) {
+    detectionLog.detectedPatterns.push(...matchedExplicitPatterns);
+    detectionLog.result = true;
+    detectionLog.detectionReason = 'Explicit advice request detected';
+    
+    console.log(`✅ EXPLICIT ADVICE REQUEST detected: [${matchedExplicitPatterns.join(', ')}]`);
+    console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
     return true;
   }
   
@@ -2662,8 +2694,18 @@ function detectAdviceRequest(message, history = null) {
     '経済的', 'お金', '住まい', '健康', '精神', 'メンタル'  
   ];
   
+  // Track matched standard patterns
+  const matchedAdvicePatterns = advicePatterns.filter(pattern => lowerMessage.includes(pattern));
+  if (matchedAdvicePatterns.length > 0) {
+    detectionLog.detectedPatterns.push(...matchedAdvicePatterns);
+    console.log(`Standard advice patterns detected: [${matchedAdvicePatterns.join(', ')}]`);
+  }
+  
   // Check for question marks (Japanese and English)
   const hasQuestionMark = message.includes('？') || message.includes('?');
+  if (hasQuestionMark) {
+    console.log(`Question mark detected`);
+  }
   
   // Negative patterns (indicating user doesn't want advice)
   const negativePatterns = [
@@ -2672,8 +2714,15 @@ function detectAdviceRequest(message, history = null) {
     '専門相談', '非表示', 'サービスの紹介', 'リンク', '紹介'
   ];
   
-  // If there are explicit negative indicators, don't show recommendations
-  if (negativePatterns.some(pattern => lowerMessage.includes(pattern))) {
+  // Track matched negative patterns
+  const matchedNegativePatterns = negativePatterns.filter(pattern => lowerMessage.includes(pattern));
+  if (matchedNegativePatterns.length > 0) {
+    detectionLog.detectedPatterns.push(...matchedNegativePatterns.map(p => `NEG:${p}`));
+    detectionLog.detectionReason = 'Negative patterns detected';
+    detectionLog.result = false;
+    
+    console.log(`❌ NEGATIVE PATTERNS detected: [${matchedNegativePatterns.join(', ')}]`);
+    console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
     return false;
   }
   
@@ -2708,31 +2757,57 @@ function detectAdviceRequest(message, history = null) {
     '住まい', '近所', '騒音', 'トラブル', '苦情'
   ];
   
-  // Contextual analysis factors
+  // Contextual analysis factors - start with zero score
   let contextualScore = 0;
   
+  console.log(`\n--- Contextual Score Analysis ---`);
+  
   // Message length analysis (longer messages often indicate problem sharing)
-  if (message.length > 100) contextualScore += 1;
-  if (message.length > 200) contextualScore += 1;
+  if (message.length > 100) {
+    contextualScore += 1;
+    console.log(`+1.0: Message length > 100 chars (${message.length})`);
+  }
+  
+  if (message.length > 200) {
+    contextualScore += 1;
+    console.log(`+1.0: Message length > 200 chars (${message.length})`);
+  }
   
   // Check for subtle advice patterns
-  const subtleAdviceCount = subtleAdvicePatterns.filter(pattern => 
+  const matchedSubtlePatterns = subtleAdvicePatterns.filter(pattern => 
     lowerMessage.includes(pattern)
-  ).length;
-  contextualScore += Math.min(2, subtleAdviceCount * 0.5);
+  );
+  
+  if (matchedSubtlePatterns.length > 0) {
+    const subtleScore = Math.min(2, matchedSubtlePatterns.length * 0.5);
+    contextualScore += subtleScore;
+    detectionLog.detectedPatterns.push(...matchedSubtlePatterns.map(p => `SUBTLE:${p}`));
+    console.log(`+${subtleScore.toFixed(1)}: Subtle patterns [${matchedSubtlePatterns.join(', ')}]`);
+  }
   
   // Check for problem domain keywords
-  const problemDomainCount = problemDomainKeywords.filter(keyword => 
+  const matchedDomainKeywords = problemDomainKeywords.filter(keyword => 
     lowerMessage.includes(keyword)
-  ).length;
-  contextualScore += Math.min(2, problemDomainCount * 0.5);
+  );
+  
+  if (matchedDomainKeywords.length > 0) {
+    const domainScore = Math.min(2, matchedDomainKeywords.length * 0.5);
+    contextualScore += domainScore;
+    detectionLog.detectedPatterns.push(...matchedDomainKeywords.map(p => `DOMAIN:${p}`));
+    console.log(`+${domainScore.toFixed(1)}: Problem domains [${matchedDomainKeywords.join(', ')}]`);
+  }
   
   // Question mark analysis
-  if (hasQuestionMark) contextualScore += 1;
+  if (hasQuestionMark) {
+    contextualScore += 1;
+    console.log(`+1.0: Contains question mark`);
+  }
   
   // First-person perspective indicators ('私は', '僕は', etc.)
-  if (/私は|私が|僕は|僕が|俺は|俺が|わたしは|わたしが/.test(lowerMessage)) {
+  const firstPersonMatches = /私は|私が|僕は|僕が|俺は|俺が|わたしは|わたしが/.exec(lowerMessage);
+  if (firstPersonMatches) {
     contextualScore += 0.5;
+    console.log(`+0.5: First-person perspective [${firstPersonMatches[0]}]`);
   }
   
   // Analyze history context if available
@@ -2743,7 +2818,7 @@ function detectAdviceRequest(message, history = null) {
         previousAssistantMessage.content && 
         /詳しく|教えて|どのよう|具体的に|例えば/.test(previousAssistantMessage.content.toLowerCase())) {
       contextualScore += 1;
-      console.log('Context bonus: Assistant previously asked for details');
+      console.log(`+1.0: Assistant previously asked for details`);
     }
     
     // Check for conversation flow indicating problem discussion
@@ -2751,48 +2826,74 @@ function detectAdviceRequest(message, history = null) {
     const problemDiscussion = recentUserMessages.some(msg => 
       msg.content && problemDomainKeywords.some(keyword => msg.content.toLowerCase().includes(keyword))
     );
+    
     if (problemDiscussion) {
       contextualScore += 1;
-      console.log('Context bonus: Ongoing problem discussion detected');
+      console.log(`+1.0: Ongoing problem discussion detected`);
     }
   }
+  
+  console.log(`Total contextual score: ${contextualScore.toFixed(1)}`);
+  detectionLog.contextualScore = contextualScore;
   
   // 3. COMBINE APPROACHES FOR FINAL DECISION
   // ----------------------------------------
   
   // Check for standard explicit patterns (same as the original implementation)
-  const hasStandardAdvicePattern = advicePatterns.some(pattern => lowerMessage.includes(pattern));
+  const hasStandardAdvicePattern = matchedAdvicePatterns.length > 0;
   
   // Decision logic combining explicit patterns with nuanced analysis
   if (hasQuestionMark && hasStandardAdvicePattern) {
-    console.log('Question with advice keywords detected');
+    detectionLog.detectionReason = 'Question with advice keywords';
+    detectionLog.result = true;
+    
+    console.log(`✅ DETECTED: Question with advice keywords`);
+    console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
     return true;
   }
   
   if (message.length > 50 && hasStandardAdvicePattern) {
-    console.log('Longer message with advice keywords detected');
+    detectionLog.detectionReason = 'Longer message with advice keywords';
+    detectionLog.result = true;
+    
+    console.log(`✅ DETECTED: Longer message with advice keywords`);
+    console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
     return true;
   }
   
   // Nuanced detection based on contextual score
   if (contextualScore >= 3) {
-    console.log(`Nuanced advice request detected (score: ${contextualScore})`);
+    detectionLog.detectionReason = `High contextual score (${contextualScore.toFixed(1)})`;
+    detectionLog.result = true;
+    
+    console.log(`✅ DETECTED: High contextual score (${contextualScore.toFixed(1)})`);
+    console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
     return true;
   }
   
   // Medium confidence: Both some advice pattern and good contextual score
   if (hasStandardAdvicePattern && contextualScore >= 2) {
-    console.log(`Medium confidence advice request (explicit pattern + context score: ${contextualScore})`);
+    detectionLog.detectionReason = `Medium confidence (explicit pattern + context score: ${contextualScore.toFixed(1)})`;
+    detectionLog.result = true;
+    
+    console.log(`✅ DETECTED: Medium confidence (explicit pattern + context score: ${contextualScore.toFixed(1)})`);
+    console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
     return true;
   }
   
   // Low confidence detection for very long, problem-describing messages
   if (message.length > 300 && contextualScore >= 1.5) {
-    console.log(`Long problem description detected (length: ${message.length}, score: ${contextualScore})`);
+    detectionLog.detectionReason = `Long problem description (length: ${message.length}, score: ${contextualScore.toFixed(1)})`;
+    detectionLog.result = true;
+    
+    console.log(`✅ DETECTED: Long problem description (length: ${message.length}, score: ${contextualScore.toFixed(1)})`);
+    console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
     return true;
   }
   
   // Default - don't show recommendations unless detected by one of the rules above
+  console.log(`❌ NOT DETECTED: Message did not meet any detection criteria`);
+  console.log(`=== ADVICE REQUEST DETECTION RESULT: false ===\n`);
   return false;
 }
 
