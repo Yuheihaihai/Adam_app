@@ -1,5 +1,19 @@
 // embeddingService.js
-const tf = require('@tensorflow/tfjs-node');
+// Try to use tfjs-node if available, otherwise fallback to regular tfjs
+let tf;
+try {
+  tf = require('@tensorflow/tfjs-node');
+  console.log('Using TensorFlow.js Node native backend for embeddings');
+} catch (error) {
+  tf = require('@tensorflow/tfjs');
+  console.log('Using TensorFlow.js JavaScript backend for embeddings (slower performance)');
+  // Suppress TensorFlow warnings by configuring the environment
+  tf.env().set('WEBGL_CPU_FORWARD', false);
+  tf.env().set('WEBGL_FORCE_F16_TEXTURES', false);
+  tf.env().set('WEBGL_RENDER_FLOAT32_ENABLED', true);
+  tf.env().set('WEBGL_FLUSH_THRESHOLD', 1);
+}
+
 const natural = require('natural');
 const tokenizer = new natural.WordTokenizer();
 const path = require('path');

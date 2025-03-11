@@ -6,6 +6,13 @@ const tokenizer = new WordTokenizer();
 const path = require('path');
 const fs = require('fs');
 
+// Suppress TensorFlow warnings by configuring the environment
+// This doesn't improve performance but prevents the warnings from cluttering logs
+tf.env().set('WEBGL_CPU_FORWARD', false); // Force CPU ops to run on CPU
+tf.env().set('WEBGL_FORCE_F16_TEXTURES', false);
+tf.env().set('WEBGL_RENDER_FLOAT32_ENABLED', true);
+tf.env().set('WEBGL_FLUSH_THRESHOLD', 1); // Reduce memory pressure
+
 // 共有メモリストア
 const memoryStore = require('./memoryStore');
 
