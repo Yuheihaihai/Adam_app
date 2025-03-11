@@ -802,53 +802,48 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     // Process the AI response
     let responseText = aiResponse;
     
-    // Add service recommendations if available, relevant, and user preferences allow it
+    // Add service recommendations if user preferences allow it
     if (userPrefs.showServiceRecommendations && serviceRecommendations && serviceRecommendations.length > 0) {
-      // Apply user preference for max recommendations and minimum confidence score
-      const filteredByConfidence = serviceRecommendations.filter(
-        service => service.confidenceScore >= userPrefs.minConfidenceScore
-      );
+      // Filter to max number of recommendations and apply confidence threshold
+      const filteredRecommendations = serviceRecommendations
+        .filter(service => service.confidence >= userPrefs.minConfidenceScore)
+        .slice(0, userPrefs.maxRecommendations);
       
-      // Limit to user-specified max recommendations
-      const topRecommendations = filteredByConfidence.slice(0, userPrefs.maxRecommendations);
-      
-      if (topRecommendations.length > 0) {
-        console.log(`Found ${topRecommendations.length} service recommendations that meet confidence threshold and cooldown criteria`);
-        
-        // Add recommendations to the response
-        responseText += '\n\n以下のサービスがあなたの状況に役立つかもしれません：';
-        
-        for (const service of topRecommendations) {
-          try {
-            // Record this recommendation
-            await serviceRecommender.recordRecommendation(userId, service.id);
-            
-            // Add service information to the response
-            responseText += `\n・${service.description}『${service.name}』: ${service.url}`;
-          } catch (error) {
-            console.error(`Error recording recommendation for service ${service.id}:`, error);
+      if (filteredRecommendations.length > 0) {
+        // Add service recommendations to the response
+        responseText += '\n\n【お役立ち情報】\n';
+        filteredRecommendations.forEach((service, index) => {
+          responseText += `${index + 1}. ${service.name}: ${service.description}\n`;
+          if (service.url) {
+            responseText += `   ${service.url}\n`;
           }
+        });
+        
+        // Record service recommendations
+        try {
+          for (const service of filteredRecommendations) {
+            await recordServiceRecommendation(userId, service.id, service.confidence);
+          }
+        } catch (error) {
+          console.error('Error recording service recommendation:', error);
         }
       }
     }
     
-    // Add brief information about service settings for new users
+    // For new users, add a subtle hint about service settings
     if (isNewUser && userPrefs.showServiceRecommendations) {
-      responseText += '\n\n「サービス表示オフ」と入力するとサービス表示を非表示にできます。';
+      // Only add this hint if we've shown services or after a few messages
+      const hasShownServices = serviceRecommendations && serviceRecommendations.length > 0;
+      if (hasShownServices || history.length === 2) {
+        responseText += '\n\n（お役立ち情報が不要な場合は「サービスを表示しないで」と言っていただければ非表示にできます）';
+      }
     }
     
-    // Run critic pass on the response
-    const criticStartTime = Date.now();
-    const finalResponse = await runCriticPass(responseText, userMessage, userId);
-    console.log(`Critic pass completed in ${Date.now() - criticStartTime}ms`);
-    
-    // Log total processing time
     console.log(`Total processing time: ${Date.now() - startTime}ms`);
-    
-    return finalResponse;
+    return responseText;
   } catch (error) {
     console.error('Error in processWithAI:', error);
-    return '申し訳ありませんが、エラーが発生しました。もう一度お試しください。';
+    return '申し訳ありません。処理中にエラーが発生しました。もう一度お試しください。';
   }
 }
 
@@ -1005,7 +1000,25 @@ async function handleText(event) {
       }
       // Handle preference updates
       else {
-        responseMessage = userPreferences.getCurrentSettingsMessage(userId);
+        // Create a more conversational response based on what was changed
+        if (updatedPreferences.showServiceRecommendations !== undefined) {
+          if (updatedPreferences.showServiceRecommendations) {
+            responseMessage = `サービス表示をオンにしました。お役立ちそうなサービスがあれば、会話の中でご紹介します。`;
+          } else {
+            responseMessage = `サービス表示をオフにしました。サービスの紹介は表示されなくなります。`;
+          }
+        } else if (updatedPreferences.maxRecommendations !== undefined) {
+          if (updatedPreferences.maxRecommendations === 0) {
+            responseMessage = `サービスを表示しない設定にしました。`;
+          } else {
+            responseMessage = `表示するサービスの数を${updatedPreferences.maxRecommendations}件に設定しました。`;
+          }
+        } else if (updatedPreferences.minConfidenceScore !== undefined) {
+          responseMessage = `信頼度${Math.round(updatedPreferences.minConfidenceScore * 100)}%以上のサービスのみ表示するように設定しました。`;
+        } else {
+          // Fallback to current settings if we can't determine what changed
+          responseMessage = userPreferences.getCurrentSettingsMessage(userId);
+        }
       }
       
       await client.replyMessage(event.replyToken, {
@@ -1665,56 +1678,96 @@ class UserPreferences {
 
   // Get help message explaining available preference commands
   getHelpMessage() {
-    return `サービス表示設定：
-・サービス表示オン/オフ
-・サービス数0-5
-・信頼度40-90`;
+    return `サービス表示の設定方法：
+・「サービスを表示して」または「サービスを表示しないで」と言っていただくと、サービス表示のオン/オフを切り替えられます。
+・「サービスを3つ表示して」のように数字を指定すると、表示するサービスの数を変更できます（0～5まで）。
+・「信頼度80%以上のサービスを表示して」のように言っていただくと、表示する信頼度の閾値を変更できます（40%～90%まで）。
+・「今の設定は？」と聞いていただくと、現在の設定を確認できます。`;
   }
 
   // Get current settings message for a user
   getCurrentSettingsMessage(userId) {
     const prefs = this.getUserPreferences(userId);
-    return `設定：サービス表示${prefs.showServiceRecommendations ? 'オン' : 'オフ'}、表示数${prefs.maxRecommendations}、信頼度${Math.round(prefs.minConfidenceScore * 100)}%`;
+    return `現在の設定：サービス表示は${prefs.showServiceRecommendations ? 'オン' : 'オフ'}です。表示数は${prefs.maxRecommendations}件で、信頼度${Math.round(prefs.minConfidenceScore * 100)}%以上のサービスを表示します。`;
   }
 
   // Process preference commands from user messages
   processPreferenceCommand(userId, message) {
+    // Convert to lowercase for case-insensitive matching
     const lowerMessage = message.toLowerCase();
     
-    // Check for help command
-    if (lowerMessage.includes('サービス設定') || lowerMessage.includes('service settings')) {
+    // Check for help or information about service settings
+    if (lowerMessage.includes('サービス設定') || 
+        lowerMessage.includes('service settings') ||
+        lowerMessage.includes('設定について') ||
+        lowerMessage.includes('サービスの設定') ||
+        lowerMessage.includes('設定を教えて')) {
       return { helpRequested: true };
     }
     
-    // Check for current settings request
-    if (lowerMessage.includes('設定確認') || lowerMessage.includes('check settings')) {
+    // Check for current settings request - more natural language variations
+    if (lowerMessage.includes('設定確認') || 
+        lowerMessage.includes('check settings') ||
+        lowerMessage.includes('今の設定') ||
+        lowerMessage.includes('現在の設定') ||
+        lowerMessage.includes('設定は？') ||
+        lowerMessage.includes('設定を見せて') ||
+        lowerMessage.includes('設定を確認')) {
       return { settingsRequested: true };
     }
     
-    // Check for service recommendation toggle commands
-    if (lowerMessage.includes('サービス表示オフ') || lowerMessage.includes('service off')) {
+    // Check for turning OFF service recommendations - natural language variations
+    if (lowerMessage.includes('サービス表示オフ') || 
+        lowerMessage.includes('service off') ||
+        lowerMessage.includes('サービス表示を消して') ||
+        lowerMessage.includes('サービスを表示しないで') ||
+        lowerMessage.includes('サービスを非表示') ||
+        lowerMessage.includes('サービス表示をオフ') ||
+        lowerMessage.includes('サービスを出さないで') ||
+        lowerMessage.includes('サービスを表示しないでください') ||
+        lowerMessage.includes('サービスを見せないで') ||
+        lowerMessage.includes('サービスはいらない')) {
       return this.updateUserPreferences(userId, { showServiceRecommendations: false });
     }
     
-    if (lowerMessage.includes('サービス表示オン') || lowerMessage.includes('service on')) {
+    // Check for turning ON service recommendations - natural language variations
+    if (lowerMessage.includes('サービス表示オン') || 
+        lowerMessage.includes('service on') ||
+        lowerMessage.includes('サービス表示をオンにして') ||
+        lowerMessage.includes('サービスを表示して') ||
+        lowerMessage.includes('サービスを見せて') ||
+        lowerMessage.includes('サービスを出して') ||
+        lowerMessage.includes('サービスを表示してください') ||
+        lowerMessage.includes('サービスが見たい') ||
+        lowerMessage.includes('サービスを教えて')) {
       return this.updateUserPreferences(userId, { showServiceRecommendations: true });
     }
     
-    // Check for max recommendations adjustment
-    const maxRecRegex = /サービス数(\d+)|service (\d+)/i;
+    // Check for max recommendations adjustment - more flexible pattern matching
+    // Look for patterns like "サービスを3つ表示" or "3つのサービスを見せて" or "サービス数3"
+    const maxRecRegex = /サービス数(\d+)|service (\d+)|(\d+)つのサービス|サービスを(\d+)つ|(\d+)個のサービス|サービスを(\d+)個/i;
     const maxRecMatch = lowerMessage.match(maxRecRegex);
     if (maxRecMatch) {
-      const count = parseInt(maxRecMatch[1] || maxRecMatch[2]);
+      // Find the first non-undefined capture group that contains the number
+      const capturedGroups = maxRecMatch.slice(1);
+      const numberStr = capturedGroups.find(group => group !== undefined);
+      const count = parseInt(numberStr);
+      
       if (!isNaN(count) && count >= 0 && count <= 5) {
         return this.updateUserPreferences(userId, { maxRecommendations: count });
       }
     }
     
-    // Check for confidence threshold adjustment
-    const confidenceRegex = /信頼度(\d+)|confidence (\d+)/i;
+    // Check for confidence threshold adjustment - more flexible pattern matching
+    // Look for patterns like "信頼度80%" or "80%以上の信頼度" or "信頼度を80にして"
+    const confidenceRegex = /信頼度(\d+)|confidence (\d+)|(\d+)[%％]の信頼度|信頼度[をは](\d+)|(\d+)[%％]以上/i;
     const confidenceMatch = lowerMessage.match(confidenceRegex);
     if (confidenceMatch) {
-      const percentage = parseInt(confidenceMatch[1] || confidenceMatch[2]);
+      // Find the first non-undefined capture group that contains the number
+      const capturedGroups = confidenceMatch.slice(1);
+      const numberStr = capturedGroups.find(group => group !== undefined);
+      const percentage = parseInt(numberStr);
+      
       if (!isNaN(percentage) && percentage >= 40 && percentage <= 90) {
         return this.updateUserPreferences(userId, { minConfidenceScore: percentage / 100 });
       }
@@ -1726,3 +1779,14 @@ class UserPreferences {
 
 // Initialize user preferences
 const userPreferences = new UserPreferences();
+
+// Record a service recommendation
+async function recordServiceRecommendation(userId, serviceId, confidenceScore) {
+  try {
+    // Use the serviceRecommender's recordRecommendation method
+    await serviceRecommender.recordRecommendation(userId, serviceId);
+    console.log(`Recorded recommendation for user ${userId}, service ${serviceId} with confidence ${confidenceScore}`);
+  } catch (error) {
+    console.error('Error recording service recommendation:', error);
+  }
+}
