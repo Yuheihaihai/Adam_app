@@ -1903,6 +1903,7 @@ async function handleText(event) {
         // サービス名の取得
         let serviceName;
         let serviceDescription = '';
+        let serviceUrl = '';
         
         if (typeof service === 'string') {
           // サービスIDからサービス情報を取得
@@ -1910,21 +1911,27 @@ async function handleText(event) {
           if (serviceInfo) {
             serviceName = serviceInfo.name;
             serviceDescription = serviceInfo.description;
+            serviceUrl = serviceInfo.url;
+            serviceUrl = serviceInfo.url;
           } else {
             serviceName = service;
           }
         } else if (service.name) {
           serviceName = service.name;
           serviceDescription = service.description || '';
+          serviceUrl = service.url || '';
         } else if (service.serviceName) {
           serviceName = service.serviceName;
           serviceDescription = service.description || '';
+          serviceUrl = service.url || '';
         } else if (service.id) {
           // サービスIDからサービス情報を取得
           const serviceInfo = servicesData.find(s => s.id === service.id);
           if (serviceInfo) {
             serviceName = serviceInfo.name;
             serviceDescription = serviceInfo.description;
+            serviceUrl = serviceInfo.url;
+            serviceUrl = serviceInfo.url;
           } else {
             serviceName = service.id;
           }
@@ -1932,6 +1939,9 @@ async function handleText(event) {
         
         // サービス情報をテキストに追加
         serviceText += `${index + 1}. ${serviceName}`;
+        if (serviceUrl) {
+          serviceText += `\n   URL: ${serviceUrl}`;
+        }
         if (serviceDescription) {
           serviceText += `：${serviceDescription.substring(0, 80)}${serviceDescription.length > 80 ? '...' : ''}`;
         }
