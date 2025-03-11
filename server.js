@@ -2488,6 +2488,15 @@ async function recordServiceRecommendation(userId, serviceId, confidenceScore) {
 function isAppropriateTimeForServices(history, currentMessage) {
   if (!history || history.length === 0) return true;
   
+  // First check if the message is an advice request
+  const isAdviceRequest = detectAdviceRequest(currentMessage, history);
+  
+  // If it's an advice request, always show services regardless of question format
+  if (isAdviceRequest) {
+    console.log('Advice request detected - showing service recommendations');
+    return true;
+  }
+  
   // First check if the message is an explicit advice request
   const explicitAdvicePatterns = [
     'アドバイス', // Added standalone "advice" as explicit request
@@ -2518,6 +2527,7 @@ function isAppropriateTimeForServices(history, currentMessage) {
   }
   
   // Don't show services if user just asked a follow-up question
+  // BUT only if it's not an advice request (which we already checked above)
   if (currentMessage && 
       (currentMessage.endsWith('?') || 
        currentMessage.endsWith('？') || 
@@ -2638,11 +2648,14 @@ function detectAdviceRequest(message, history = null) {
   
   // Explicit advice request patterns (highest confidence)
   const explicitAdvicePatterns = [
-    'アドバイス', // Added standalone "advice" as explicit request
+    'アドバイス', // Standalone "advice" as explicit request
     'アドバイスください', 'アドバイス下さい', 'アドバイスを下さい', 'アドバイスをください',
     'アドバイスが欲しい', 'アドバイスがほしい', 'アドバイスをお願い', '助言ください',
     '助言下さい', 'どうしたらいい', 'どうすればいい', 'おすすめを教えて',
-    'どのようなものがおすすめ', 'おすすめは何', 'お勧めは何', 'どれがいい'
+    'どのようなものがおすすめ', 'おすすめは何', 'お勧めは何', 'どれがいい',
+    // Additional explicit patterns
+    '相談したい', '相談があります', '相談に乗って', '助けてください',
+    '意見を聞かせて', '意見をください', '教えてください'
   ];
   
   // Track matched patterns
@@ -2737,6 +2750,38 @@ function detectAdviceRequest(message, history = null) {
   // 2. NUANCED INTENT RECOGNITION (Higher recall)
   // ---------------------------------------------
   
+  // Indirect advice request patterns (nuanced indicators)
+  const indirectAdvicePatterns = [
+    'どうしたらいいですか', 'どうすればいいですか', 'どうすれば', 
+    '効果がありますか', '効果的ですか', 'おすすめはありますか', 'お勧めはありますか',
+    'どう思いますか', '教えてください', '何か方法はありますか', 'いい方法はありますか',
+    'これで大丈夫ですか', 'これでいいですか', '迷っています', '困っています',
+    '悩んでいます', 'どうやったらいいですか', '良い選択肢はありますか'
+  ];
+  
+  // Check for indirect advice patterns
+  const matchedIndirectPatterns = indirectAdvicePatterns.filter(pattern => 
+    lowerMessage.includes(pattern)
+  );
+  
+  if (matchedIndirectPatterns.length > 0) {
+    // Assign higher weight to indirect advice patterns
+    const indirectScore = Math.min(3, matchedIndirectPatterns.length * 1.5);
+    contextualScore += indirectScore;
+    detectionLog.detectedPatterns.push(...matchedIndirectPatterns.map(p => `INDIRECT:${p}`));
+    console.log(`+${indirectScore.toFixed(1)}: Indirect advice patterns [${matchedIndirectPatterns.join(', ')}]`);
+    
+    // If there's a strong indirect pattern, return true immediately
+    if (indirectScore >= 3) {
+      detectionLog.result = true;
+      detectionLog.detectionReason = 'Strong indirect advice request';
+      
+      console.log(`✅ DETECTED: Strong indirect advice request`);
+      console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
+      return true;
+    }
+  }
+  
   // Subtle patterns that might indicate advice-seeking (lower confidence)
   const subtleAdvicePatterns = [
     'かな', 'ですか', 'だろうか', 'と思う', 'けど', 'でも', 'しかし',
@@ -2811,14 +2856,16 @@ function detectAdviceRequest(message, history = null) {
   
   // Question mark analysis (give more weight to multiple questions)
   if (hasQuestionMark) {
-    const questionScore = Math.min(2, questionMarkCount * 0.75);
+    // Increase weight for question marks
+    const questionScore = Math.min(2.5, questionMarkCount * 1.0);
     contextualScore += questionScore;
     console.log(`+${questionScore.toFixed(1)}: Contains ${questionMarkCount} question mark(s)`);
   }
   
   // Japanese question structures
   if (matchedQuestionPatterns.length > 0) {
-    const questionPatternScore = Math.min(1.5, matchedQuestionPatterns.length * 0.5);
+    // Increase weight for Japanese question structures
+    const questionPatternScore = Math.min(2.0, matchedQuestionPatterns.length * 0.75);
     contextualScore += questionPatternScore;
     console.log(`+${questionPatternScore.toFixed(1)}: Japanese question structures [${matchedQuestionPatterns.join(', ')}]`);
   }
@@ -2902,8 +2949,8 @@ function detectAdviceRequest(message, history = null) {
     return true;
   }
   
-  // Nuanced detection based on contextual score
-  if (contextualScore >= 3) {
+  // Lower the threshold for contextual score detection
+  if (contextualScore >= 2.5) {
     detectionLog.detectionReason = `High contextual score (${contextualScore.toFixed(1)})`;
     detectionLog.result = true;
     
@@ -2913,7 +2960,7 @@ function detectAdviceRequest(message, history = null) {
   }
   
   // Medium confidence: Both some advice pattern and good contextual score
-  if (hasStandardAdvicePattern && contextualScore >= 2) {
+  if (hasStandardAdvicePattern && contextualScore >= 1.5) {
     detectionLog.detectionReason = `Medium confidence (explicit pattern + context score: ${contextualScore.toFixed(1)})`;
     detectionLog.result = true;
     
@@ -2923,7 +2970,7 @@ function detectAdviceRequest(message, history = null) {
   }
   
   // Lower threshold for question-based messages with some contextual score
-  if ((hasQuestionMark || matchedQuestionPatterns.length > 0) && contextualScore >= 2) {
+  if ((hasQuestionMark || matchedQuestionPatterns.length > 0) && contextualScore >= 1.5) {
     detectionLog.detectionReason = `Question with good contextual score (${contextualScore.toFixed(1)})`;
     detectionLog.result = true;
     
