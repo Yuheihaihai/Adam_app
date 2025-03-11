@@ -817,7 +817,7 @@ function checkHighEngagement(userMessage, history) {
   // 両方の条件を満たす場合のみtrueを返す
   return hasPersonalReference && hasPositiveKeyword;
 }
-  
+
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
   try {
     console.log(`Processing message in mode: ${mode}`);
@@ -1005,7 +1005,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
                 (msg.content.includes('サービス') || 
                  msg.content.includes('お役立ち情報'))) {
               presentationContext.hasSeenServicesBefore = true;
-              break;
+        break;
             }
           }
         }
@@ -1426,7 +1426,7 @@ async function handleText(event) {
         if (updatedPreferences.showServiceRecommendations !== undefined) {
           if (updatedPreferences.showServiceRecommendations) {
             responseMessage = `サービス表示をオンにしました。お役立ちそうなサービスがあれば、会話の中でご紹介します。`;
-          } else {
+    } else {
             // Check if this was triggered by negative feedback
             const lowerMessage = userMessage.toLowerCase();
             const negativePatterns = ['要らない', 'いらない', '不要', '邪魔', '見たくない', '表示しないで', '非表示', '消して'];
@@ -1533,7 +1533,7 @@ async function handleText(event) {
     // TODO: ここに残りのコードを実装
 
     // AIでの処理を実行
-    const result = await processWithAI(systemPrompt, userMessage, historyForAI, mode);
+    const result = await processWithAI(systemPrompt, userMessage, historyForAI, mode, userId, client);
     return client.replyMessage(event.replyToken, { type: 'text', text: result });
   } catch (error) {
     console.error('Error handling text message:', error);
@@ -1628,5 +1628,86 @@ async function handleVisionExplanation(event) {
     } catch (replyError) {
       console.error('Error sending error reply:', replyError);
     }
+  }
+}
+
+/**
+ * Extracts relevant context from conversation history
+ * @param {Array} history - Array of conversation history items
+ * @param {string} userMessage - Current user message
+ * @return {Object} - Extracted context information
+ */
+function extractConversationContext(history, userMessage) {
+  try {
+    // Extract recent topics from last 5 messages
+    const recentMessages = history.slice(-5);
+    
+    // Extract user interests
+    const userInterests = [];
+    const interestKeywords = [
+      '趣味', '好き', '興味', 'ホビー', '楽しい', '関心', 
+      'すき', 'きょうみ', 'たのしい', 'かんしん'
+    ];
+    
+    recentMessages.forEach(msg => {
+      if (msg.role === 'user') {
+        for (const keyword of interestKeywords) {
+          if (msg.content.includes(keyword)) {
+            // Extract the sentence containing the keyword
+            const sentences = msg.content.split(/。|！|\.|!/).filter(s => s.includes(keyword));
+            userInterests.push(...sentences);
+          }
+        }
+      }
+    });
+    
+    // Check for emotion indicators
+    const emotions = {
+      positive: 0,
+      negative: 0,
+      neutral: 1 // Default to slightly neutral
+    };
+    
+    const positiveWords = [
+      '嬉しい', '楽しい', '良い', '好き', '素晴らしい', 
+      'うれしい', 'たのしい', 'よい', 'すき', 'すばらしい'
+    ];
+    
+    const negativeWords = [
+      '悲しい', '辛い', '苦しい', '嫌い', '心配', 
+      'かなしい', 'つらい', 'くるしい', 'きらい', 'しんぱい'
+    ];
+    
+    // Check current message for emotion words
+    for (const word of positiveWords) {
+      if (userMessage.includes(word)) emotions.positive++;
+    }
+    
+    for (const word of negativeWords) {
+      if (userMessage.includes(word)) emotions.negative++;
+    }
+    
+    // Return the compiled context
+    return {
+      userInterests: userInterests.length > 0 ? userInterests : null,
+      userEmotion: emotions.positive > emotions.negative ? 'positive' : 
+                   emotions.negative > emotions.positive ? 'negative' : 'neutral',
+      emotionIntensity: Math.max(emotions.positive, emotions.negative),
+      messageCount: history.length,
+      recentTopics: recentMessages
+        .map(msg => msg.content)
+        .join(' ')
+        .split(/。|！|\.|!/)
+        .filter(s => s.length > 5)
+        .slice(-3)
+    };
+  } catch (error) {
+    console.error('Error extracting conversation context:', error);
+    // Return a minimal context object in case of error
+    return {
+      userEmotion: 'neutral',
+      emotionIntensity: 0,
+      messageCount: history.length
+    };
   }
 }
