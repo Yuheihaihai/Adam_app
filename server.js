@@ -6,6 +6,8 @@ const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
+const path = require('path');
+const fs = require('fs');
 
 // Import service hub components
 const UserNeedsAnalyzer = require('./userNeedsAnalyzer');
@@ -711,6 +713,12 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     // Start performance measurement
     const startTime = Date.now();
     
+    // Get user preferences
+    const userPrefs = userPreferences.getUserPreferences(userId);
+    
+    // Check if this is a new user or has very few messages
+    const isNewUser = history.length < 3;
+    
     // Determine which model to use
     const useGpt4 = mode === 'characteristics' || mode === 'analysis';
     const model = useGpt4 ? 'gpt-4o' : 'gpt-4o';
@@ -746,12 +754,15 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     // Start service matching process
     console.log('Starting service matching process with confidence threshold...');
     
-    // Get service recommendations
-    const serviceRecommendationsPromise = serviceRecommender.getFilteredRecommendations(
-      userId, 
-      userNeeds,
-      conversationContext
-    );
+    // Get service recommendations only if user preferences allow it
+    let serviceRecommendationsPromise = Promise.resolve([]);
+    if (userPrefs.showServiceRecommendations) {
+      serviceRecommendationsPromise = serviceRecommender.getFilteredRecommendations(
+        userId, 
+        userNeeds,
+        conversationContext
+      );
+    }
     
     // Prepare the messages for the AI model
     const messages = [
@@ -783,32 +794,47 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     ]);
     
     // Log the number of matching services
-    console.log(`Matching services before filtering: ${serviceRecommendations ? serviceRecommendations.length : 'undefined'} services met the confidence threshold`);
-    console.log('Checking for cooldown period on previously recommended services...');
+    if (userPrefs.showServiceRecommendations) {
+      console.log(`Matching services before filtering: ${serviceRecommendations ? serviceRecommendations.length : 'undefined'} services met the confidence threshold`);
+      console.log('Checking for cooldown period on previously recommended services...');
+    }
     
     // Process the AI response
     let responseText = aiResponse;
     
-    // Add service recommendations if available and relevant
-    if (serviceRecommendations && serviceRecommendations.length > 0) {
-      // Limit to top 3 recommendations
-      const topRecommendations = serviceRecommendations.slice(0, 3);
-      console.log(`Found ${topRecommendations.length} service recommendations that meet confidence threshold and cooldown criteria`);
+    // Add service recommendations if available, relevant, and user preferences allow it
+    if (userPrefs.showServiceRecommendations && serviceRecommendations && serviceRecommendations.length > 0) {
+      // Apply user preference for max recommendations and minimum confidence score
+      const filteredByConfidence = serviceRecommendations.filter(
+        service => service.confidenceScore >= userPrefs.minConfidenceScore
+      );
       
-      // Add recommendations to the response
-      responseText += '\n\n以下のサービスがあなたの状況に役立つかもしれません：';
+      // Limit to user-specified max recommendations
+      const topRecommendations = filteredByConfidence.slice(0, userPrefs.maxRecommendations);
       
-      for (const service of topRecommendations) {
-        try {
-          // Record this recommendation
-          await serviceRecommender.recordRecommendation(userId, service.id);
-          
-          // Add service information to the response
-          responseText += `\n・${service.description}『${service.name}』: ${service.url}`;
-        } catch (error) {
-          console.error(`Error recording recommendation for service ${service.id}:`, error);
+      if (topRecommendations.length > 0) {
+        console.log(`Found ${topRecommendations.length} service recommendations that meet confidence threshold and cooldown criteria`);
+        
+        // Add recommendations to the response
+        responseText += '\n\n以下のサービスがあなたの状況に役立つかもしれません：';
+        
+        for (const service of topRecommendations) {
+          try {
+            // Record this recommendation
+            await serviceRecommender.recordRecommendation(userId, service.id);
+            
+            // Add service information to the response
+            responseText += `\n・${service.description}『${service.name}』: ${service.url}`;
+          } catch (error) {
+            console.error(`Error recording recommendation for service ${service.id}:`, error);
+          }
         }
       }
+    }
+    
+    // Add brief information about service settings for new users
+    if (isNewUser && userPrefs.showServiceRecommendations) {
+      responseText += '\n\n「サービス表示オフ」と入力するとサービス表示を非表示にできます。';
     }
     
     // Run critic pass on the response
@@ -964,6 +990,36 @@ async function handleText(event) {
     
     const userMessage = event.message.text.trim();
 
+    // Check for user preference commands
+    const updatedPreferences = userPreferences.processPreferenceCommand(userId, userMessage);
+    if (updatedPreferences) {
+      let responseMessage = '';
+      
+      // Handle help request
+      if (updatedPreferences.helpRequested) {
+        responseMessage = userPreferences.getHelpMessage();
+      } 
+      // Handle settings check request
+      else if (updatedPreferences.settingsRequested) {
+        responseMessage = userPreferences.getCurrentSettingsMessage(userId);
+      }
+      // Handle preference updates
+      else {
+        responseMessage = userPreferences.getCurrentSettingsMessage(userId);
+      }
+      
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: responseMessage
+      });
+      
+      // Store the interaction
+      await storeInteraction(userId, 'user', userMessage);
+      await storeInteraction(userId, 'assistant', responseMessage);
+      
+      return;
+    }
+    
     // 特定の問い合わせ（ASD支援の質問例や使い方の案内）を検出
     if (userMessage.includes("ASD症支援であなたが対応できる具体的な質問例") && userMessage.includes("使い方")) {
       return handleASDUsageInquiry(event);
@@ -1454,47 +1510,58 @@ function extractConversationContext(history, currentMessage) {
       currentMood: null,
       urgency: 0
     };
-
+    
+    // Ensure history is an array
+    const historyArray = Array.isArray(history) ? history : [];
+    
     // Define keywords for topics
     const topicKeywords = {
-      employment: ['仕事', '就職', '転職', '就労', '働く', '職場', '会社', '雇用', 'キャリア', '求人', '面接', '履歴書', '退職', '失業', '給料', '昇進'],
-      education: ['学校', '勉強', '教育', '学習', '研修', '資格', '講座', '講義', '授業', '先生', '教師', '学生', '生徒', '卒業', '入学', '試験'],
-      mental_health: ['不安', '鬱', 'うつ', '悩み', 'ストレス', '精神', '心理', 'カウンセリング', '相談', '療法', '治療', '医師', '診断', '症状', '感情', '気分'],
-      social: ['友達', '友人', '人間関係', '家族', '親', '子供', '夫', '妻', '恋人', '彼氏', '彼女', '付き合う', '結婚', '離婚', '孤独', '孤立', '引きこもり'],
-      relationships: ['恋愛', '結婚', '離婚', '別れ', '出会い', 'パートナー', '夫婦', '家族', '親子', '兄弟', '姉妹', '親戚', '親密', '信頼', '愛情'],
-      daily_living: ['生活', '家事', '料理', '掃除', '買い物', '住居', '家賃', '光熱費', '食費', '予算', '節約', '貯金', '借金', '債務', '保険', '健康']
+      employment: ['仕事', '就職', '転職', '就労', '働く', '職場', 'キャリア', '雇用', '求人', '面接', '履歴書', '職業', '就活', 'アルバイト', 'パート', '収入', '給料', '失業', '無職'],
+      education: ['学校', '勉強', '教育', '学習', '授業', '講座', '研修', '資格', '試験', '大学', '高校', '専門学校', '学位', '卒業', '入学', '留学', '奨学金'],
+      mental_health: ['不安', '鬱', 'うつ', '発達障害', 'ASD', 'ADHD', '自閉症', 'アスペルガー', 'パニック', 'ストレス', '精神', '心理', 'カウンセリング', '療法', '診断', '症状', '特性', '過敏', '感覚'],
+      social: ['友達', '人間関係', '社交', '交流', 'コミュニケーション', '孤独', '孤立', '引きこもり', 'ひきこもり', '外出', '会話', '対人', '付き合い', 'グループ', 'コミュニティ'],
+      relationships: ['恋愛', '結婚', '離婚', '夫婦', '家族', '親子', '子育て', 'パートナー', '彼氏', '彼女', '夫', '妻', '恋人', '片思い', '告白', 'デート', '愛情'],
+      daily_living: ['生活', '住居', '家賃', '食事', '健康', '医療', '保険', '福祉', '支援', '手当', '制度', '相談', '窓口', '申請', '手続き', '書類', '役所', '市役所', '区役所']
     };
-
+    
     // Define keywords for moods
     const moodKeywords = {
-      anxious: ['不安', '心配', '怖い', 'ドキドキ', '緊張', 'パニック', '恐怖', 'びくびく'],
-      depressed: ['鬱', 'うつ', '悲しい', '落ち込む', '絶望', '虚しい', '無気力', '疲れた', '生きる意味', '死にたい'],
-      overwhelmed: ['疲れた', '限界', '無理', 'ストレス', '忙しい', '余裕がない', '大変', '苦しい'],
-      angry: ['怒り', '腹立たしい', 'イライラ', '許せない', '憤り', '不満', '文句', '嫌い'],
-      hopeful: ['希望', '楽しみ', '期待', '前向き', 'ポジティブ', '明るい', '良くなる', '改善']
+      anxious: ['不安', '心配', '怖い', 'ドキドキ', '緊張', 'パニック', '恐怖'],
+      depressed: ['鬱', 'うつ', '悲しい', '辛い', '苦しい', '絶望', '無気力', '疲れた', '生きる意味'],
+      overwhelmed: ['疲れた', '限界', '無理', 'パンク', '混乱', '余裕がない', 'ストレス', '大変'],
+      angry: ['怒り', '腹立たしい', 'イライラ', '許せない', '不満', '憤り', '不快'],
+      hopeful: ['希望', '楽しみ', '期待', '前向き', 'ポジティブ', '明るい', '良くなる']
     };
-
-    // Define keywords for urgency
-    const urgencyKeywords = ['すぐに', '急いで', '今すぐ', '緊急', '危機', '助けて', '危ない', '死にたい', '自殺', '今日中に', '明日までに'];
-
-    // Combine current message with recent history (last 5 messages)
-    const recentMessages = history.slice(-5).map(msg => msg.content);
-    const allText = [currentMessage, ...recentMessages].join(' ');
     
-    // Extract topics
-    for (const [topic, keywords] of Object.entries(topicKeywords)) {
-      for (const keyword of keywords) {
-        if (allText.includes(keyword)) {
-          if (!context.recentTopics.includes(topic)) {
-            context.recentTopics.push(topic);
+    // Define keywords for urgency
+    const urgencyKeywords = ['すぐに', '急いで', '今すぐ', '緊急', '危険', '助けて', '死にたい', '自殺', '今日中', '明日まで', '切迫', '待てない', '限界'];
+    
+    // Combine current message with last 5 messages from history
+    const recentMessages = [
+      ...historyArray.slice(-5).map(msg => msg.content),
+      currentMessage
+    ];
+    
+    // Extract topics from all recent messages
+    for (const message of recentMessages) {
+      for (const [topic, keywords] of Object.entries(topicKeywords)) {
+        for (const keyword of keywords) {
+          if (message.includes(keyword)) {
+            if (!context.recentTopics.includes(topic)) {
+              context.recentTopics.push(topic);
+            }
+            break; // Once we find a match for this topic, move to next topic
           }
-          break; // Once we find one keyword for a topic, we can move to the next topic
         }
       }
     }
-
+    
     // Detect current mood (from last 2 messages only for recency)
-    const recentText = [currentMessage, history.slice(-1)[0]?.content || ''].join(' ');
+    const recentText = [
+      currentMessage, 
+      historyArray.slice(-1)[0]?.content || ''
+    ].join(' ');
+    
     for (const [mood, keywords] of Object.entries(moodKeywords)) {
       for (const keyword of keywords) {
         if (recentText.includes(keyword)) {
@@ -1504,7 +1571,7 @@ function extractConversationContext(history, currentMessage) {
       }
       if (context.currentMood) break; // If we found a mood, stop checking other moods
     }
-
+    
     // Check for urgency (in current message only)
     for (const keyword of urgencyKeywords) {
       if (currentMessage.includes(keyword)) {
@@ -1512,7 +1579,7 @@ function extractConversationContext(history, currentMessage) {
         break;
       }
     }
-
+    
     return context;
   } catch (error) {
     console.error('Error extracting conversation context:', error);
@@ -1533,3 +1600,129 @@ if (!process.env.OPENAI_API_KEY) {
 if (!process.env.ANTHROPIC_API_KEY) {
   console.warn('ANTHROPIC_API_KEY environment variable is not set. Claude model will not be available.');
 }
+
+class UserPreferences {
+  constructor() {
+    this.preferences = {};
+    this.defaultPreferences = {
+      showServiceRecommendations: true,
+      maxRecommendations: 3,
+      minConfidenceScore: 0.6
+    };
+    this.preferencesPath = path.join(__dirname, 'user_preferences.json');
+    this._loadPreferences();
+  }
+
+  // Load preferences from file
+  _loadPreferences() {
+    try {
+      if (fs.existsSync(this.preferencesPath)) {
+        const data = fs.readFileSync(this.preferencesPath, 'utf8');
+        this.preferences = JSON.parse(data);
+        console.log('Loaded user preferences from file');
+      } else {
+        console.log('No preferences file found, using default preferences');
+      }
+    } catch (error) {
+      console.error('Error loading preferences:', error);
+      console.log('Using default preferences due to error');
+    }
+  }
+
+  // Save preferences to file
+  _savePreferences() {
+    try {
+      fs.writeFileSync(this.preferencesPath, JSON.stringify(this.preferences, null, 2), 'utf8');
+      console.log('Saved user preferences to file');
+    } catch (error) {
+      console.error('Error saving preferences:', error);
+    }
+  }
+
+  // Get preferences for a user
+  getUserPreferences(userId) {
+    if (!this.preferences[userId]) {
+      this.preferences[userId] = { ...this.defaultPreferences };
+      this._savePreferences();
+    }
+    return this.preferences[userId];
+  }
+
+  // Update preferences for a user
+  updateUserPreferences(userId, newPreferences) {
+    if (!this.preferences[userId]) {
+      this.preferences[userId] = { ...this.defaultPreferences };
+    }
+    
+    this.preferences[userId] = {
+      ...this.preferences[userId],
+      ...newPreferences
+    };
+    
+    this._savePreferences();
+    return this.preferences[userId];
+  }
+
+  // Get help message explaining available preference commands
+  getHelpMessage() {
+    return `サービス表示設定：
+・サービス表示オン/オフ
+・サービス数0-5
+・信頼度40-90`;
+  }
+
+  // Get current settings message for a user
+  getCurrentSettingsMessage(userId) {
+    const prefs = this.getUserPreferences(userId);
+    return `設定：サービス表示${prefs.showServiceRecommendations ? 'オン' : 'オフ'}、表示数${prefs.maxRecommendations}、信頼度${Math.round(prefs.minConfidenceScore * 100)}%`;
+  }
+
+  // Process preference commands from user messages
+  processPreferenceCommand(userId, message) {
+    const lowerMessage = message.toLowerCase();
+    
+    // Check for help command
+    if (lowerMessage.includes('サービス設定') || lowerMessage.includes('service settings')) {
+      return { helpRequested: true };
+    }
+    
+    // Check for current settings request
+    if (lowerMessage.includes('設定確認') || lowerMessage.includes('check settings')) {
+      return { settingsRequested: true };
+    }
+    
+    // Check for service recommendation toggle commands
+    if (lowerMessage.includes('サービス表示オフ') || lowerMessage.includes('service off')) {
+      return this.updateUserPreferences(userId, { showServiceRecommendations: false });
+    }
+    
+    if (lowerMessage.includes('サービス表示オン') || lowerMessage.includes('service on')) {
+      return this.updateUserPreferences(userId, { showServiceRecommendations: true });
+    }
+    
+    // Check for max recommendations adjustment
+    const maxRecRegex = /サービス数(\d+)|service (\d+)/i;
+    const maxRecMatch = lowerMessage.match(maxRecRegex);
+    if (maxRecMatch) {
+      const count = parseInt(maxRecMatch[1] || maxRecMatch[2]);
+      if (!isNaN(count) && count >= 0 && count <= 5) {
+        return this.updateUserPreferences(userId, { maxRecommendations: count });
+      }
+    }
+    
+    // Check for confidence threshold adjustment
+    const confidenceRegex = /信頼度(\d+)|confidence (\d+)/i;
+    const confidenceMatch = lowerMessage.match(confidenceRegex);
+    if (confidenceMatch) {
+      const percentage = parseInt(confidenceMatch[1] || confidenceMatch[2]);
+      if (!isNaN(percentage) && percentage >= 40 && percentage <= 90) {
+        return this.updateUserPreferences(userId, { minConfidenceScore: percentage / 100 });
+      }
+    }
+    
+    return null;
+  }
+}
+
+// Initialize user preferences
+const userPreferences = new UserPreferences();

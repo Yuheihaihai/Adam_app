@@ -6,10 +6,18 @@ class UserNeedsAnalyzer {
     this.openai = new OpenAI({ apiKey });
   }
 
-  async analyzeUserNeeds(history) {
+  async analyzeUserNeeds(userMessage, history) {
     try {
+      // Ensure history is an array
+      const historyArray = Array.isArray(history) ? history : [];
+      
+      // Add current message to history if provided
+      const fullHistory = userMessage 
+        ? [...historyArray, { role: 'user', content: userMessage }]
+        : historyArray;
+      
       // Format history for analysis
-      const conversationText = history.map(msg => 
+      const conversationText = fullHistory.map(msg => 
         `${msg.role === 'user' ? 'ユーザー' : 'アシスタント'}: ${msg.content}`
       ).join('\n\n');
 
