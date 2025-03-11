@@ -1549,24 +1549,40 @@ app.listen(PORT, () => {
 });
 
 /**
- * Checks if a message indicates user confusion or a request for explanation
+ * Checks if a message indicates user confusion or a request for explanation about an image
  * @param {string} text - The message text to check
- * @return {boolean} - True if the message indicates confusion
+ * @return {boolean} - True if the message indicates confusion about an image
  */
 function isConfusionRequest(text) {
   if (!text || typeof text !== 'string') return false;
   
+  // First check if the message contains image-related terms
+  const imageTerms = ['画像', '写真', 'イメージ', '図', 'がぞう', 'しゃしん', 'ピクチャ', '絵'];
+  const hasImageTerm = imageTerms.some(term => text.includes(term));
+  
+  // Then check for confusion patterns
   const confusionPatterns = [
     'わからない', '分からない', '理解できない', '意味がわからない', '意味が分からない',
     '何これ', 'なにこれ', '何だこれ', 'なんだこれ', '何だろう', 'なんだろう',
-    'どういう意味', 'どういうこと', '説明して', '教えて', 'よくわからない',
-    'よく分からない', '何が起きてる', '何が起きている', 'なにが起きてる',
+    'どういう意味', 'どういうこと', 'よくわからない', 'よく分からない', 
+    '何が起きてる', '何が起きている', 'なにが起きてる',
     '何が書いてある', '何て書いてある', '何と書いてある', 'これは何',
     'これはなに', 'これって何', 'これってなに', '何が表示されてる',
     '何が表示されている', 'なにが表示されてる', 'これ何', 'これなに'
   ];
   
-  return confusionPatterns.some(pattern => text.includes(pattern));
+  // More specific explanation request patterns that must be image-related
+  const explanationPatterns = [
+    '説明して', '教えて'
+  ];
+  
+  // Return true if:
+  // 1. Contains a confusion pattern AND an image term, OR
+  // 2. Contains a specific explanation request AND an image term
+  const hasConfusionPattern = confusionPatterns.some(pattern => text.includes(pattern));
+  const hasExplanationRequest = explanationPatterns.some(pattern => text.includes(pattern));
+  
+  return (hasImageTerm && (hasConfusionPattern || hasExplanationRequest));
 }
 
 /**
@@ -1590,7 +1606,7 @@ async function handleVisionExplanation(event) {
       // No recent image found
       await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: '最近の画像が見つかりませんでした。説明してほしい画像を送信してください。'
+        text: '最近の画像が見つかりませんでした。説明してほしい画像を送信してください。もし画像の説明を求めていない場合は、別の質問をお願いします。'
       });
       return;
     }
