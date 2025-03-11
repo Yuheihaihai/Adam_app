@@ -1530,8 +1530,15 @@ async function handleASDUsageInquiry(event) {
 　　- あなたが「いいえ」と回答した場合、私は別の方法で説明を行います。
 　　-🚨⚠️「適職診断」や「自己理解診断」は、30回以上の会話データをもとに行いますので、実行前に30回以上の会話をしてください。🚨⚠️
 
+【サービス推薦システムについて】
+会話の中で、あなたのニーズに合わせたサポートサービスを紹介することがあります。この機能は以下のようにカスタマイズできます：
+	•	サービス表示オフ：サービス推薦を表示しないようにする
+	•	サービス表示オン：サービス推薦を表示する
+	•	サービス数[数字]：表示するサービスの数を設定する（例：サービス数2）
+	•	信頼度[数字]：サービスの関連性の最低基準を設定する（例：信頼度80）
+	•	サービス設定確認：現在の設定を確認する
 
-
+また、「お仕事関係ない」や「メンタルについて知りたい」などの自然な表現でも、表示するサービスの種類を調整できます。
 
 【画像送信について】
 	•	あなたが送信する場合：
@@ -1931,6 +1938,20 @@ class UserPreferences {
     const hasNegativeFeedback = negativePatterns.some(pattern => lowerMessage.includes(pattern));
     const hasSubtleNegativeFeedback = subtleNegativePatterns.some(pattern => lowerMessage.includes(pattern));
     
+    // Check for explicit OFF commands
+    if (lowerMessage.includes('サービス表示オフ') || 
+        lowerMessage.includes('service off') ||
+        lowerMessage.includes('サービス表示をオフにして') ||
+        lowerMessage.includes('サービスを非表示') ||
+        lowerMessage.includes('サービスを表示しないで') ||
+        lowerMessage.includes('サービスオフ') ||
+        lowerMessage.includes('表示オフ') ||
+        lowerMessage.includes('サービス表示停止') ||
+        lowerMessage.includes('サービス停止') ||
+        lowerMessage.includes('サービスを停止')) {
+      return this.updateUserPreferences(userId, { showServiceRecommendations: false });
+    }
+    
     // If message contains both service reference and negative feedback, turn off services
     if (hasServiceReference && hasNegativeFeedback) {
       return this.updateUserPreferences(userId, { showServiceRecommendations: false });
@@ -1959,7 +1980,18 @@ class UserPreferences {
         lowerMessage.includes('サービスを出して') ||
         lowerMessage.includes('サービスを表示してください') ||
         lowerMessage.includes('サービスが見たい') ||
-        lowerMessage.includes('サービスを教えて')) {
+        lowerMessage.includes('サービスを教えて') ||
+        // Additional natural language variations for Japanese speakers
+        lowerMessage.includes('サービスオン') ||
+        lowerMessage.includes('表示オン') ||
+        lowerMessage.includes('サービス表示開始') ||
+        lowerMessage.includes('サービス再開') ||
+        lowerMessage.includes('サービスを再開') ||
+        lowerMessage.includes('おすすめサービス') ||
+        lowerMessage.includes('サービスをおすすめ') ||
+        lowerMessage.includes('役立つサービス') ||
+        lowerMessage.includes('サービスを再表示') ||
+        lowerMessage.includes('何かいいサービス')) {
       return this.updateUserPreferences(userId, { showServiceRecommendations: true });
     }
     
@@ -2045,159 +2077,3 @@ async function recordServiceRecommendation(userId, serviceId, confidenceScore) {
   }
 }
 
-/**
- * Analyze conversation context to determine how to present service recommendations
- * @param {Array} history - Conversation history
- * @param {string} currentMessage - Current user message
- * @param {Object} userNeeds - Analyzed user needs
- * @returns {Object} - Context for service presentation
- */
-function analyzeConversationForServicePresentation(history, currentMessage, userNeeds) {
-  // Initialize the presentation context
-  const presentationContext = {
-    shouldBeMinimal: false,
-    hasSeenServicesBefore: false,
-    categoryFeedback: {},
-    preferredCategory: null  // Add a preferred category field
-  };
-  
-  // Check if user has seen services before
-  if (history && history.length > 0) {
-    for (let i = 0; i < history.length; i++) {
-      const msg = history[i];
-      if (msg.role === 'assistant' && msg.content && 
-          (msg.content.includes('サービス') || 
-           msg.content.includes('お役立ち情報'))) {
-        presentationContext.hasSeenServicesBefore = true;
-        break;
-      }
-    }
-  }
-  
-  // Detect distress indicators
-  const distressIndicators = [
-    'つらい', '苦しい', '死にたい', '自殺', '助けて', 
-    'しんどい', '無理', 'やばい', '辛い', '悲しい'
-  ];
-  
-  // Check for distress in current message
-  if (currentMessage) {
-    for (const indicator of distressIndicators) {
-      if (currentMessage.includes(indicator)) {
-        presentationContext.shouldBeMinimal = true;
-        break;
-      }
-    }
-  }
-  
-  // Check recent history for distress patterns
-  if (history && history.length > 0) {
-    let distressCount = 0;
-    // Check last 5 messages
-    const recentMessages = history.slice(-5);
-    for (const msg of recentMessages) {
-      if (msg.role === 'user') {
-        for (const indicator of distressIndicators) {
-          if (msg.content && msg.content.includes(indicator)) {
-            distressCount++;
-            break;
-          }
-        }
-      }
-    }
-    // If multiple distress indicators in recent history, use minimal presentation
-    if (distressCount >= 2) {
-      presentationContext.shouldBeMinimal = true;
-    }
-  }
-  
-  // Detect negative feedback about specific service categories
-  const categoryKeywords = {
-    'career': ['仕事', '就職', 'キャリア', '転職', '就労', '働く', 'お仕事'],
-    'mental_health': ['メンタル', '心の健康', '精神', 'カウンセリング', '心療', '心理'],
-    'social': ['コミュニティ', '社会', '交流', 'ひきこもり', '孤立', 'コミュニケーション'],
-    'financial': ['お金', '経済', '金銭', '生活費', '支援金', '財政']
-  };
-  
-  // Improved negative feedback patterns
-  const negationPatterns = [
-    '関係ない', 'いらない', '必要ない', '見たくない', '興味ない',
-    'どうでもいい', '別に', 'めんどくさい', '要らない', '不要',
-    '表示しないで', '出さないで', '表示するな', '紹介するな',
-    'やめて', '結構です', 'いい', 'しないで'
-  ];
-  
-  // Check for direct mentions of categories with positive intent
-  const positivePatterns = [
-    '知りたい', '教えて', '欲しい', 'ほしい', '必要', '探して',
-    '興味ある', 'お願い', 'どう', '何か', '助けて'
-  ];
-  
-  // Check for category-specific feedback
-  if (currentMessage) {
-    // First check for explicit preferred categories
-    for (const [category, keywords] of Object.entries(categoryKeywords)) {
-      for (const keyword of keywords) {
-        if (currentMessage.includes(keyword)) {
-          // Check if there's a positive pattern near the category keyword
-          for (const positive of positivePatterns) {
-            if (currentMessage.includes(positive)) {
-              // Record positive feedback for this category
-              presentationContext.preferredCategory = category;
-              console.log(`Detected positive interest in category: ${category}`);
-              break;
-            }
-          }
-        }
-      }
-    }
-    
-    // Then check for negative feedback about categories
-    for (const [category, keywords] of Object.entries(categoryKeywords)) {
-      for (const keyword of keywords) {
-        if (currentMessage.includes(keyword)) {
-          // Check if there's a negation pattern near the category keyword
-          for (const negation of negationPatterns) {
-            if (currentMessage.includes(negation)) {
-              // Record negative feedback for this category
-              presentationContext.categoryFeedback[category] = 'negative';
-              console.log(`Detected negative feedback for category: ${category}`);
-              break;
-            }
-          }
-        }
-      }
-    }
-    
-    // Special case - explicit feedback phrases
-    if (currentMessage.includes('お仕事関係ない') || 
-        currentMessage.includes('仕事関係ない') || 
-        currentMessage.includes('キャリア関係ない')) {
-      presentationContext.categoryFeedback['career'] = 'negative';
-      console.log('Detected explicit negative feedback about career services');
-      
-      // If user rejects career services but has mental health needs, prioritize those
-      if (userNeeds && userNeeds.mental_health && 
-          (userNeeds.mental_health.shows_depression || userNeeds.mental_health.shows_anxiety)) {
-        presentationContext.preferredCategory = 'mental_health';
-        console.log('Prioritizing mental health services based on user feedback and needs');
-      }
-    }
-    
-    if (currentMessage.includes('メンタル')) {
-      presentationContext.preferredCategory = 'mental_health';
-      console.log('Detected explicit interest in mental health services');
-    }
-  }
-  
-  // Look for mental health priority based on needs analysis
-  if (!presentationContext.preferredCategory && userNeeds) {
-    if (userNeeds.mental_health && 
-        (userNeeds.mental_health.shows_depression || userNeeds.mental_health.shows_anxiety || userNeeds.mental_health.seeking_therapy)) {
-      presentationContext.preferredCategory = 'mental_health';
-      console.log('Prioritizing mental health services based on user needs analysis');
-    }
-  }
-  
-  return presentationContext;
-}
