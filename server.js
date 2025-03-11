@@ -722,7 +722,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       (async () => {
         console.log('Analyzing user needs from conversation history...');
         const needsStartTime = Date.now();
-        const userNeeds = await userNeedsAnalyzer.analyzeNeeds(userMessage, history);
+        const userNeeds = await userNeedsAnalyzer.analyzeUserNeeds(userMessage, history);
         console.log(`User needs analysis completed in ${Date.now() - needsStartTime}ms`);
         return userNeeds;
       })(),
@@ -799,11 +799,15 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       responseText += '\n\n以下のサービスがあなたの状況に役立つかもしれません：';
       
       for (const service of topRecommendations) {
-        // Record this recommendation
-        await serviceRecommender.recordRecommendation(userId, service.id);
-        
-        // Add service information to the response
-        responseText += `\n・${service.description}『${service.name}』: ${service.url}`;
+        try {
+          // Record this recommendation
+          await serviceRecommender.recordRecommendation(userId, service.id);
+          
+          // Add service information to the response
+          responseText += `\n・${service.description}『${service.name}』: ${service.url}`;
+        } catch (error) {
+          console.error(`Error recording recommendation for service ${service.id}:`, error);
+        }
       }
     }
     

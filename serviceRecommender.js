@@ -15,7 +15,7 @@ class ServiceRecommender {
     this.tableExists = false;
     this.localRecommendations = [];
     this.localStoragePath = path.join(__dirname, 'local_recommendations.json');
-    this.services = require('./services.js');
+    this.services = services; // Use the imported services module
     this.confidenceThreshold = 0.4;
     this.openaiApiKey = process.env.OPENAI_API_KEY;
     this.useAiMatching = true; // Always use AI matching
@@ -823,48 +823,53 @@ class ServiceRecommender {
       // Calculate similarity scores for all services
       const matches = [];
       for (const service of this.services) {
-        const serviceEmbedding = this.serviceEmbeddings[service.id];
-        if (!serviceEmbedding) {
-          console.warn(`No embedding found for service ${service.id}`);
-          continue;
-        }
-        
-        const similarityScore = this._cosineSimilarity(queryEmbedding, serviceEmbedding);
-        
-        // Apply additional adjustments based on context if available
-        let finalScore = similarityScore;
-        if (conversationContext) {
-          // Adjust score based on topic match
-          if (conversationContext.recentTopics && service.criteria.topics) {
-            const topicOverlap = conversationContext.recentTopics.filter(
-              topic => service.criteria.topics.includes(topic)
-            ).length;
+        try {
+          const serviceEmbedding = this.serviceEmbeddings[service.id];
+          if (!serviceEmbedding) {
+            console.warn(`No embedding found for service ${service.id}`);
+            continue;
+          }
+          
+          const similarityScore = this._cosineSimilarity(queryEmbedding, serviceEmbedding);
+          
+          // Apply additional adjustments based on context if available
+          let finalScore = similarityScore;
+          if (conversationContext) {
+            // Adjust score based on topic match
+            if (conversationContext.recentTopics && service.criteria && service.criteria.topics) {
+              const topicOverlap = conversationContext.recentTopics.filter(
+                topic => service.criteria.topics.includes(topic)
+              ).length;
+              
+              if (topicOverlap > 0) {
+                finalScore += 0.05 * topicOverlap;
+              }
+            }
             
-            if (topicOverlap > 0) {
-              finalScore += 0.05 * topicOverlap;
+            // Adjust score based on mood match
+            if (conversationContext.currentMood && service.criteria && service.criteria.moods) {
+              if (service.criteria.moods.includes(conversationContext.currentMood)) {
+                finalScore += 0.1;
+              }
+            }
+            
+            // Adjust score based on urgency
+            if (conversationContext.urgency > 0 && service.criteria && service.criteria.urgent) {
+              finalScore += 0.15;
             }
           }
           
-          // Adjust score based on mood match
-          if (conversationContext.currentMood && service.criteria.moods) {
-            if (service.criteria.moods.includes(conversationContext.currentMood)) {
-              finalScore += 0.1;
-            }
-          }
+          // Cap the score at 1.0
+          finalScore = Math.min(finalScore, 1.0);
           
-          // Adjust score based on urgency
-          if (conversationContext.urgency > 0 && service.criteria.urgent) {
-            finalScore += 0.15;
-          }
+          matches.push({
+            service,
+            score: finalScore
+          });
+        } catch (error) {
+          console.error(`Error processing service ${service.id}:`, error);
+          // Continue with other services
         }
-        
-        // Cap the score at 1.0
-        finalScore = Math.min(finalScore, 1.0);
-        
-        matches.push({
-          service,
-          score: finalScore
-        });
       }
       
       // Filter services that meet the confidence threshold
