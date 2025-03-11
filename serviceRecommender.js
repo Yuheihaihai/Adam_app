@@ -2,6 +2,7 @@
 const services = require('./services');
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 
 // Define constants at the module level to prevent accidental changes
 const DEFAULT_CONFIDENCE_THRESHOLD = 0.6; // 60% confidence threshold
@@ -20,14 +21,28 @@ class ServiceRecommender {
     this.useAiMatching = true; // Always use AI matching
     this.aiModel = "gpt-4o-mini"; // Always use GPT-4o-mini
     
+    // Vector matching
+    this.serviceEmbeddings = {};
+    this.embeddingsPath = path.join(__dirname, 'service_embeddings.json');
+    this.embeddingModel = "text-embedding-3-small";
+    this.embeddingDimension = 1536;
+    this.embeddingsLoaded = false;
+    
+    // Cache for matching results
+    this.matchingCache = new Map();
+    this.CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+    
     // Set confidence threshold with validation
     this._setConfidenceThreshold(DEFAULT_CONFIDENCE_THRESHOLD);
     
-    // Initialize table check
-    this._checkTableExists();
-    
-    // Load local recommendations if available
+    // Load local recommendations
     this._loadLocalRecommendations();
+    
+    // Load or generate service embeddings
+    this._loadOrGenerateEmbeddings();
+    
+    // Check if the recommendations table exists
+    this._checkTableExists();
     
     // Freeze critical properties to prevent accidental modification
     Object.defineProperty(this, 'CONFIDENCE_THRESHOLD', {
@@ -114,6 +129,109 @@ class ServiceRecommender {
     }
   }
 
+  async _loadOrGenerateEmbeddings() {
+    try {
+      if (fs.existsSync(this.embeddingsPath)) {
+        const data = fs.readFileSync(this.embeddingsPath, 'utf8');
+        this.serviceEmbeddings = JSON.parse(data);
+        this.embeddingsLoaded = true;
+        console.log(`Loaded ${Object.keys(this.serviceEmbeddings).length} service embeddings from file`);
+      } else {
+        console.log('No embeddings file found, will generate embeddings on first use');
+      }
+    } catch (error) {
+      console.error('Error loading service embeddings:', error);
+      console.log('Will generate embeddings on first use');
+    }
+  }
+  
+  async _saveEmbeddings() {
+    try {
+      fs.writeFileSync(this.embeddingsPath, JSON.stringify(this.serviceEmbeddings), 'utf8');
+      console.log(`Saved ${Object.keys(this.serviceEmbeddings).length} service embeddings to file`);
+    } catch (error) {
+      console.error('Error saving service embeddings:', error);
+    }
+  }
+  
+  async _generateEmbedding(text) {
+    try {
+      const response = await axios.post(
+        'https://api.openai.com/v1/embeddings',
+        {
+          input: text,
+          model: this.embeddingModel
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.openaiApiKey}`
+          }
+        }
+      );
+      
+      return response.data.data[0].embedding;
+    } catch (error) {
+      console.error('Error generating embedding:', error);
+      throw error;
+    }
+  }
+  
+  async _generateAllServiceEmbeddings() {
+    if (!this.openaiApiKey) {
+      console.error('OpenAI API key is required for generating embeddings');
+      return false;
+    }
+    
+    try {
+      console.log('Generating embeddings for all services...');
+      for (const service of this.services) {
+        // Create a text representation of the service criteria
+        const criteriaText = JSON.stringify(service.criteria);
+        
+        // Generate embedding
+        const embedding = await this._generateEmbedding(criteriaText);
+        
+        // Store embedding
+        this.serviceEmbeddings[service.id] = embedding;
+        
+        // Add a small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      // Save embeddings to file
+      await this._saveEmbeddings();
+      this.embeddingsLoaded = true;
+      
+      console.log(`Generated embeddings for ${this.services.length} services`);
+      return true;
+    } catch (error) {
+      console.error('Error generating service embeddings:', error);
+      return false;
+    }
+  }
+  
+  _cosineSimilarity(vecA, vecB) {
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    
+    for (let i = 0; i < vecA.length; i++) {
+      dotProduct += vecA[i] * vecB[i];
+      normA += vecA[i] * vecA[i];
+      normB += vecB[i] * vecB[i];
+    }
+    
+    normA = Math.sqrt(normA);
+    normB = Math.sqrt(normB);
+    
+    if (normA === 0 || normB === 0) {
+      return 0;
+    }
+    
+    return dotProduct / (normA * normB);
+  }
+  
   /**
    * Get services that match user needs and have not been recently recommended
    * @param {string} userId - The user ID
@@ -128,19 +246,79 @@ class ServiceRecommender {
       if (conversationContext) {
         console.log('Conversation context:', JSON.stringify(conversationContext));
       }
+      
+      // Create a cache key based on user needs and context
+      const cacheKey = JSON.stringify({
+        userNeeds,
+        context: conversationContext ? {
+          topics: conversationContext.recentTopics,
+          mood: conversationContext.currentMood,
+          urgency: conversationContext.urgency
+        } : null
+      });
+      
+      // Check cache first
+      const now = Date.now();
+      if (this.matchingCache.has(cacheKey)) {
+        const cached = this.matchingCache.get(cacheKey);
+        if (now - cached.timestamp < this.CACHE_TTL) {
+          console.log('Cache hit for service matching');
+          const startTime = Date.now();
+          
+          // Filter out recently recommended services
+          const filteredServices = [];
+          for (const service of cached.services) {
+            const wasRecent = await this.wasRecentlyRecommended(userId, service.id);
+            if (!wasRecent) {
+              filteredServices.push(service);
+            } else {
+              console.log(`Service ${service.id} was recently recommended to user ${userId}, filtering out`);
+            }
+          }
+          
+          this._logPerformanceMetrics('Cached matching (with cooldown check)', startTime);
+          return filteredServices;
+        }
+      }
 
       let matchingServices;
       const startTime = Date.now();
       
-      // Always use AI matching with GPT-4o-mini
-      if (this.openaiApiKey) {
+      // Try vector-based matching first if embeddings are loaded
+      if (this.embeddingsLoaded && this.openaiApiKey) {
+        try {
+          matchingServices = await this.findMatchingServicesWithVectors(userNeeds, conversationContext);
+          this._logPerformanceMetrics('Vector-based matching', startTime);
+        } catch (error) {
+          console.error('Error in vector-based matching:', error);
+          // Fall back to AI-based matching
+          matchingServices = await this.findMatchingServicesWithAI(userNeeds, conversationContext);
+          this._logPerformanceMetrics('AI-based matching (fallback)', startTime);
+        }
+      } else if (this.openaiApiKey) {
+        // Use AI-based matching if embeddings aren't loaded
         matchingServices = await this.findMatchingServicesWithAI(userNeeds, conversationContext);
         this._logPerformanceMetrics('AI-based matching', startTime);
+        
+        // Generate embeddings for future use if they don't exist
+        if (!this.embeddingsLoaded) {
+          this._generateAllServiceEmbeddings().then(success => {
+            if (success) {
+              console.log('Service embeddings generated successfully for future use');
+            }
+          });
+        }
       } else {
-        // Only fall back to rule-based if OpenAI API key is missing
+        // Fall back to rule-based matching if OpenAI API key is missing
         matchingServices = await this.findMatchingServices(userNeeds, conversationContext);
         this._logPerformanceMetrics('Rule-based matching', startTime);
       }
+      
+      // Cache the results
+      this.matchingCache.set(cacheKey, {
+        services: matchingServices,
+        timestamp: now
+      });
 
       // Filter out recently recommended services
       const filteredServices = [];
@@ -615,6 +793,93 @@ class ServiceRecommender {
       // Fallback to rule-based matching if AI fails
       console.log('Falling back to rule-based matching');
       return this.findMatchingServices(userNeeds, conversationContext);
+    }
+  }
+
+  async findMatchingServicesWithVectors(userNeeds, conversationContext = null) {
+    try {
+      // Ensure embeddings are loaded
+      if (!this.embeddingsLoaded) {
+        const success = await this._generateAllServiceEmbeddings();
+        if (!success) {
+          throw new Error('Failed to generate service embeddings');
+        }
+      }
+      
+      // Create a text representation of the user needs and context
+      const userNeedsText = JSON.stringify(userNeeds);
+      const contextText = conversationContext ? JSON.stringify({
+        topics: conversationContext.recentTopics,
+        mood: conversationContext.currentMood,
+        urgency: conversationContext.urgency
+      }) : '';
+      
+      const queryText = `${userNeedsText} ${contextText}`.trim();
+      
+      // Generate embedding for the query
+      console.log('Generating embedding for user query...');
+      const queryEmbedding = await this._generateEmbedding(queryText);
+      
+      // Calculate similarity scores for all services
+      const matches = [];
+      for (const service of this.services) {
+        const serviceEmbedding = this.serviceEmbeddings[service.id];
+        if (!serviceEmbedding) {
+          console.warn(`No embedding found for service ${service.id}`);
+          continue;
+        }
+        
+        const similarityScore = this._cosineSimilarity(queryEmbedding, serviceEmbedding);
+        
+        // Apply additional adjustments based on context if available
+        let finalScore = similarityScore;
+        if (conversationContext) {
+          // Adjust score based on topic match
+          if (conversationContext.recentTopics && service.criteria.topics) {
+            const topicOverlap = conversationContext.recentTopics.filter(
+              topic => service.criteria.topics.includes(topic)
+            ).length;
+            
+            if (topicOverlap > 0) {
+              finalScore += 0.05 * topicOverlap;
+            }
+          }
+          
+          // Adjust score based on mood match
+          if (conversationContext.currentMood && service.criteria.moods) {
+            if (service.criteria.moods.includes(conversationContext.currentMood)) {
+              finalScore += 0.1;
+            }
+          }
+          
+          // Adjust score based on urgency
+          if (conversationContext.urgency > 0 && service.criteria.urgent) {
+            finalScore += 0.15;
+          }
+        }
+        
+        // Cap the score at 1.0
+        finalScore = Math.min(finalScore, 1.0);
+        
+        matches.push({
+          service,
+          score: finalScore
+        });
+      }
+      
+      // Filter services that meet the confidence threshold
+      const filteredMatches = matches.filter(match => match.score >= this.confidenceThreshold);
+      
+      // Sort by score in descending order
+      filteredMatches.sort((a, b) => b.score - a.score);
+      
+      console.log(`Vector matching found ${filteredMatches.length} services above threshold`);
+      
+      // Return just the service objects
+      return filteredMatches.map(match => match.service);
+    } catch (error) {
+      console.error('Error in vector-based service matching:', error);
+      throw error;
     }
   }
 

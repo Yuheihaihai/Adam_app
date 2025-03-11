@@ -705,339 +705,121 @@ function checkHighEngagement(userMessage, history) {
 }
   
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
-  console.log('Processing message in mode:', mode);  // デバッグログ追加
-  
-  if (mode === 'share') {
-    console.log('Share mode detected, sending share message');  // デバッグログ追加
-    try {
-      const shareMessage = {
-        type: 'text',
-        text: `温かいお言葉をありがとうございます。\n\nもし良ければ、Adamとの対話が誰かのお役に立つかもしれません。\n\nシェアはこちらから：\n${SHARE_URL}\n\n（シェアは任意です。Adamとの対話は続けられます）`
-      };
-      
-      await client.pushMessage(userId, shareMessage);
-      console.log('Share message sent successfully');  // デバッグログ
-    } catch (error) {
-      console.error('Error sending share message:', error);
-    }
-  }
-
-  let selectedModel = 'gpt-4o';  // Changed from 'chatgpt-4o-latest'
-  
-  // Mental health counseling topics (highest priority)
-  const counselingTopics = [
-    'メンタル', '心理',
-  ];
-
-  // Business/career consultant topics (second priority)
-  const consultantTopics = [
-    'ビジネス', '仕事', '悩み', '問題', 'キャリア', 
-    '法律', '医療', '健康', 'コミュニケーション'
-  ];
-  
-  // Priority order check
-  const needsCounseling = counselingTopics.some(topic => 
-    userMessage.includes(topic)
-  );
-
-  // Add these consultation request patterns
-  const consultationRequests = [
-    'アドバイスください', 'アドバイス下さい',
-    '相談したい', '相談させてください', '相談させて下さい',
-    'コンサルお願い', 'アドバイスお願い',
-    '助言ください', '助言下さい'
-  ];
-
-  // Modify the consultant mode check
-  const needsConsultant = consultantTopics.some(topic => userMessage.includes(topic)) &&
-    consultationRequests.some(request => userMessage.includes(request));
-
-  // Career counseling mode check (highest priority trigger)
-  if (userMessage === '記録が少ない場合も全て思い出して私の適職診断(職場･人間関係･社風含む)お願いします🤲') {
-    try {
-      console.log('Career-related query detected, fetching job market trends...');
-      
-      // Get user characteristics from history
-      const userTraits = history
-        .filter(h => h.role === 'assistant' && h.content.includes('あなたの特徴：'))
-        .map(h => h.content)[0] || 'キャリアについて相談したいユーザー';
-      
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: '🔍 Perplexityで最新の求人市場データを検索しています...\n\n※回答まで1-2分ほどお時間をいただく場合があります。'
-      });
-
-      const searchQuery = `${userTraits}\n\nこのような特徴を持つ方に最適な職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない振興職業や従来の職業も全て含む）を3つ程度、職場･人間関係･社風喪含めて、具体的に提案してください。各職種について、必要なスキル、将来性、具体的な求人情報（Indeed、Wantedly、type.jpなどのURL）も含めてください。\n\n※1000文字以内で簡潔に。`;
-      console.log('🔍 PERPLEXITY SEARCH QUERY:', searchQuery);
-      
-      const jobTrendsData = await perplexity.getJobTrends(searchQuery);
-      
-      if (jobTrendsData?.analysis) {
-        console.log('✨ Perplexity market data successfully integrated with career counselor mode ✨');
-        
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: '📊 あなたの特性と市場分析に基づいた検索結果：\n' + jobTrendsData.analysis
-        });
-
-        if (jobTrendsData.urls) {
-          await client.pushMessage(userId, {
-            type: 'text',
-            text: '📎 参考求人情報：\n' + jobTrendsData.urls
-          });
-        }
-
-        perplexityContext = `
-[あなたの特性と市場分析に基づいた検索結果]
-${jobTrendsData.analysis}
-
-[分析の観点]
-上記の職種提案を考慮しながら、以下の点について分析してください：
-`;
-        systemPrompt = SYSTEM_PROMPT_CAREER + perplexityContext;
-      }
-    } catch (err) {
-      console.error('Perplexity search error:', err);
-    }
-  }
-  
-  // Mental health counseling mode (second priority)
-  else if (needsCounseling || mode === 'counseling') {
-    mode = 'counseling';
-    systemPrompt = SYSTEM_PROMPT_CAREER + `
-
-[注意事項]
-• 話題が仕事や経営の相談に移った場合は、コンサルタントモードへの切り替えを提案してください
-• 話題が一般的な内容になった場合は、チャットモードへの切り替えを提案してください`;
+  try {
+    console.log(`Processing message in mode: ${mode}`);
     
-    if (needsCounseling && history[history.length - 1]?.role === 'user') {
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: '💭 お気持ちに寄り添ってお話をうかがわせていただきます。'
-      });
-    }
-  }
-  
-  // Consultant mode (third priority)
-  else if (needsConsultant || mode === 'consultant') {
-    selectedModel = 'gpt-4o';
-    systemPrompt = SYSTEM_PROMPT_CONSULTANT + `
-
-[注意事項]
-• 話題がメンタルヘルスに関わる場合は、カウンセリングモードへの切り替えを提案してください
-• 話題が一般的な内容になった場合は、チャットモードへの切り替えを提案してください`;
-    mode = 'consultant';
+    // Start performance measurement
+    const startTime = Date.now();
     
-    if (needsConsultant && history[history.length - 1]?.role === 'user') {
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: '💡 より詳しくサポートするため、コンサルタントモードに切り替えさせていただきました。'
-      });
-    }
-  }
-  
-  // General chat mode (lowest priority)
-  else {
-    mode = 'chat';
-    systemPrompt = `あなたは親しみやすいチャットボットです。
-
-[対応可能な話題]
-• 日常的な会話や雑談
-• 質問への回答やアドバイス
-  - 趣味や娯楽について
-  - 料理やレシピについて
-  - 旅行先や観光スポットについて
-  - 映画や音楽の感想
-  - 季節のイベントについて
-  - 一般的な生活の知恵
-• 一般的な情報提供
-
-[対応しない話題]
-• ビジネスや仕事の相談
-• 個人的な悩みや問題解決
-• キャリアに関する相談
-• メンタルヘルスに関する相談
-• 法律や医療に関する相談
-
-[注意事項]
-1. フレンドリーに会話してください
-2. 簡潔に回答してください
-3. 確実な情報のみを提供してください
-4. 専門的な相談には、コンサルタントモードへの切り替えを提案してください
-5. 対応できない話題の場合は、その旨を明確に伝えてください
-`;
-  }
-
-  console.log(`Using model: ${selectedModel}`);
-
-  // Analyze user needs if we have enough history (at least 5 messages)
-  let serviceRecommendations = '';
-  if (history.length >= 3) { // Changed from 5 to 3 for testing
-    try {
-      console.log('Analyzing user needs from conversation history...');
-      const userNeeds = await userNeedsAnalyzer.analyzeUserNeeds(history);
-      console.log('User needs analysis result:', JSON.stringify(userNeeds));
+    // Determine which model to use
+    const useGpt4 = mode === 'characteristics' || mode === 'analysis';
+    const model = useGpt4 ? 'gpt-4o' : 'gpt-4o';
+    console.log(`Using model: ${model}`);
+    
+    // Run user needs analysis, conversation context extraction, and service matching in parallel
+    const [userNeedsPromise, conversationContextPromise] = await Promise.all([
+      // Analyze user needs from conversation history
+      (async () => {
+        console.log('Analyzing user needs from conversation history...');
+        const needsStartTime = Date.now();
+        const userNeeds = await userNeedsAnalyzer.analyzeNeeds(userMessage, history);
+        console.log(`User needs analysis completed in ${Date.now() - needsStartTime}ms`);
+        return userNeeds;
+      })(),
       
-      // Get service recommendations
-      console.log('Starting service matching process with confidence threshold...');
-      const matchingServices = serviceRecommender.findMatchingServices(userNeeds);
-      console.log(`Matching services before filtering: ${matchingServices.length} services met the confidence threshold`);
-      
-      // Skip the rest of the service matching process if no services match
-      if (matchingServices.length === 0) {
-        console.log('No matching services found that meet the confidence threshold, skipping service recommendation step');
-      } else {
-        console.log('Checking for cooldown period on previously recommended services...');
-        
-        // Extract conversation context for more relevant recommendations
+      // Extract conversation context
+      (async () => {
+        console.log('Extracting conversation context...');
+        const contextStartTime = Date.now();
         const conversationContext = extractConversationContext(history, userMessage);
-        console.log('Extracted conversation context:', JSON.stringify(conversationContext));
-        
-        const recommendedServices = await serviceRecommender.getFilteredRecommendations(userId, userNeeds, conversationContext);
-        console.log(`Filtered services after cooldown check: ${recommendedServices.length} services available to recommend`);
-        
-        if (recommendedServices.length > 0) {
-          console.log(`Found ${recommendedServices.length} service recommendations that meet confidence threshold and cooldown criteria`);
-          
-          // Sort services by confidence score (highest first) and limit to top 3
-          recommendedServices.sort((a, b) => b.confidenceScore - a.confidenceScore);
-          const topRecommendations = recommendedServices.slice(0, 3);
-          console.log(`Limiting to top ${topRecommendations.length} recommendations with highest confidence scores`);
-          
-          // Format service recommendations
-          serviceRecommendations = '\n\n以下のサービスがあなたの状況に役立つかもしれません：\n';
-          
-          // Check if primarily emotional needs
-          const hasEmotionalNeeds = _hasEmotionalNeeds(userNeeds);
-          if (hasEmotionalNeeds) {
-            // Use more empathetic introduction for emotional needs
-            serviceRecommendations = '\n\n私はAIとして直接的な感情的サポートには限界がありますが、以下のサービスがあなたの気持ちに寄り添えるかもしれません：\n';
-          }
-          
-          // Track successful recommendations for logging
-          let successfulRecommendations = 0;
-          
-          for (const service of topRecommendations) {
-            // Add more context-sensitive description based on service type
-            let contextNote = '';
-            
-            // Add context notes for emotional support services
-            if (service.tags && (
-              service.tags.includes('emotional_support') || 
-              service.tags.includes('emotional_connection') || 
-              service.tags.includes('social_connection')
-            )) {
-              contextNote = '（感情的なつながりやサポートを提供）';
-            } 
-            // Add context notes for employment services
-            else if (service.tags && (
-              service.tags.includes('employment') || 
-              service.tags.includes('training') || 
-              service.tags.includes('general_employment')
-            )) {
-              contextNote = '（就労や職業訓練のサポート）';
-            }
-            
-            serviceRecommendations += `・${service.description}${contextNote}『${service.name}』: ${service.url}\n`;
-            console.log(`Recommending service: ${service.name} to user ${userId} (confidence: ${service.confidenceScore.toFixed(1)}%)`);
-            
-            try {
-              // Record that we recommended this service
-              await serviceRecommender.recordRecommendation(userId, service.id);
-              successfulRecommendations++;
-            } catch (recordError) {
-              console.error(`Failed to record recommendation for ${service.id}:`, recordError);
-            }
-          }
-          
-          console.log(`Successfully recorded ${successfulRecommendations} of ${topRecommendations.length} recommendations`);
-        } else {
-          console.log('No services to recommend after filtering (all potential matches were recently recommended)');
-        }
-      }
-    } catch (error) {
-      console.error('Error in service recommendation process:', error);
-      console.error(error.stack); // Add stack trace for better debugging
-    }
-  }
-
-  const finalPrompt = applyAdditionalInstructions(
-    systemPrompt,
-    mode,
-    history,
-    userMessage
-  );
-
-  // Add service recommendations to the system prompt if any were found
-  const promptWithRecommendations = finalPrompt + (serviceRecommendations ? 
-    `\n\n[サービス推奨 - 重要]\n以下のサービス情報を必ず回答の最後に含めてください。これは重要な情報であり、ユーザーに提供する必要があります：${serviceRecommendations}\n\n回答の最後に「以下のサービスがあなたの状況に役立つかもしれません：」という文言に続けて、上記のサービス情報を必ず含めてください。この情報は削除したり、省略したりしないでください。` : '');
-
-  let messages = [];
-  let gptOptions = {
-    model: selectedModel,
-    messages,
-    temperature: 0.7,
-  };
-
-  if (selectedModel === 'gpt-4o') {
-    gptOptions.temperature = 1;
-    const systemPrefix = `[System Inst]: ${promptWithRecommendations}\n---\n`;
-    messages.push({
-      role: 'user',
-      content: systemPrefix + ' ' + userMessage,
-    });
-    history.forEach((item) => {
-      messages.push({
-        role: 'user',
-        content: `(${item.role} said:) ${item.content}`,
-      });
-    });
-  } else {
-    messages.push({ role: 'system', content: promptWithRecommendations });
-    messages.push(
-      ...history.map((item) => ({
-        role: item.role,
-        content: item.content,
-      }))
-    );
-    messages.push({ role: 'user', content: userMessage });
-  }
-
-  console.log(`Loaded ${history.length} messages in mode=[${mode}], model=${selectedModel}`);
-
-  const aiReply = await tryPrimaryThenBackup(gptOptions);
-
-  // Ensure service recommendations are included in the final response
-  let finalResponse = aiReply;
-  if (serviceRecommendations && !aiReply.includes('以下のサービスがあなたの状況に役立つかもしれません：')) {
-    console.log('Service recommendations not found in AI response, appending them');
-    finalResponse = aiReply.trim() + '\n\n' + serviceRecommendations.trim();
-  }
-
-  const criticOutput = await runCriticPass(finalResponse, userMessage, userId);
-  if (criticOutput && !criticOutput.includes('問題ありません')) {
-    return criticOutput;
-  }
-
-  // Check engagement after AI response
-  if (checkHighEngagement(userMessage, history)) {
-    console.log('High engagement detected, attempting to send share message');  // デバッグログ
+        console.log(`Context extraction completed in ${Date.now() - contextStartTime}ms`);
+        return conversationContext;
+      })()
+    ]);
     
-    try {
-      // シェア提案メッセージを送信
-      const shareMessage = {
-        type: 'text',
-        text: `温かいお言葉をありがとうございます。\n\nもし良ければ、Adamとの対話が誰かのお役に立つかもしれません。\n\nシェアはこちらから：\n${SHARE_URL}\n\n（シェアは任意です。Adamとの対話は続けられます）`
-      };
+    // Wait for both promises to resolve
+    const userNeeds = await userNeedsPromise;
+    const conversationContext = await conversationContextPromise;
+    
+    console.log('User needs analysis result:', JSON.stringify(userNeeds));
+    
+    // Start service matching process
+    console.log('Starting service matching process with confidence threshold...');
+    
+    // Get service recommendations
+    const serviceRecommendationsPromise = serviceRecommender.getFilteredRecommendations(
+      userId, 
+      userNeeds,
+      conversationContext
+    );
+    
+    // Prepare the messages for the AI model
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...history.map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content
+      })),
+      { role: 'user', content: userMessage }
+    ];
+    
+    // Run AI response generation and service matching in parallel
+    const [aiResponse, serviceRecommendations] = await Promise.all([
+      // Generate AI response
+      (async () => {
+        const aiStartTime = Date.now();
+        const response = await tryPrimaryThenBackup({ 
+          messages, 
+          model,
+          temperature: 0.7,
+          max_tokens: 1000
+        });
+        console.log(`AI response generation completed in ${Date.now() - aiStartTime}ms`);
+        return response;
+      })(),
       
-      await client.pushMessage(userId, shareMessage);
-      console.log('Share message sent successfully');  // デバッグログ
-    } catch (error) {
-      console.error('Error sending share message:', error);  // エラーログ
+      // Wait for service recommendations
+      serviceRecommendationsPromise
+    ]);
+    
+    // Log the number of matching services
+    console.log(`Matching services before filtering: ${serviceRecommendations ? serviceRecommendations.length : 'undefined'} services met the confidence threshold`);
+    console.log('Checking for cooldown period on previously recommended services...');
+    
+    // Process the AI response
+    let responseText = aiResponse;
+    
+    // Add service recommendations if available and relevant
+    if (serviceRecommendations && serviceRecommendations.length > 0) {
+      // Limit to top 3 recommendations
+      const topRecommendations = serviceRecommendations.slice(0, 3);
+      console.log(`Found ${topRecommendations.length} service recommendations that meet confidence threshold and cooldown criteria`);
+      
+      // Add recommendations to the response
+      responseText += '\n\n以下のサービスがあなたの状況に役立つかもしれません：';
+      
+      for (const service of topRecommendations) {
+        // Record this recommendation
+        await serviceRecommender.recordRecommendation(userId, service.id);
+        
+        // Add service information to the response
+        responseText += `\n・${service.description}『${service.name}』: ${service.url}`;
+      }
     }
+    
+    // Run critic pass on the response
+    const criticStartTime = Date.now();
+    const finalResponse = await runCriticPass(responseText, userMessage, userId);
+    console.log(`Critic pass completed in ${Date.now() - criticStartTime}ms`);
+    
+    // Log total processing time
+    console.log(`Total processing time: ${Date.now() - startTime}ms`);
+    
+    return finalResponse;
+  } catch (error) {
+    console.error('Error in processWithAI:', error);
+    return '申し訳ありませんが、エラーが発生しました。もう一度お試しください。';
   }
-
-  return aiReply;
 }
 
 // Add timeout handling with retries and proper error handling
@@ -1668,70 +1450,73 @@ function extractConversationContext(history, currentMessage) {
       currentMood: null,
       urgency: 0
     };
-    
-    // Define keywords for topic extraction
+
+    // Define keywords for topics
     const topicKeywords = {
-      employment: ['仕事', '就職', '転職', '就労', '働く', '雇用', 'キャリア', '職場'],
-      education: ['学校', '勉強', '教育', '学習', '資格', 'スキル', '訓練'],
-      mental_health: ['不安', '鬱', 'うつ', '精神', 'ストレス', '心理', '感情', '気分'],
-      social: ['人間関係', '友達', '家族', '社会', '孤独', '引きこもり', 'コミュニケーション'],
-      relationships: ['恋愛', '結婚', 'パートナー', '恋人', '愛', '好き'],
-      daily_living: ['生活', '住居', '金銭', 'お金', '健康', '医療', '法律']
+      employment: ['仕事', '就職', '転職', '就労', '働く', '職場', '会社', '雇用', 'キャリア', '求人', '面接', '履歴書', '退職', '失業', '給料', '昇進'],
+      education: ['学校', '勉強', '教育', '学習', '研修', '資格', '講座', '講義', '授業', '先生', '教師', '学生', '生徒', '卒業', '入学', '試験'],
+      mental_health: ['不安', '鬱', 'うつ', '悩み', 'ストレス', '精神', '心理', 'カウンセリング', '相談', '療法', '治療', '医師', '診断', '症状', '感情', '気分'],
+      social: ['友達', '友人', '人間関係', '家族', '親', '子供', '夫', '妻', '恋人', '彼氏', '彼女', '付き合う', '結婚', '離婚', '孤独', '孤立', '引きこもり'],
+      relationships: ['恋愛', '結婚', '離婚', '別れ', '出会い', 'パートナー', '夫婦', '家族', '親子', '兄弟', '姉妹', '親戚', '親密', '信頼', '愛情'],
+      daily_living: ['生活', '家事', '料理', '掃除', '買い物', '住居', '家賃', '光熱費', '食費', '予算', '節約', '貯金', '借金', '債務', '保険', '健康']
     };
-    
-    // Define mood keywords
+
+    // Define keywords for moods
     const moodKeywords = {
-      anxious: ['不安', '心配', '怖い', 'パニック', '緊張'],
-      depressed: ['鬱', 'うつ', '悲しい', '絶望', '無気力', '疲れた'],
-      overwhelmed: ['疲れ', '混乱', '大変', 'ストレス', '余裕がない'],
-      angry: ['怒り', '腹立たしい', 'イライラ', '不満'],
-      hopeful: ['希望', '楽しみ', 'ワクワク', '前向き']
+      anxious: ['不安', '心配', '怖い', 'ドキドキ', '緊張', 'パニック', '恐怖', 'びくびく'],
+      depressed: ['鬱', 'うつ', '悲しい', '落ち込む', '絶望', '虚しい', '無気力', '疲れた', '生きる意味', '死にたい'],
+      overwhelmed: ['疲れた', '限界', '無理', 'ストレス', '忙しい', '余裕がない', '大変', '苦しい'],
+      angry: ['怒り', '腹立たしい', 'イライラ', '許せない', '憤り', '不満', '文句', '嫌い'],
+      hopeful: ['希望', '楽しみ', '期待', '前向き', 'ポジティブ', '明るい', '良くなる', '改善']
     };
-    
-    // Define urgency keywords
-    const urgencyKeywords = ['すぐに', '緊急', '今すぐ', '助けて', '危機', '切迫', '早急に'];
-    
+
+    // Define keywords for urgency
+    const urgencyKeywords = ['すぐに', '急いで', '今すぐ', '緊急', '危機', '助けて', '危ない', '死にたい', '自殺', '今日中に', '明日までに'];
+
     // Combine current message with recent history (last 5 messages)
     const recentMessages = history.slice(-5).map(msg => msg.content);
-    recentMessages.push(currentMessage);
+    const allText = [currentMessage, ...recentMessages].join(' ');
     
-    // Extract topics from recent messages
-    for (const msg of recentMessages) {
-      for (const [topic, keywords] of Object.entries(topicKeywords)) {
-        for (const keyword of keywords) {
-          if (msg.includes(keyword) && !context.recentTopics.includes(topic)) {
+    // Extract topics
+    for (const [topic, keywords] of Object.entries(topicKeywords)) {
+      for (const keyword of keywords) {
+        if (allText.includes(keyword)) {
+          if (!context.recentTopics.includes(topic)) {
             context.recentTopics.push(topic);
-            break;
           }
+          break; // Once we find one keyword for a topic, we can move to the next topic
         }
       }
     }
-    
-    // Detect current mood from the most recent messages (last 2)
-    const veryRecentMessages = recentMessages.slice(-2).join(' ');
+
+    // Detect current mood (from last 2 messages only for recency)
+    const recentText = [currentMessage, history.slice(-1)[0]?.content || ''].join(' ');
     for (const [mood, keywords] of Object.entries(moodKeywords)) {
       for (const keyword of keywords) {
-        if (veryRecentMessages.includes(keyword)) {
+        if (recentText.includes(keyword)) {
           context.currentMood = mood;
-          break;
+          break; // Once we find a mood, we stop looking
         }
       }
-      if (context.currentMood) break;
+      if (context.currentMood) break; // If we found a mood, stop checking other moods
     }
-    
-    // Check for urgency in the current message
-    let urgencyCount = 0;
+
+    // Check for urgency (in current message only)
     for (const keyword of urgencyKeywords) {
       if (currentMessage.includes(keyword)) {
-        urgencyCount++;
+        context.urgency = 1;
+        break;
       }
     }
-    context.urgency = Math.min(1.0, urgencyCount * 0.25); // Scale from 0 to 1
-    
+
     return context;
   } catch (error) {
     console.error('Error extracting conversation context:', error);
-    return { recentTopics: [], currentMood: null, urgency: 0 };
+    return {
+      recentTopics: [],
+      currentMood: null,
+      urgency: 0
+    };
   }
 }
 
