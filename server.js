@@ -38,8 +38,34 @@ const userPreferences = {
   },
   
   processPreferenceCommand: function(userId, command) {
-    // Placeholder for processing user preference commands
+    // Check if this is actually a preference command
+    const preferenceCommandPatterns = [
+      '設定', 'せってい', 'setting', 'config', 
+      'オプション', 'option', 'オン', 'オフ',
+      'on', 'off', '表示', 'ひょうじ',
+      '非表示', 'ひひょうじ', '設定確認', '設定リセット'
+    ];
+    
+    const isPreferenceCommand = preferenceCommandPatterns.some(pattern => 
+      command.toLowerCase().includes(pattern.toLowerCase())
+    );
+    
+    if (!isPreferenceCommand) {
+      return null; // Not a preference command
+    }
+    
+    // Log that we're processing a preference command
     console.log(`Processing preference command for user ${userId}: ${command}`);
+    
+    // Handle specific preference commands
+    if (command.includes('設定確認')) {
+      const prefs = this.getUserPreferences(userId);
+      prefs.settingsRequested = true;
+      return prefs;
+    }
+    
+    // If no specific command matched but it was detected as a preference command
+    // Just return the current preferences for now
     return this.getUserPreferences(userId);
   },
   
