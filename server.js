@@ -1227,10 +1227,19 @@ async function handleEvent(event) {
           userText.toLowerCase().includes("vision") ||
           userText.includes("画像認識") ||
           userText.includes("画像生成") ||
-          userText.includes("画像について") ||
-          userText.includes("写真について") ||
-          userText.includes("画像") ||
-          userText.includes("写真")
+          userText.includes("画像機能") ||
+          userText.includes("写真機能") ||
+          userText.includes("画像を分析") ||
+          userText.includes("写真を分析") ||
+          userText.includes("画像を理解") ||
+          userText.includes("写真を理解") ||
+          userText.includes("画像を送信") ||
+          userText.includes("写真を送信") ||
+          userText.includes("画像を送る") ||
+          userText.includes("写真を送る") ||
+          // Only these specific phrases about images/photos, not general phrases containing these words
+          (userText.includes("画像について") && !userText.includes("撮影")) ||
+          (userText.includes("写真について") && !userText.includes("撮影"))
         ) &&
         (userText.endsWith("？") || userText.endsWith("?"))
       ) {
