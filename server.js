@@ -535,11 +535,17 @@ ${finalPrompt}`;
   // Add Perplexity data handling instruction for career mode
   if (mode === 'career') {
     finalPrompt += `
-※Perplexityから取得した最新の市場データが含まれている場合：
-1. 必ずデータを分析に活用する
-2. 「現在の市場では〜」という形で言及する
-3. データに基づいた具体的な提案をする
-4. すべての返答を500文字以内に収める
+## Perplexityから取得した最新の市場データの活用方法
+
+Perplexityから取得した最新の市場データや特性分析が含まれる場合、以下の方法で活用してください：
+
+1. 市場データを分析に適切に組み込む
+2. 「現在の市場動向では～」という形で最新情報に言及する
+3. データに基づいた、ユーザーの特性を考慮した具体的な提案をする
+4. ユーザーの特性と市場データの関連性を説明する
+5. 求人情報があれば、それを適切に紹介する
+
+これらの情報は別途「# 最新の市場データ」と「# ユーザー特性の追加分析」として提供されます。
 `;
   }
 
@@ -837,7 +843,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     console.log(`Using model: ${model}`);
     
     // Run user needs analysis, conversation context extraction, and service matching in parallel
-    const [userNeedsPromise, conversationContextPromise] = await Promise.all([
+    const [userNeedsPromise, conversationContextPromise, perplexityDataPromise] = await Promise.all([
       // Analyze user needs from conversation history
       (async () => {
         console.log('Analyzing user needs from conversation history...');
@@ -854,12 +860,52 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         const conversationContext = extractConversationContext(history, userMessage);
         console.log(`Context extraction completed in ${Date.now() - contextStartTime}ms`);
         return conversationContext;
+      })(),
+      
+      // Fetch Perplexity data if in career mode
+      (async () => {
+        if (mode === 'career') {
+          try {
+            console.log('Fetching Perplexity data for career mode...');
+            const perplexityStartTime = Date.now();
+            
+            // Run both knowledge enhancement and job trends in parallel
+            const [knowledgeData, jobTrendsData] = await Promise.all([
+              perplexity.enhanceKnowledge(history, userMessage).catch(err => {
+                console.error('Perplexity knowledge enhancement failed:', err.message);
+                return null;
+              }),
+              perplexity.getJobTrends().catch(err => {
+                console.error('Perplexity job trends failed:', err.message);
+                return null;
+              })
+            ]);
+            
+            const perplexityTime = Date.now() - perplexityStartTime;
+            console.log(`Perplexity data fetched in ${perplexityTime}ms`);
+            
+            // Log what we got
+            console.log(`Knowledge data: ${knowledgeData ? 'Success' : 'Failed'}`);
+            console.log(`Job trends data: ${jobTrendsData ? 'Success' : 'Failed'}`);
+            
+            return {
+              knowledge: knowledgeData,
+              jobTrends: jobTrendsData
+            };
+          } catch (error) {
+            console.error('Error fetching Perplexity data:', error.message);
+            console.log('Continuing without Perplexity data');
+            return null;
+          }
+        }
+        return null;
       })()
     ]);
     
-    // Wait for both promises to resolve
+    // Wait for all promises to resolve
     const userNeeds = await userNeedsPromise;
     const conversationContext = await conversationContextPromise;
+    const perplexityData = await perplexityDataPromise;
     
     console.log('User needs analysis result:', JSON.stringify(userNeeds));
     
@@ -882,9 +928,46 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       ...history.map(msg => ({
         role: msg.role === 'user' ? 'user' : 'assistant',
         content: msg.content
-      })),
-      { role: 'user', content: userMessage }
+      }))
     ];
+    
+    // Add Perplexity data if available for career mode
+    if (mode === 'career' && perplexityData) {
+      if (perplexityData.jobTrends) {
+        console.log('Adding Perplexity job trends data to the prompt');
+        messages.push({
+          role: 'system',
+          content: `
+# 最新の市場データ (Perplexityから取得)
+
+[市場分析]
+${perplexityData.jobTrends.analysis || '情報を取得できませんでした。'}
+
+[求人情報]
+${perplexityData.jobTrends.urls || '情報を取得できませんでした。'}
+
+このデータを活用してユーザーに適切なキャリアアドバイスを提供してください。
+`
+        });
+      }
+      
+      if (perplexityData.knowledge) {
+        console.log('Adding Perplexity knowledge enhancement data to the prompt');
+        messages.push({
+          role: 'system',
+          content: `
+# ユーザー特性の追加分析 (Perplexityから取得)
+
+${perplexityData.knowledge}
+
+この特性を考慮してアドバイスを提供してください。
+`
+        });
+      }
+    }
+    
+    // Add user message after all context
+    messages.push({ role: 'user', content: userMessage });
     
     // Run AI response generation and service matching in parallel
     const [aiResponse, serviceRecommendations] = await Promise.all([

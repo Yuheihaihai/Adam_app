@@ -21,40 +21,59 @@ class PerplexitySearch {
     try {
       console.log('Enhancing knowledge with Perplexity for:', userMessage);
       
+      // Extract recent messages for context
+      const recentHistory = history.slice(-5);
+      const recentMessages = recentHistory.map(h => `${h.role}: ${h.content}`).join('\n');
+      
+      // Create a more targeted prompt based on the user's message
+      let analysisPrompt = '';
+      
+      if (userMessage.includes('適職') || userMessage.includes('向いてる') || 
+          userMessage.includes('仕事') || userMessage.includes('キャリア')) {
+        analysisPrompt = `会話履歴と現在のメッセージから、このユーザーの適職を分析してください。次の観点を考慮してください：
+1. コミュニケーションスタイル (直接的/間接的、詳細重視/概念重視)
+2. 意思決定パターン (論理的/感情的、迅速/慎重)
+3. 職場での価値観 (安定/変化、独立/協調)
+4. 強み・弱み
+5. 向いていそうな職種や業界`;
+      } else if (userMessage.includes('悩み') || userMessage.includes('課題') || 
+                userMessage.includes('転職') || userMessage.includes('就職')) {
+        analysisPrompt = `会話履歴と現在のメッセージから、このユーザーのキャリアに関する悩みと可能な解決策を分析してください。次の観点を考慮してください：
+1. キャリアに関する主要な課題
+2. 働く上での価値観と優先事項
+3. コミュニケーションや対人関係の傾向
+4. 成長可能性のある分野
+5. 考慮すべき選択肢`;
+      } else {
+        analysisPrompt = `会話履歴と現在のメッセージから、このユーザーの特性を分析してください。次の観点を考慮してください：
+1. コミュニケーションパターン
+2. 思考プロセスの特徴
+3. 社会的相互作用の傾向
+4. 感情表現と自己認識
+5. キャリアに関連する強みと課題`;
+      }
+      
       const response = await this.client.chat.completions.create({
         model: "sonar",
         messages: [{
           role: 'system',
-          content: `あなたは「Adam」というカウンセラーです。
-          下記の観点から情報を提供してください：
+          content: `あなたは「Adam」というキャリアカウンセラーです。与えられた会話履歴から、ユーザーの傾向や特性を分析し、キャリアに関連する洞察を提供してください。
 
-          [分析の観点]
-          1. コミュニケーションパターン
-             - 言葉遣いの特徴
-             - 表現の一貫性
-             - 感情表現の方法
-
-          2. 思考プロセス
-             - 論理的思考の特徴
-             - 問題解決アプローチ
-             - 興味・関心の対象
-
-          3. 社会的相互作用
-             - 対人関係での傾向
-             - ストレス対処方法
-             - コミュニケーション上の強み/課題
-
-          4. 感情と自己認識
-             - 感情表現の特徴
-             - 自己理解の程度
-             - モチベーションの源泉
-
-          返答は必ず日本語で、200文字以内に収めてください。`
+分析は客観的で、具体的な根拠に基づいたものにしてください。
+推測に頼りすぎず、会話から実際に観察できる情報を重視してください。
+返答は必ず日本語で、300文字以内に収めてください。`
         }, {
           role: 'user',
-          content: this.constructSearchQuery(history, userMessage)
+          content: `【会話履歴】
+${recentMessages}
+
+【現在のメッセージ】
+${userMessage}
+
+【分析指示】
+${analysisPrompt}`
         }],
-        max_tokens: 256,
+        max_tokens: 500,
         temperature: 0.7
       });
 
@@ -66,21 +85,26 @@ class PerplexitySearch {
   }
 
   needsKnowledge(userMessage) {
-    const relevantTerms = [
-      // Characteristics
-      '特性', '分析', '思考', '傾向', 'パターン',
-      'コミュニケーション', '対人関係', '性格',
-      // Interests
-      '好き', '興味', '趣味', '関心',
-      // Career
-      'キャリア', '仕事', '職業',
-      // Mental Health
-      'メンタル', 'ストレス', '不安',
-      // Development
-      '発達障害', 'ADHD', 'ASD'
+    // For career mode, we always want to run the knowledge enhancement
+    // unless the message is very short or not relevant
+    if (userMessage.length < 10) return false;
+    
+    // Check for highly relevant career-related terms
+    const careerTerms = [
+      // Career-specific terms
+      '適職', '向いてる', 'キャリア', '仕事', '職業', '就職', '転職',
+      '業界', '職種', '会社', '働く', '就活', '求人', 'スキル',
+      
+      // Career challenges
+      '悩み', '課題', '不安', '迷っ', '選択', '決断', '将来',
+      
+      // Workplace environment
+      '職場', '環境', '人間関係', '上司', '同僚', '部下', 'チーム',
+      '社風', '企業', '組織', '会社', '給料', '年収', '報酬'
     ];
-
-    return relevantTerms.some(term => userMessage.includes(term));
+    
+    // Return true if any career term is found
+    return careerTerms.some(term => userMessage.includes(term));
   }
 
   constructSearchQuery(history, userMessage) {
@@ -127,17 +151,40 @@ class PerplexitySearch {
            query.includes('sports');
   }
 
-  async getJobTrends(searchQuery = '新興職種（テクノロジーの進歩、文化的変化、市場ニーズに応じて生まれた革新的で前例の少ない職業）を3つ程度、具体的に提案してください。') {
+  async getJobTrends(searchQuery = null) {
     try {
-      console.log('Fetching job market trends');
+      // If no search query is provided, use a default one
+      let query = searchQuery;
+      
+      if (!query) {
+        // Default query covers general career trends
+        query = '2025年におけるキャリアトレンド、新興職種、市場動向について詳しく分析し、将来性の高い3つの職種とその必要スキルを解説。各職種の求人サイトのURLも含めてください。';
+      }
+      
+      console.log('Fetching job market trends with query:', query);
+      
       const response = await this.client.chat.completions.create({
         model: "sonar",
         messages: [{
           role: 'system',
-          content: '以下の指示に従って回答してください：\n\n1. 確実な情報のみを提供し、不確かな情報は含めないでください\n2. 具体的な事実やデータに基づいて説明してください\n3. 推測や憶測は避け、「かもしれない」などの曖昧な表現は使用しないでください\n\n以下の2つの情報を分けて提供してください：\n\n[あなたの特性と市場分析に基づいた検索結果]\n新興職種について、必要なスキル、将来性、具体的な事例を含めて（1000文字以内で簡潔に）\n\n[求人情報]\nIndeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度）'
+          content: `以下の指示に従って回答してください：
+
+1. 確実な情報のみを提供し、不確かな情報は含めないでください
+2. 具体的な事実やデータに基づいて説明してください
+3. 推測や憶測は避け、「かもしれない」などの曖昧な表現は使用しないでください
+4. 常に最新の市場動向に基づいた情報を提供してください
+5. レスポンスは必ず日本語で提供してください
+
+以下の2つの情報を分けて提供してください：
+
+[キャリア市場分析]
+キャリア市場の動向、新興職種について、必要なスキル、将来性、具体的な事例を含めて（800文字以内で簡潔に）
+
+[求人情報]
+Indeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度）`
         }, {
           role: 'user',
-          content: searchQuery
+          content: query
         }],
         max_tokens: 1000,
         temperature: 0.7,
@@ -148,7 +195,7 @@ class PerplexitySearch {
       const [mainText, urlSection] = content.split('[求人情報]');
       
       return {
-        analysis: mainText?.replace('[あなたの特性と市場分析に基づいた検索結果]', '').trim() || null,
+        analysis: mainText?.replace('[キャリア市場分析]', '').trim() || null,
         urls: urlSection?.trim() || null
       };
     } catch (error) {
