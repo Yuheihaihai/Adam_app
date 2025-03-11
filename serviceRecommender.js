@@ -393,12 +393,14 @@ class ServiceRecommender {
       
       // Log the first service for debugging
       if (this.services.length > 0) {
-        console.log(`First service: ${JSON.stringify(this.services[0], null, 2)}`);
+        console.log(`First service: ${JSON.stringify(this.services[0].id)} - ${JSON.stringify(this.services[0].name)}`);
+        console.log(`Sample service criteria: ${JSON.stringify(this.services[0].criteria)}`);
       } else {
         console.log('WARNING: No services found in services.js');
         return [];
       }
       
+      // Add enhanced logging for user needs
       console.log(`User needs for matching: ${JSON.stringify(userNeeds, null, 2)}`);
       
       const services = this.services.map(service => ({
@@ -406,11 +408,18 @@ class ServiceRecommender {
         confidenceScore: 0
       }));
 
+      console.log(`Started confidence score calculation for ${services.length} services`);
+      const startTime = Date.now();
+      
       // Calculate confidence score for each service
       for (const service of services) {
+        const serviceStartTime = Date.now();
         service.confidenceScore = this._calculateConfidenceScore(service, userNeeds, conversationContext);
-        console.log(`Service ${service.name} confidence score: ${service.confidenceScore.toFixed(2)}`);
+        console.log(`Service ${service.name} confidence score: ${service.confidenceScore.toFixed(2)} (calculation took ${Date.now() - serviceStartTime}ms)`);
       }
+
+      const calculationTime = Date.now() - startTime;
+      console.log(`Confidence score calculation completed in ${calculationTime}ms`);
 
       // Filter services by confidence threshold
       const matchingServices = services.filter(service => service.confidenceScore >= this.CONFIDENCE_THRESHOLD);
@@ -424,7 +433,8 @@ class ServiceRecommender {
         const topServices = sortedServices.slice(0, 3);
         console.log('Top scoring services (even though below threshold):');
         topServices.forEach(service => {
-          console.log(`- ${service.name}: ${service.confidenceScore.toFixed(2)}`);
+          console.log(`- ${service.name}: ${service.confidenceScore.toFixed(2)} | threshold: ${this.CONFIDENCE_THRESHOLD}`);
+          console.log(`  Criteria: ${JSON.stringify(service.criteria)}`);
         });
       }
       
@@ -458,6 +468,9 @@ class ServiceRecommender {
       
       console.log(`Calculating score for service: ${service.name}`);
       
+      // DEBUG: Log complete user needs structure
+      console.log(`Complete userNeeds structure: ${JSON.stringify(userNeeds, null, 2)}`);
+      
       // Check for needs criteria
       if (service.criteria.needs && Array.isArray(service.criteria.needs)) {
         const needsCriteria = service.criteria.needs;
@@ -469,17 +482,94 @@ class ServiceRecommender {
         for (const need of needsCriteria) {
           let needMatched = false;
           
-          // Check all categories in userNeeds
+          console.log(`Checking need: ${need}`);
+          
+          // Define a mapping for needs that might be in different categories
+          const needToCategory = {
+            "remote_work_interest": ["employment"],
+            "neurodivergent_traits": ["mental_health"],
+            "seeking_job": ["employment"],
+            "isolation": ["social"],
+            "is_hikikomori": ["social"],
+            "social_anxiety": ["social"],
+            "loneliness": ["relationships"],
+            "general_employment_interest": ["employment"],
+            "technology_interest": ["interests"]
+            // Add more mappings as needed
+          };
+          
+          // First try direct match in all categories
           for (const category in userNeeds) {
             if (userNeeds[category] && typeof userNeeds[category] === 'object') {
               // Check if this need exists in this category
               if (userNeeds[category][need] === true) {
                 matchCount++;
                 needMatched = true;
-                console.log(`✅ Need matched: ${need}`);
+                console.log(`✅ Need matched directly: ${need} in ${category}`);
                 break;
               }
             }
+          }
+          
+          // If not matched, try the mapping
+          if (!needMatched && needToCategory[need]) {
+            const categories = needToCategory[need];
+            for (const category of categories) {
+              if (userNeeds[category] && userNeeds[category][need] === true) {
+                matchCount++;
+                needMatched = true;
+                console.log(`✅ Need matched via mapping: ${need} in ${category}`);
+                break;
+              }
+            }
+          }
+          
+          // Special case handling for common needs that might have different names
+          if (!needMatched) {
+            // Example: map "is_hikikomori" to potential similar concepts
+            if (need === "is_hikikomori" && 
+                ((userNeeds.social && userNeeds.social.isolation === true) || 
+                 (userNeeds.relationships && userNeeds.relationships.loneliness === true))) {
+              matchCount += 0.5; // Partial match
+              console.log(`⚠️ Partial match for ${need}: found similar needs`);
+              needMatched = true;
+            }
+            
+            // Special case: neurodivergent_traits - Check for any mention of developmental disorder
+            if (need === "neurodivergent_traits") {
+              const userMessage = conversationContext ? conversationContext.recentMessages : [];
+              const messageText = userMessage.join(' ').toLowerCase();
+              
+              // Check for developmental disorder-related terms in message
+              if (messageText.includes('発達障害') || 
+                  messageText.includes('adhd') || 
+                  messageText.includes('asd') || 
+                  messageText.includes('自閉症') || 
+                  messageText.includes('アスペルガー')) {
+                matchCount += 0.8; // Strong match based on explicit mention
+                console.log(`⚠️ Special case match for ${need}: found developmental disorder mention in message`);
+                needMatched = true;
+              }
+            }
+            
+            // Special case: remote_work_interest - Check for any mention of remote work
+            if (need === "remote_work_interest") {
+              const userMessage = conversationContext ? conversationContext.recentMessages : [];
+              const messageText = userMessage.join(' ').toLowerCase();
+              
+              // Check for remote work-related terms in message
+              if (messageText.includes('在宅') || 
+                  messageText.includes('リモート') || 
+                  messageText.includes('remote') || 
+                  messageText.includes('テレワーク') || 
+                  messageText.includes('家から')) {
+                matchCount += 0.8; // Strong match based on explicit mention
+                console.log(`⚠️ Special case match for ${need}: found remote work mention in message`);
+                needMatched = true;
+              }
+            }
+            
+            // Add more special cases as needed
           }
           
           if (!needMatched) {
@@ -501,7 +591,7 @@ class ServiceRecommender {
               // If the user has this excluded need, apply a penalty
               if (userNeeds[category][exclusion] === true) {
                 negativePenalty += 0.3; // 30% penalty for each exclusion match
-                console.log(`⚠️ Exclusion matched: ${exclusion} (penalty: 0.3)`);
+                console.log(`⚠️ Exclusion matched: ${exclusion} in ${category} (penalty: 0.3)`);
                 break;
               }
             }
