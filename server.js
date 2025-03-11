@@ -805,13 +805,18 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     if (userPrefs.showServiceRecommendations && serviceRecommendations && serviceRecommendations.length > 0) {
       console.log(`Processing ${serviceRecommendations.length} service recommendations`);
       
-      // Check if we should show services based on timing and frequency
+      // Detect if user is asking for advice or sharing a problem
+      const isAskingForAdvice = detectAdviceRequest(userMessage);
+      
+      // Check if we should show services based on timing, frequency, and whether user is asking for advice
       const shouldShow = shouldShowServicesToday(userId, history) && 
-                        isAppropriateTimeForServices(history, userMessage);
+                        isAppropriateTimeForServices(history, userMessage) &&
+                        isAskingForAdvice;
       
       if (!shouldShow) {
-        console.log('Skipping service recommendations due to timing or frequency constraints');
+        console.log('Skipping service recommendations: Not asking for advice or timing/frequency constraints');
       } else {
+        console.log(`User is asking for advice. Showing service recommendations.`);
         console.log(`Sample service structure: ${JSON.stringify(serviceRecommendations[0])}`);
         
         // Map service IDs to full service objects if needed
@@ -2100,6 +2105,26 @@ class UserPreferences {
       return { settingsRequested: true };
     }
     
+    // NEW: Check for professional/specialist consultation references
+    if (lowerMessage.includes('専門相談') || 
+        lowerMessage.includes('専門家') || 
+        lowerMessage.includes('相談機関') ||
+        lowerMessage.includes('相談窓口')) {
+        
+      // Check if it's a request to hide these
+      if (lowerMessage.includes('非表示') || 
+          lowerMessage.includes('表示しない') ||
+          lowerMessage.includes('見せないで') ||
+          lowerMessage.includes('いらない') ||
+          lowerMessage.includes('要らない') ||
+          lowerMessage.includes('消して') ||
+          lowerMessage.includes('表示オフ') ||
+          lowerMessage.includes('不要')) {
+        console.log('User requested to hide professional consultation services');
+        return this.updateUserPreferences(userId, { showServiceRecommendations: false });
+      }
+    }
+    
     // Detect negative feedback about service recommendations
     const negativePatterns = [
       // Direct negative feedback about services
@@ -2528,5 +2553,69 @@ function createNaturalTransition(responseContent, priorityCategory, shouldBeMini
   
   // Default transition
   return '\n\n【お役立ち情報】\n以下のサービスがお役に立つかもしれません：';
+}
+
+/**
+ * Detects if a user message is asking for advice or sharing a problem
+ * This function determines if service recommendations would be appropriate
+ * 
+ * @param {string} message - The user's message
+ * @returns {boolean} - Whether the user is asking for advice or sharing a problem
+ */
+function detectAdviceRequest(message) {
+  if (!message) return false;
+  
+  // Convert to lowercase for matching
+  const lowerMessage = message.toLowerCase();
+  
+  // Patterns indicating user is asking for advice
+  const advicePatterns = [
+    // Questions about recommendations
+    'おすすめ', 'お勧め', 'オススメ', 'どうしたら', 'どうすれば', 'どうすべき',
+    'アドバイス', '助言', 'サポート', '教えて', 'アドバイスください', '助けて',
+    
+    // Problem sharing patterns
+    '困って', '悩んで', '苦労して', '大変', '難しい', '辛い', 'つらい',
+    '苦しい', '不安', 'ストレス', '落ち込', '怖い', '悩み', '問題',
+    
+    // Questions seeking solutions
+    'どうやって', 'どの', '方法', '解決', '対処', '対応', '克服', 
+    'どうすれば良い', 'どうすべき', 'したい', 'なりたい',
+    
+    // Specific help requests 
+    '仕事', '就職', '転職', '人間関係', '対人関係', '友達', '家族',
+    '経済的', 'お金', '住まい', '健康', '精神', 'メンタル'  
+  ];
+  
+  // Check for question marks (Japanese and English)
+  const hasQuestionMark = message.includes('？') || message.includes('?');
+  
+  // Negative patterns (indicating user doesn't want advice)
+  const negativePatterns = [
+    '教えないで', '知りたくない', '聞きたくない', '答えないで',
+    'アドバイスはいらない', '助言はいらない', 'そんなことじゃなくて',
+    '専門相談', '非表示', 'サービスの紹介', 'リンク', '紹介'
+  ];
+  
+  // If there are explicit negative indicators, don't show recommendations
+  if (negativePatterns.some(pattern => lowerMessage.includes(pattern))) {
+    return false;
+  }
+  
+  // Check for advice request patterns
+  const isAdviceRequest = advicePatterns.some(pattern => lowerMessage.includes(pattern));
+  
+  // If message contains a direct question about a problem area, it's likely asking for advice
+  if (hasQuestionMark && isAdviceRequest) {
+    return true;
+  }
+  
+  // If message is long and contains problem indicators, it's likely sharing a problem
+  if (message.length > 50 && isAdviceRequest) {
+    return true;
+  }
+  
+  // Default - don't show recommendations unless clearly asking for advice
+  return false;
 }
 
