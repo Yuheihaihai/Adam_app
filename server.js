@@ -808,13 +808,43 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       // Detect if user is asking for advice or sharing a problem
       const isAskingForAdvice = detectAdviceRequest(userMessage);
       
-      // Check if we should show services based on timing, frequency, and whether user is asking for advice
-      const shouldShow = shouldShowServicesToday(userId, history) && 
-                        isAppropriateTimeForServices(history, userMessage) &&
-                        isAskingForAdvice;
+      // Log whether user is asking for advice
+      console.log(`Is user asking for advice: ${isAskingForAdvice}`);
+      
+      // Check for explicit advice requests which should always allow service recommendations
+      const explicitAdvicePatterns = [
+        'アドバイスください', 'アドバイス下さい', 'アドバイスを下さい', 'アドバイスをください',
+        'アドバイスが欲しい', 'アドバイスがほしい', 'アドバイスをお願い', '助言ください',
+        '助言下さい', 'おすすめを教えて', 'お勧めを教えて', 'オススメを教えて'
+      ];
+      
+      const isExplicitAdviceRequest = explicitAdvicePatterns.some(pattern => 
+        userMessage && userMessage.includes(pattern)
+      );
+      
+      if (isExplicitAdviceRequest) {
+        console.log('Explicit advice request detected in processWithAI - will show service recommendations');
+      }
+      
+      // Check if we should show services - explicit advice requests always get recommendations
+      const shouldShow = isExplicitAdviceRequest || 
+                        (shouldShowServicesToday(userId, history, userMessage) && 
+                         isAppropriateTimeForServices(history, userMessage) &&
+                         isAskingForAdvice);
       
       if (!shouldShow) {
-        console.log('Skipping service recommendations: Not asking for advice or timing/frequency constraints');
+        if (isExplicitAdviceRequest) {
+          // This should not happen given our logic, but add a warning just in case
+          console.warn('WARNING: Explicit advice request detected but services not shown - check logic!');
+        } else if (!isAskingForAdvice) {
+          console.log('Skipping service recommendations: Not asking for advice');
+        } else if (!isAppropriateTimeForServices(history, userMessage)) {
+          console.log('Skipping service recommendations: Not an appropriate time based on conversation flow');
+        } else if (!shouldShowServicesToday(userId, history, userMessage)) {
+          console.log('Skipping service recommendations: Frequency/timing constraints');
+        } else {
+          console.log('Skipping service recommendations: Unknown reason');
+        }
       } else {
         console.log(`User is asking for advice. Showing service recommendations.`);
         console.log(`Sample service structure: ${JSON.stringify(serviceRecommendations[0])}`);
@@ -1955,10 +1985,25 @@ const serviceFrequencySettings = {
  * 
  * @param {string} userId - The user's ID
  * @param {Array} history - Conversation history
+ * @param {string} [currentMessage] - The current user message (optional)
  * @returns {boolean} - Whether to show services in this conversation
  */
-function shouldShowServicesToday(userId, history) {
+function shouldShowServicesToday(userId, history, currentMessage) {
   if (!history || history.length === 0) return true;
+  
+  // Check for explicit advice requests which should always allow service recommendations
+  if (currentMessage) {
+    const explicitAdvicePatterns = [
+      'アドバイスください', 'アドバイス下さい', 'アドバイスを下さい', 'アドバイスをください',
+      'アドバイスが欲しい', 'アドバイスがほしい', 'アドバイスをお願い', '助言ください',
+      '助言下さい', 'おすすめを教えて', 'お勧めを教えて', 'オススメを教えて'
+    ];
+    
+    if (explicitAdvicePatterns.some(pattern => currentMessage.includes(pattern))) {
+      console.log('Explicit advice request detected in shouldShowServicesToday - allowing service recommendations');
+      return true;
+    }
+  }
   
   // Determine user type based on conversation history
   const isNewUser = history.length < 5;
@@ -2449,6 +2494,19 @@ async function recordServiceRecommendation(userId, serviceId, confidenceScore) {
  */
 function isAppropriateTimeForServices(history, currentMessage) {
   if (!history || history.length === 0) return true;
+  
+  // First check if the message is an explicit advice request
+  const explicitAdvicePatterns = [
+    'アドバイスください', 'アドバイス下さい', 'アドバイスを下さい', 'アドバイスをください',
+    'アドバイスが欲しい', 'アドバイスがほしい', 'アドバイスをお願い', '助言ください',
+    '助言下さい', 'おすすめを教えて', 'お勧めを教えて', 'オススメを教えて'
+  ];
+  
+  // If it's an explicit advice request, always show services
+  if (currentMessage && explicitAdvicePatterns.some(pattern => currentMessage.includes(pattern))) {
+    console.log('Explicit advice request detected - showing service recommendations');
+    return true;
+  }
   
   // Don't interrupt a user who appears to be in distress
   const distressIndicators = [
