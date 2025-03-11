@@ -830,6 +830,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     
     // Start performance measurement
     const startTime = Date.now();
+    const overallStartTime = startTime; // Add this line to fix the ReferenceError
     
     // Get user preferences
     const userPrefs = userPreferences.getUserPreferences(userId);
