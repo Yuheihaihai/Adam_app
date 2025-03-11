@@ -59,7 +59,21 @@ class LocalML {
           try {
             const userId = record.get('UserID');
             const mode = record.get('Mode');
-            const analysisData = JSON.parse(record.get('AnalysisData'));
+            const rawAnalysisData = record.get('AnalysisData');
+            
+            // AnalysisDataフィールドが存在し、有効なJSONであることを確認
+            if (!userId || !mode || !rawAnalysisData) {
+              console.log(`Skipping record due to missing data: ${record.id}`);
+              return; // このレコードをスキップ
+            }
+            
+            let analysisData;
+            try {
+              analysisData = JSON.parse(rawAnalysisData);
+            } catch (jsonError) {
+              console.log(`Invalid JSON in record ${record.id}, skipping: ${jsonError.message}`);
+              return; // このレコードをスキップ
+            }
             
             // メモリに復元
             if (!this.userAnalysis[userId]) {
@@ -68,7 +82,7 @@ class LocalML {
             
             this.userAnalysis[userId][mode] = {
               ...analysisData,
-              lastUpdated: new Date(record.get('LastUpdated'))
+              lastUpdated: new Date(record.get('LastUpdated') || new Date())
             };
             
             loadCount++;
@@ -104,6 +118,21 @@ class LocalML {
     if (!this.base) return;
     
     try {
+      // データの存在確認
+      if (!userId || !mode || !analysisData) {
+        console.log('Cannot save analysis: missing required data');
+        return;
+      }
+      
+      // JSON文字列化の検証
+      let analysisDataString;
+      try {
+        analysisDataString = JSON.stringify(analysisData);
+      } catch (jsonError) {
+        console.error('Cannot convert analysis data to JSON:', jsonError);
+        return;
+      }
+      
       // 既存レコードを検索
       const records = await this.base('UserAnalysis')
         .select({
@@ -115,7 +144,7 @@ class LocalML {
       const data = {
         UserID: userId,
         Mode: mode,
-        AnalysisData: JSON.stringify(analysisData),
+        AnalysisData: analysisDataString,
         LastUpdated: new Date().toISOString()
       };
       
