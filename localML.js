@@ -42,60 +42,58 @@ class LocalML {
     try {
       console.log('Loading saved user analysis data from Airtable...');
       
-      // UserAnalysisテーブルが存在するか確認
-      await this._ensureUserAnalysisTable();
-      
-      const records = await this.base('UserAnalysis').select().all();
-      
-      let loadCount = 0;
-      records.forEach(record => {
-        try {
-          const userId = record.get('UserID');
-          const mode = record.get('Mode');
-          const analysisData = JSON.parse(record.get('AnalysisData'));
-          
-          // メモリに復元
-          if (!this.userAnalysis[userId]) {
-            this.userAnalysis[userId] = {};
+      try {
+        // UserAnalysisテーブルからデータを取得してみる
+        const records = await this.base('UserAnalysis').select({
+          maxRecords: 1,
+          view: 'Grid view'
+        }).firstPage();
+        
+        console.log('UserAnalysis table is accessible. Loading data...');
+        
+        // テーブルにアクセスできたので、全データを取得
+        const allRecords = await this.base('UserAnalysis').select().all();
+        
+        let loadCount = 0;
+        allRecords.forEach(record => {
+          try {
+            const userId = record.get('UserID');
+            const mode = record.get('Mode');
+            const analysisData = JSON.parse(record.get('AnalysisData'));
+            
+            // メモリに復元
+            if (!this.userAnalysis[userId]) {
+              this.userAnalysis[userId] = {};
+            }
+            
+            this.userAnalysis[userId][mode] = {
+              ...analysisData,
+              lastUpdated: new Date(record.get('LastUpdated'))
+            };
+            
+            loadCount++;
+          } catch (e) {
+            console.error('Error parsing user analysis record:', e);
           }
-          
-          this.userAnalysis[userId][mode] = {
-            ...analysisData,
-            lastUpdated: new Date(record.get('LastUpdated'))
-          };
-          
-          loadCount++;
-        } catch (e) {
-          console.error('Error parsing user analysis record:', e);
+        });
+        
+        console.log(`Successfully loaded analysis data for ${loadCount} user-mode combinations`);
+      } catch (error) {
+        // エラーが発生した場合、テーブルが存在しない可能性がある
+        if (error.statusCode === 404 || error.error === 'NOT_FOUND' || 
+            (error.message && error.message.includes('could not be found'))) {
+          console.log('UserAnalysis table does not exist. Please create it with the following fields:');
+          console.log('- UserID (text)');
+          console.log('- Mode (text)');
+          console.log('- AnalysisData (long text)');
+          console.log('- LastUpdated (date)');
+        } else {
+          // その他のエラー
+          throw error;
         }
-      });
-      
-      console.log(`Successfully loaded analysis data for ${loadCount} user-mode combinations`);
-    } catch (err) {
-      console.error('Error loading user analysis data from Airtable:', err);
-    }
-  }
-
-  /**
-   * UserAnalysisテーブルが存在することを確認し、なければ作成を試みる
-   */
-  async _ensureUserAnalysisTable() {
-    if (!this.base) return;
-    
-    try {
-      // テーブル一覧を取得
-      const tables = await this.base.tables();
-      const userAnalysisExists = tables.some(table => table.name === 'UserAnalysis');
-      
-      if (!userAnalysisExists) {
-        console.log('UserAnalysis table does not exist. Please create it with the following fields:');
-        console.log('- UserID (text)');
-        console.log('- Mode (text)');
-        console.log('- AnalysisData (long text)');
-        console.log('- LastUpdated (date)');
       }
     } catch (err) {
-      console.error('Error checking UserAnalysis table existence:', err);
+      console.error('Error loading user analysis data from Airtable:', err);
     }
   }
 
@@ -129,10 +127,20 @@ class LocalML {
         }]);
         console.log(`Updated analysis data for user ${userId}, mode ${mode}`);
       } else {
-        await this.base('UserAnalysis').create([{
-          fields: data
-        }]);
-        console.log(`Created new analysis data for user ${userId}, mode ${mode}`);
+        try {
+          await this.base('UserAnalysis').create([{
+            fields: data
+          }]);
+          console.log(`Created new analysis data for user ${userId}, mode ${mode}`);
+        } catch (error) {
+          // テーブルが存在しない場合の処理
+          if (error.statusCode === 404 || error.error === 'NOT_FOUND' || 
+              (error.message && error.message.includes('could not be found'))) {
+            console.log('Failed to save analysis: UserAnalysis table does not exist.');
+          } else {
+            throw error;
+          }
+        }
       }
     } catch (err) {
       console.error(`Error saving user analysis for ${userId}, mode ${mode}:`, err);
