@@ -830,15 +830,6 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       }
     }
     
-    // For new users, add a subtle hint about service settings
-    if (isNewUser && userPrefs.showServiceRecommendations) {
-      // Only add this hint if we've shown services or after a few messages
-      const hasShownServices = serviceRecommendations && serviceRecommendations.length > 0;
-      if (hasShownServices || history.length === 2) {
-        responseText += '\n\n（お役立ち情報が不要な場合は「サービスを表示しないで」と言っていただければ非表示にできます）';
-      }
-    }
-    
     console.log(`Total processing time: ${Date.now() - startTime}ms`);
     return responseText;
   } catch (error) {
@@ -1005,7 +996,17 @@ async function handleText(event) {
           if (updatedPreferences.showServiceRecommendations) {
             responseMessage = `サービス表示をオンにしました。お役立ちそうなサービスがあれば、会話の中でご紹介します。`;
           } else {
-            responseMessage = `サービス表示をオフにしました。サービスの紹介は表示されなくなります。`;
+            // Check if this was triggered by negative feedback
+            const lowerMessage = userMessage.toLowerCase();
+            const negativePatterns = ['要らない', 'いらない', '不要', '邪魔', '見たくない', '表示しないで', '非表示', '消して'];
+            const isNegativeFeedback = negativePatterns.some(pattern => lowerMessage.includes(pattern));
+            
+            if (isNegativeFeedback) {
+              // Minimal response for negative feedback
+              responseMessage = `わかりました。`;
+            } else {
+              responseMessage = `サービス表示をオフにしました。`;
+            }
           }
         } else if (updatedPreferences.maxRecommendations !== undefined) {
           if (updatedPreferences.maxRecommendations === 0) {
@@ -1716,17 +1717,27 @@ class UserPreferences {
       return { settingsRequested: true };
     }
     
-    // Check for turning OFF service recommendations - natural language variations
-    if (lowerMessage.includes('サービス表示オフ') || 
-        lowerMessage.includes('service off') ||
-        lowerMessage.includes('サービス表示を消して') ||
-        lowerMessage.includes('サービスを表示しないで') ||
-        lowerMessage.includes('サービスを非表示') ||
-        lowerMessage.includes('サービス表示をオフ') ||
-        lowerMessage.includes('サービスを出さないで') ||
-        lowerMessage.includes('サービスを表示しないでください') ||
-        lowerMessage.includes('サービスを見せないで') ||
-        lowerMessage.includes('サービスはいらない')) {
+    // Detect negative feedback about service recommendations
+    const negativePatterns = [
+      // Direct negative feedback about services
+      '要らない', 'いらない', '不要', '邪魔', '見たくない', '表示しないで', '非表示', '消して',
+      '出さないで', '見せないで', 'うざい', 'うるさい', '迷惑', '必要ない', '止めて', 'やめて',
+      // Negative reactions to service recommendations
+      'そのサービスは', 'サービスは', 'リンクは', 'お役立ち情報は',
+      // General negative expressions
+      '興味ない', '関係ない', '気にしない', '無視して', '気にならない'
+    ];
+    
+    // Check if message contains negative feedback about services
+    const hasServiceReference = lowerMessage.includes('サービス') || 
+                               lowerMessage.includes('リンク') || 
+                               lowerMessage.includes('お役立ち') || 
+                               lowerMessage.includes('情報');
+                               
+    const hasNegativeFeedback = negativePatterns.some(pattern => lowerMessage.includes(pattern));
+    
+    // If message contains both service reference and negative feedback, turn off services
+    if (hasServiceReference && hasNegativeFeedback) {
       return this.updateUserPreferences(userId, { showServiceRecommendations: false });
     }
     
