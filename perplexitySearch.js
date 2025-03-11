@@ -16,20 +16,27 @@ class PerplexitySearch {
   }
 
   async enhanceKnowledge(history, userMessage) {
-    if (!this.needsKnowledge(userMessage)) return null;
+    if (!this.needsKnowledge(userMessage)) {
+      console.log('📊 [PERPLEXITY ML] Knowledge enhancement skipped - message does not match criteria');
+      return null;
+    }
 
     try {
-      console.log('Enhancing knowledge with Perplexity for:', userMessage);
+      console.log('\n📊 [PERPLEXITY ML] KNOWLEDGE ENHANCEMENT PROCESS');
+      console.log('   ├─ Input message length:', userMessage.length, 'characters');
       
       // Extract recent messages for context
       const recentHistory = history.slice(-5);
       const recentMessages = recentHistory.map(h => `${h.role}: ${h.content}`).join('\n');
+      console.log('   ├─ Context: Using last', recentHistory.length, 'messages from conversation history');
       
       // Create a more targeted prompt based on the user's message
       let analysisPrompt = '';
+      let analysisType = '';
       
       if (userMessage.includes('適職') || userMessage.includes('向いてる') || 
           userMessage.includes('仕事') || userMessage.includes('キャリア')) {
+        analysisType = 'job suitability analysis';
         analysisPrompt = `会話履歴と現在のメッセージから、このユーザーの適職を分析してください。次の観点を考慮してください：
 1. コミュニケーションスタイル (直接的/間接的、詳細重視/概念重視)
 2. 意思決定パターン (論理的/感情的、迅速/慎重)
@@ -38,6 +45,7 @@ class PerplexitySearch {
 5. 向いていそうな職種や業界`;
       } else if (userMessage.includes('悩み') || userMessage.includes('課題') || 
                 userMessage.includes('転職') || userMessage.includes('就職')) {
+        analysisType = 'career challenges analysis';
         analysisPrompt = `会話履歴と現在のメッセージから、このユーザーのキャリアに関する悩みと可能な解決策を分析してください。次の観点を考慮してください：
 1. キャリアに関する主要な課題
 2. 働く上での価値観と優先事項
@@ -45,6 +53,7 @@ class PerplexitySearch {
 4. 成長可能性のある分野
 5. 考慮すべき選択肢`;
       } else {
+        analysisType = 'general characteristics analysis';
         analysisPrompt = `会話履歴と現在のメッセージから、このユーザーの特性を分析してください。次の観点を考慮してください：
 1. コミュニケーションパターン
 2. 思考プロセスの特徴
@@ -53,6 +62,11 @@ class PerplexitySearch {
 5. キャリアに関連する強みと課題`;
       }
       
+      console.log('   ├─ Selected ML approach:', analysisType);
+      console.log('   ├─ Prompt length:', analysisPrompt.length, 'characters');
+      console.log('   ├─ Making API call to Perplexity Sonar model...');
+      
+      const startTime = Date.now();
       const response = await this.client.chat.completions.create({
         model: "sonar",
         messages: [{
@@ -76,10 +90,22 @@ ${analysisPrompt}`
         max_tokens: 500,
         temperature: 0.7
       });
+      
+      const timeTaken = Date.now() - startTime;
+      const resultContent = response.choices[0]?.message?.content;
+      
+      console.log('   ├─ API call completed in', timeTaken, 'ms');
+      console.log('   ├─ Response tokens:', response.usage?.total_tokens || 'unknown');
+      console.log('   ├─ Result length:', resultContent?.length || 0, 'characters');
+      console.log('   └─ Sample of analysis:', resultContent?.substring(0, 50), '...');
 
-      return response.choices[0]?.message?.content;
+      return resultContent;
     } catch (error) {
-      console.error('Perplexity knowledge enhancement error:', error);
+      console.error('   ❌ [PERPLEXITY ML] Knowledge enhancement error:', error.message);
+      if (error.response) {
+        console.error('   ├─ Error status:', error.response.status);
+        console.error('   └─ Error data:', JSON.stringify(error.response.data));
+      }
       return null;
     }
   }
@@ -87,7 +113,10 @@ ${analysisPrompt}`
   needsKnowledge(userMessage) {
     // For career mode, we always want to run the knowledge enhancement
     // unless the message is very short or not relevant
-    if (userMessage.length < 10) return false;
+    if (userMessage.length < 10) {
+      console.log('📊 [PERPLEXITY ML] Message too short for knowledge enhancement:', userMessage.length, 'characters');
+      return false;
+    }
     
     // Check for highly relevant career-related terms
     const careerTerms = [
@@ -103,8 +132,16 @@ ${analysisPrompt}`
       '社風', '企業', '組織', '会社', '給料', '年収', '報酬'
     ];
     
-    // Return true if any career term is found
-    return careerTerms.some(term => userMessage.includes(term));
+    // Find all matching terms for logging
+    const matchedTerms = careerTerms.filter(term => userMessage.includes(term));
+    
+    if (matchedTerms.length > 0) {
+      console.log('📊 [PERPLEXITY ML] Career terms detected:', matchedTerms.join(', '));
+      return true;
+    } else {
+      console.log('📊 [PERPLEXITY ML] No career terms detected in message');
+      return false;
+    }
   }
 
   constructSearchQuery(history, userMessage) {
@@ -161,8 +198,12 @@ ${analysisPrompt}`
         query = '2025年におけるキャリアトレンド、新興職種、市場動向について詳しく分析し、将来性の高い3つの職種とその必要スキルを解説。各職種の求人サイトのURLも含めてください。';
       }
       
-      console.log('Fetching job market trends with query:', query);
+      console.log('\n📈 [PERPLEXITY ML] JOB TRENDS RETRIEVAL');
+      console.log('   ├─ Query type:', searchQuery ? 'Custom' : 'Default');
+      console.log('   ├─ Query length:', query.length, 'characters');
+      console.log('   ├─ Making API call to Perplexity Sonar model...');
       
+      const startTime = Date.now();
       const response = await this.client.chat.completions.create({
         model: "sonar",
         messages: [{
@@ -191,17 +232,35 @@ Indeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度�
         timeout: 20000
       });
 
+      const timeTaken = Date.now() - startTime;
       const content = response.choices[0]?.message?.content || '';
       const [mainText, urlSection] = content.split('[求人情報]');
       
-      return {
+      console.log('   ├─ API call completed in', timeTaken, 'ms');
+      console.log('   ├─ Response tokens:', response.usage?.total_tokens || 'unknown');
+      
+      const result = {
         analysis: mainText?.replace('[キャリア市場分析]', '').trim() || null,
         urls: urlSection?.trim() || null
       };
+      
+      console.log('   ├─ Analysis text length:', result.analysis?.length || 0, 'characters');
+      console.log('   ├─ Sample of analysis:', result.analysis?.substring(0, 50), '...');
+      console.log('   ├─ URLs provided:', result.urls ? 'Yes' : 'No');
+      if (result.urls) {
+        const urlCount = result.urls.split('\n').filter(line => line.includes('http')).length;
+        console.log('   └─ Number of URLs:', urlCount);
+      }
+      
+      return result;
     } catch (error) {
-      console.error('Perplexity job trends error:', error);
+      console.error('   ❌ [PERPLEXITY ML] Job trends error:', error.message);
       if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
-        console.log('Perplexity timeout, returning null');
+        console.log('   ├─ Error type: Timeout');
+      }
+      if (error.response) {
+        console.error('   ├─ Error status:', error.response.status);
+        console.error('   └─ Error data:', JSON.stringify(error.response.data));
       }
       return null;
     }

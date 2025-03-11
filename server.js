@@ -842,23 +842,30 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     const model = useGpt4 ? 'gpt-4o' : 'gpt-4o';
     console.log(`Using model: ${model}`);
     
+    // ─────────────────────────────────────────────────────────────────────
+    console.log('\n=== WORKFLOW VISUALIZATION: AI RESPONSE GENERATION PROCESS ===');
+    console.log('┌──────────────────────────────────────────────────────────┐');
+    console.log('│ 1. PARALLEL DATA COLLECTION PHASE                        │');
+    console.log('└──────────────────────────────────────────────────────────┘');
+    // ─────────────────────────────────────────────────────────────────────
+    
     // Run user needs analysis, conversation context extraction, and service matching in parallel
     const [userNeedsPromise, conversationContextPromise, perplexityDataPromise] = await Promise.all([
       // Analyze user needs from conversation history
       (async () => {
-        console.log('Analyzing user needs from conversation history...');
+        console.log('\n📊 [1A] USER NEEDS ANALYSIS - Starting');
         const needsStartTime = Date.now();
         const userNeeds = await userNeedsAnalyzer.analyzeUserNeeds(userMessage, history);
-        console.log(`User needs analysis completed in ${Date.now() - needsStartTime}ms`);
+        console.log(`📊 [1A] USER NEEDS ANALYSIS - Completed in ${Date.now() - needsStartTime}ms`);
         return userNeeds;
       })(),
       
       // Extract conversation context
       (async () => {
-        console.log('Extracting conversation context...');
+        console.log('\n🔍 [1B] CONVERSATION CONTEXT EXTRACTION - Starting');
         const contextStartTime = Date.now();
         const conversationContext = extractConversationContext(history, userMessage);
-        console.log(`Context extraction completed in ${Date.now() - contextStartTime}ms`);
+        console.log(`🔍 [1B] CONVERSATION CONTEXT EXTRACTION - Completed in ${Date.now() - contextStartTime}ms`);
         return conversationContext;
       })(),
       
@@ -866,35 +873,49 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       (async () => {
         if (mode === 'career') {
           try {
-            console.log('Fetching Perplexity data for career mode...');
+            console.log('\n🤖 [1C] ML AUGMENTATION: PERPLEXITY DATA - Starting');
             const perplexityStartTime = Date.now();
             
+            console.log('    ├─ [1C.1] Initiating parallel API calls to Perplexity');
             // Run both knowledge enhancement and job trends in parallel
             const [knowledgeData, jobTrendsData] = await Promise.all([
               perplexity.enhanceKnowledge(history, userMessage).catch(err => {
-                console.error('Perplexity knowledge enhancement failed:', err.message);
+                console.error('    │  ❌ Knowledge enhancement failed:', err.message);
                 return null;
               }),
               perplexity.getJobTrends().catch(err => {
-                console.error('Perplexity job trends failed:', err.message);
+                console.error('    │  ❌ Job trends failed:', err.message);
                 return null;
               })
             ]);
             
             const perplexityTime = Date.now() - perplexityStartTime;
-            console.log(`Perplexity data fetched in ${perplexityTime}ms`);
+            console.log(`    ├─ [1C.2] ML data retrieved in ${perplexityTime}ms`);
             
-            // Log what we got
-            console.log(`Knowledge data: ${knowledgeData ? 'Success' : 'Failed'}`);
-            console.log(`Job trends data: ${jobTrendsData ? 'Success' : 'Failed'}`);
+            // Log what we got with more details
+            console.log('    ├─ [1C.3] ML DATA RESULTS:');
+            console.log(`    │  ${knowledgeData ? '✅' : '❌'} User characteristics analysis: ${knowledgeData ? 'Retrieved' : 'Failed'}`);
+            if (knowledgeData) {
+                console.log('    │    └─ Length: ' + knowledgeData.length + ' characters');
+                console.log('    │    └─ Sample: ' + knowledgeData.substring(0, 50) + '...');
+            }
+            
+            console.log(`    │  ${jobTrendsData ? '✅' : '❌'} Job market trends: ${jobTrendsData ? 'Retrieved' : 'Failed'}`);
+            if (jobTrendsData && jobTrendsData.analysis) {
+                console.log('    │    └─ Analysis length: ' + jobTrendsData.analysis.length + ' characters');
+                console.log('    │    └─ Sample: ' + jobTrendsData.analysis.substring(0, 50) + '...');
+                console.log('    │    └─ URLs provided: ' + (jobTrendsData.urls ? 'Yes' : 'No'));
+            }
+            
+            console.log('    └─ [1C.4] ML AUGMENTATION: PERPLEXITY DATA - Completed');
             
             return {
               knowledge: knowledgeData,
               jobTrends: jobTrendsData
             };
           } catch (error) {
-            console.error('Error fetching Perplexity data:', error.message);
-            console.log('Continuing without Perplexity data');
+            console.error('\n❌ Error fetching ML data:', error.message);
+            console.log('   └─ Proceeding without ML augmentation');
             return null;
           }
         }
@@ -902,15 +923,33 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       })()
     ]);
     
+    // ─────────────────────────────────────────────────────────────────────
+    console.log('\n┌──────────────────────────────────────────────────────────┐');
+    console.log('│ 2. DATA INTEGRATION PHASE                                │');
+    console.log('└──────────────────────────────────────────────────────────┘');
+    // ─────────────────────────────────────────────────────────────────────
+
     // Wait for all promises to resolve
     const userNeeds = await userNeedsPromise;
     const conversationContext = await conversationContextPromise;
     const perplexityData = await perplexityDataPromise;
     
-    console.log('User needs analysis result:', JSON.stringify(userNeeds));
+    console.log('\n🧩 [2A] USER NEEDS RESULT:');
+    Object.keys(userNeeds).forEach(category => {
+        console.log(`    ├─ ${category}:`);
+        const categoryData = userNeeds[category];
+        Object.keys(categoryData).forEach(key => {
+            const value = categoryData[key];
+            if (typeof value === 'boolean') {
+                console.log(`    │  ${value ? '✅' : '❌'} ${key}: ${value}`);
+            } else if (value !== null && value !== undefined) {
+                console.log(`    │  📝 ${key}: ${value}`);
+            }
+        });
+    });
     
     // Start service matching process
-    console.log('Starting service matching process with confidence threshold...');
+    console.log('\n📋 [2B] SERVICE MATCHING - Starting with confidence threshold');
     
     // Get service recommendations only if user preferences allow it
     let serviceRecommendationsPromise = Promise.resolve([]);
@@ -922,7 +961,17 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       );
     }
     
+    // ─────────────────────────────────────────────────────────────────────
+    console.log('\n┌──────────────────────────────────────────────────────────┐');
+    console.log('│ 3. AI PROMPT CONSTRUCTION PHASE                          │');
+    console.log('└──────────────────────────────────────────────────────────┘');
+    // ─────────────────────────────────────────────────────────────────────
+    
     // Prepare the messages for the AI model
+    console.log('\n📝 [3A] CREATING BASE PROMPT');
+    console.log(`    ├─ System prompt: ${systemPrompt.length} characters`);
+    console.log(`    └─ Including ${history.length} conversation messages`);
+    
     const messages = [
       { role: 'system', content: systemPrompt },
       ...history.map(msg => ({
@@ -933,8 +982,13 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     
     // Add Perplexity data if available for career mode
     if (mode === 'career' && perplexityData) {
+      console.log('\n🔄 [3B] INTEGRATING ML DATA INTO PROMPT');
+      
       if (perplexityData.jobTrends) {
-        console.log('Adding Perplexity job trends data to the prompt');
+        console.log('    ├─ Adding job market trends:');
+        console.log(`    │  └─ Market analysis: ${perplexityData.jobTrends.analysis ? perplexityData.jobTrends.analysis.length : 0} characters`);
+        console.log(`    │  └─ Job URLs: ${perplexityData.jobTrends.urls ? 'Included' : 'Not available'}`);
+        
         messages.push({
           role: 'system',
           content: `
@@ -952,7 +1006,9 @@ ${perplexityData.jobTrends.urls || '情報を取得できませんでした。'}
       }
       
       if (perplexityData.knowledge) {
-        console.log('Adding Perplexity knowledge enhancement data to the prompt');
+        console.log('    └─ Adding user characteristics analysis:');
+        console.log(`       └─ Analysis: ${perplexityData.knowledge.length} characters`);
+        
         messages.push({
           role: 'system',
           content: `
@@ -967,32 +1023,114 @@ ${perplexityData.knowledge}
     }
     
     // Add user message after all context
+    console.log('\n📨 [3C] FINALIZING PROMPT:');
+    console.log(`    ├─ Total prompt components: ${messages.length}`);
+    console.log(`    └─ Adding user message: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+    
     messages.push({ role: 'user', content: userMessage });
+    
+    // ─────────────────────────────────────────────────────────────────────
+    console.log('\n┌──────────────────────────────────────────────────────────┐');
+    console.log('│ 4. AI GENERATION & SERVICE MATCHING PHASE                │');
+    console.log('└──────────────────────────────────────────────────────────┘');
+    // ─────────────────────────────────────────────────────────────────────
     
     // Run AI response generation and service matching in parallel
     const [aiResponse, serviceRecommendations] = await Promise.all([
       // Generate AI response
       (async () => {
-        const aiStartTime = Date.now();
-        const response = await tryPrimaryThenBackup({ 
-          messages, 
-          model,
-          temperature: 0.7,
-          max_tokens: 1000
-        });
-        console.log(`AI response generation completed in ${Date.now() - aiStartTime}ms`);
-        return response;
+        console.log('\n🧠 [4A] AI RESPONSE GENERATION - Starting');
+        const startTime = Date.now();
+        try {
+          const requestOptions = {
+            model,
+            messages,
+            temperature: 0.7,
+            max_tokens: 1500,
+            top_p: 1,
+            frequency_penalty: 0.5,
+            presence_penalty: 0.5,
+          };
+
+          console.log(`    ├─ Model: ${model}`);
+          console.log(`    ├─ Temperature: ${requestOptions.temperature}`);
+          console.log(`    ├─ Max tokens: ${requestOptions.max_tokens}`);
+          console.log(`    ├─ Total prompt components: ${messages.length}`);
+          
+          // Call OpenAI API
+          console.log('    ├─ Sending request to OpenAI API...');
+          const response = await openai.chat.completions.create(requestOptions);
+          
+          const timeTaken = Date.now() - startTime;
+          console.log(`    ├─ AI response generated in ${timeTaken}ms`);
+          console.log(`    ├─ Tokens used: ${response.usage.total_tokens} (prompt: ${response.usage.prompt_tokens}, completion: ${response.usage.completion_tokens})`);
+          
+          // Get AI response content
+          const responseContent = response.choices[0].message.content;
+          console.log(`    ├─ Response length: ${responseContent.length} characters`);
+          console.log(`    └─ First 50 chars: ${responseContent.substring(0, 50)}...`);
+          
+          return responseContent;
+        } catch (error) {
+          console.error(`    ❌ AI response generation error: ${error.message}`);
+          if (error.response) {
+            console.error(`    ├─ Status: ${error.response.status}`);
+            console.error(`    └─ Data: ${JSON.stringify(error.response.data)}`);
+          }
+          throw error; // Rethrow to be caught by the main error handler
+        }
       })(),
       
-      // Wait for service recommendations
-      serviceRecommendationsPromise
+      // Get service recommendations in parallel
+      (async () => {
+        try {
+          console.log('\n🔍 [4B] SERVICE MATCHING - Processing');
+          const startTime = Date.now();
+          const recommendations = await serviceRecommendationsPromise;
+          const timeTaken = Date.now() - startTime;
+          
+          console.log(`    ├─ Service matching completed in ${timeTaken}ms`);
+          console.log(`    ├─ Recommendations found: ${recommendations.length}`);
+          
+          if (recommendations.length > 0) {
+            console.log('    └─ Top recommendation: ' + recommendations[0].serviceName);
+          } else {
+            console.log('    └─ No recommendations matched criteria');
+          }
+          
+          return recommendations;
+        } catch (error) {
+          console.error(`    ❌ Service matching error: ${error.message}`);
+          return []; // Return empty array on error
+        }
+      })()
     ]);
     
-    // Log the number of matching services
-    if (userPrefs.showServiceRecommendations) {
-      console.log(`Matching services before filtering: ${serviceRecommendations ? serviceRecommendations.length : 'undefined'} services met the confidence threshold`);
-      console.log('Checking for cooldown period on previously recommended services...');
+    // ─────────────────────────────────────────────────────────────────────
+    console.log('\n┌──────────────────────────────────────────────────────────┐');
+    console.log('│ 5. RESPONSE DELIVERY PHASE                               │');
+    console.log('└──────────────────────────────────────────────────────────┘');
+    // ─────────────────────────────────────────────────────────────────────
+
+    // Log the service recommendations if any
+    if (serviceRecommendations && serviceRecommendations.length > 0) {
+      console.log('\n📦 [5A] SERVICE RECOMMENDATIONS FOR RESPONSE:');
+      serviceRecommendations.forEach((rec, index) => {
+        if (index < 3) { // Just log the top 3 to avoid clutter
+          console.log(`    ├─ [${index + 1}] ${rec.serviceName}: confidence ${rec.confidence.toFixed(2)}`);
+        }
+      });
+    } else {
+      console.log('\n📦 [5A] NO SERVICE RECOMMENDATIONS INCLUDED');
     }
+    
+    // Log final response details
+    console.log('\n📤 [5B] FINAL RESPONSE PREPARATION:');
+    console.log(`    ├─ Response content length: ${aiResponse.length} characters`);
+    console.log(`    ├─ Including ${serviceRecommendations.length} service recommendations`);
+    console.log(`    └─ Full workflow completed in ${Date.now() - overallStartTime}ms`);
+    
+    console.log('\n=== WORKFLOW VISUALIZATION: COMPLETE ===\n');
     
     // Process the AI response
     let responseText = aiResponse;
@@ -1807,6 +1945,25 @@ function extractConversationContext(history, userMessage) {
       userEmotion: 'neutral',
       emotionIntensity: 0,
       messageCount: history.length
+    };
+  }
+}
+
+async function processUserMessage(userId, userMessage, history, initialMode = null) {
+  try {
+    // Start timer for overall processing
+    const overallStartTime = Date.now();
+    console.log(`\n==== PROCESSING USER MESSAGE (${new Date().toISOString()}) ====`);
+    console.log(`User ID: ${userId}`);
+    console.log(`Message: ${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}`);
+    
+    // Get user preferences
+    // ... existing code ...
+  } catch (error) {
+    console.error('Error processing user message:', error);
+    return {
+      type: 'text',
+      text: '申し訳ありません。メッセージの処理中にエラーが発生しました。もう一度お試しください。'
     };
   }
 }
