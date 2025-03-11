@@ -17,7 +17,8 @@ class ServiceRecommender {
     this.services = require('./services.js');
     this.confidenceThreshold = 0.4;
     this.openaiApiKey = process.env.OPENAI_API_KEY;
-    this.useAiMatching = process.env.USE_AI_MATCHING === 'true';
+    this.useAiMatching = true; // Always use AI matching
+    this.aiModel = "gpt-4o-mini"; // Always use GPT-4o-mini
     
     // Set confidence threshold with validation
     this._setConfidenceThreshold(DEFAULT_CONFIDENCE_THRESHOLD);
@@ -131,11 +132,12 @@ class ServiceRecommender {
       let matchingServices;
       const startTime = Date.now();
       
-      // Use AI matching if enabled, otherwise use rule-based matching
-      if (this.useAiMatching && this.openaiApiKey) {
+      // Always use AI matching with GPT-4o-mini
+      if (this.openaiApiKey) {
         matchingServices = await this.findMatchingServicesWithAI(userNeeds, conversationContext);
         this._logPerformanceMetrics('AI-based matching', startTime);
       } else {
+        // Only fall back to rule-based if OpenAI API key is missing
         matchingServices = await this.findMatchingServices(userNeeds, conversationContext);
         this._logPerformanceMetrics('Rule-based matching', startTime);
       }
@@ -543,7 +545,7 @@ class ServiceRecommender {
       
       // Prepare the prompt for the AI model
       const prompt = {
-        model: "gpt-3.5-turbo",
+        model: this.aiModel, // Use the model specified in the constructor
         messages: [
           {
             role: "system",

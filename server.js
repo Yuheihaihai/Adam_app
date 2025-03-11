@@ -1170,17 +1170,6 @@ async function handleText(event) {
     const userId = event.source.userId;
     const messageText = event.message.text;
     
-    // Command to toggle AI matching
-    if (messageText.toLowerCase() === '/toggle-ai-matching') {
-      process.env.USE_AI_MATCHING = process.env.USE_AI_MATCHING === 'true' ? 'false' : 'true';
-      const status = process.env.USE_AI_MATCHING === 'true' ? '有効' : '無効';
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: `AIマッチングが${status}になりました。`
-      });
-      return;
-    }
-    
     // Handle confusion request
     if (isConfusionRequest(messageText)) {
       await handleVisionExplanation(event);
@@ -1754,10 +1743,4 @@ if (!process.env.OPENAI_API_KEY) {
 
 if (!process.env.ANTHROPIC_API_KEY) {
   console.warn('ANTHROPIC_API_KEY environment variable is not set. Claude model will not be available.');
-}
-
-// Set default for AI matching if not provided
-if (process.env.USE_AI_MATCHING === undefined) {
-  process.env.USE_AI_MATCHING = 'true'; // Enable by default
-  console.log('USE_AI_MATCHING not set, defaulting to true');
 }
