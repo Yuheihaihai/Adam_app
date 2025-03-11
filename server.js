@@ -2655,7 +2655,8 @@ function detectAdviceRequest(message, history = null) {
   const explicitAdvicePatterns = [
     'アドバイスください', 'アドバイス下さい', 'アドバイスを下さい', 'アドバイスをください',
     'アドバイスが欲しい', 'アドバイスがほしい', 'アドバイスをお願い', '助言ください',
-    '助言下さい', 'どうしたらいい', 'どうすればいい', 'おすすめを教えて'
+    '助言下さい', 'どうしたらいい', 'どうすればいい', 'おすすめを教えて',
+    'どのようなものがおすすめ', 'おすすめは何', 'お勧めは何', 'どれがいい'
   ];
   
   // Track matched patterns
@@ -2686,6 +2687,13 @@ function detectAdviceRequest(message, history = null) {
     'どうやって', 'どの', '方法', '解決', '対処', '対応', '克服', 
     'どうすれば良い', 'どうすべき', 'したい', 'なりたい',
     
+    // Japanese-specific advice-seeking patterns
+    '効果', '効果的', '役立つ', '良い', 'いい', '適切', '最適', '向いて',
+    '合う', '合います', '選ぶ', '選び方',
+    
+    // Recommendation questions
+    'どういった', 'どんな', 'どのような', 'どれが', 'どこが', '何が',
+    
     // Specific help requests 
     '仕事', '就職', '転職', '人間関係', '対人関係', '友達', '家族',
     '経済的', 'お金', '住まい', '健康', '精神', 'メンタル'  
@@ -2698,11 +2706,28 @@ function detectAdviceRequest(message, history = null) {
     console.log(`Standard advice patterns detected: [${matchedAdvicePatterns.join(', ')}]`);
   }
   
-  // Check for question marks (Japanese and English)
+  // Check for question marks and Japanese question structures (Japanese and English)
   const hasQuestionMark = message.includes('？') || message.includes('?');
   if (hasQuestionMark) {
     console.log(`Question mark detected`);
   }
+  
+  // Detect Japanese question structures
+  const japaneseQuestionPatterns = [
+    'ますか', 'ですか', 'でしょうか', 'ませんか', 'か？', 'かな？', 'かしら',
+    'どう思', 'いかが', 'どうです', 'いいです', 'どうでしょう'
+  ];
+  
+  const matchedQuestionPatterns = japaneseQuestionPatterns.filter(pattern => 
+    lowerMessage.includes(pattern)
+  );
+  
+  if (matchedQuestionPatterns.length > 0) {
+    console.log(`Japanese question patterns detected: [${matchedQuestionPatterns.join(', ')}]`);
+  }
+  
+  // Count the number of question marks (multiple questions often indicate advice seeking)
+  const questionMarkCount = (message.match(/\?|？/g) || []).length;
   
   // Negative patterns (indicating user doesn't want advice)
   const negativePatterns = [
@@ -2749,6 +2774,10 @@ function detectAdviceRequest(message, history = null) {
     'うつ', '不安', 'パニック', 'ストレス', '眠れ', '集中', '記憶', 
     'やる気', 'モチベーション', '意欲', '無気力', '自殺', '死にたい',
     
+    // Organization/Productivity
+    '記録', '手帳', '日記', 'スケジュール', '管理', '忘れ', '忘れっぽい',
+    '整理', '片付け', '時間管理', '効率', '生産性',
+    
     // Daily Life Challenges
     '生活費', '家賃', '借金', '節約', '貯金', '保険', '税金', '引越し',
     '住まい', '近所', '騒音', 'トラブル', '苦情'
@@ -2794,10 +2823,18 @@ function detectAdviceRequest(message, history = null) {
     console.log(`+${domainScore.toFixed(1)}: Problem domains [${matchedDomainKeywords.join(', ')}]`);
   }
   
-  // Question mark analysis
+  // Question mark analysis (give more weight to multiple questions)
   if (hasQuestionMark) {
-    contextualScore += 1;
-    console.log(`+1.0: Contains question mark`);
+    const questionScore = Math.min(2, questionMarkCount * 0.75);
+    contextualScore += questionScore;
+    console.log(`+${questionScore.toFixed(1)}: Contains ${questionMarkCount} question mark(s)`);
+  }
+  
+  // Japanese question structures
+  if (matchedQuestionPatterns.length > 0) {
+    const questionPatternScore = Math.min(1.5, matchedQuestionPatterns.length * 0.5);
+    contextualScore += questionPatternScore;
+    console.log(`+${questionPatternScore.toFixed(1)}: Japanese question structures [${matchedQuestionPatterns.join(', ')}]`);
   }
   
   // First-person perspective indicators ('私は', '僕は', etc.)
@@ -2849,6 +2886,27 @@ function detectAdviceRequest(message, history = null) {
     return true;
   }
   
+  // Special case: Questions about effectiveness or recommendations (very common advice pattern)
+  if ((lowerMessage.includes('効果') || lowerMessage.includes('おすすめ') || lowerMessage.includes('お勧め')) && 
+      (hasQuestionMark || matchedQuestionPatterns.length > 0)) {
+    detectionLog.detectionReason = 'Recommendation or effectiveness question';
+    detectionLog.result = true;
+    
+    console.log(`✅ DETECTED: Recommendation or effectiveness question`);
+    console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
+    return true;
+  }
+  
+  // Special case: Multiple questions in one message (strongly indicates advice seeking)
+  if (questionMarkCount >= 2) {
+    detectionLog.detectionReason = 'Multiple questions in one message';
+    detectionLog.result = true;
+    
+    console.log(`✅ DETECTED: Multiple questions (${questionMarkCount}) in one message`);
+    console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
+    return true;
+  }
+  
   if (message.length > 50 && hasStandardAdvicePattern) {
     detectionLog.detectionReason = 'Longer message with advice keywords';
     detectionLog.result = true;
@@ -2874,6 +2932,16 @@ function detectAdviceRequest(message, history = null) {
     detectionLog.result = true;
     
     console.log(`✅ DETECTED: Medium confidence (explicit pattern + context score: ${contextualScore.toFixed(1)})`);
+    console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
+    return true;
+  }
+  
+  // Lower threshold for question-based messages with some contextual score
+  if ((hasQuestionMark || matchedQuestionPatterns.length > 0) && contextualScore >= 2) {
+    detectionLog.detectionReason = `Question with good contextual score (${contextualScore.toFixed(1)})`;
+    detectionLog.result = true;
+    
+    console.log(`✅ DETECTED: Question with good contextual score (${contextualScore.toFixed(1)})`);
     console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
     return true;
   }
