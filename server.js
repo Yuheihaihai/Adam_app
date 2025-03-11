@@ -1968,3 +1968,49 @@ async function processUserMessage(userId, userMessage, history, initialMode = nu
     };
   }
 }
+
+// Define the missing handleASDUsageInquiry function
+async function handleASDUsageInquiry(event) {
+  const userId = event.source.userId;
+  const messageText = event.message.text;
+  
+  // Create a comprehensive response about ASD support features
+  const response = `
+【ASD支援機能の使い方ガイド】
+
+Adamでは以下のようなASD(自閉症スペクトラム障害)に関する質問や相談に対応できます：
+
+■ 対応可能な質問例
+• 「自閉症スペクトラムの特性について教えて」
+• 「ASDの子どもとのコミュニケーション方法は？」
+• 「感覚過敏への対処法を知りたい」
+• 「社会的場面での不安に対するアドバイスが欲しい」
+• 「特定の興味や関心を活かせる仕事は？」
+• 「構造化や視覚支援の方法を教えて」
+• 「学校や職場での合理的配慮について」
+
+■ 使い方
+• テキストで質問するだけ：気になることを自然な言葉で入力してください
+• 継続的な会話：フォローアップ質問も自然にできます
+• 画像の送信：視覚的な説明が必要なときは「画像で説明して」と伝えてください
+
+■ 注意点
+• 医学的診断はできません
+• あくまで情報提供や一般的なアドバイスが中心です
+• 専門家への相談も並行して検討してください
+
+何か具体的に知りたいことがあれば、お気軽に質問してください。
+`;
+
+  // Store the interaction
+  await storeInteraction(userId, 'user', messageText);
+  await storeInteraction(userId, 'assistant', response);
+
+  // Reply to the user
+  await client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: response
+  });
+  
+  return;
+}
