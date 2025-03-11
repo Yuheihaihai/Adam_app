@@ -23,7 +23,8 @@ const userPreferences = {
   getUserPreferences: function(userId) {
     if (!this._prefStore[userId]) {
       this._prefStore[userId] = {
-        recentlyShownServices: {}
+        recentlyShownServices: {},
+        showServiceRecommendations: true // デフォルトでサービス推奨を有効にする
       };
     }
     return this._prefStore[userId];
@@ -1007,6 +1008,25 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     // Get service recommendations only if user preferences allow it
     let serviceRecommendationsPromise = Promise.resolve([]);
     if (userPrefs.showServiceRecommendations) {
+      // Enhance conversationContext with the latest user message
+      if (conversationContext && userMessage) {
+        // Make sure recentMessages array exists
+        if (!conversationContext.recentMessages) {
+          conversationContext.recentMessages = [];
+        }
+        
+        // Add current message if not already included
+        if (!conversationContext.recentMessages.includes(userMessage)) {
+          conversationContext.recentMessages.push(userMessage);
+        }
+        
+        console.log('Enhanced conversation context for service matching:');
+        console.log(`Recent messages count: ${conversationContext.recentMessages.length}`);
+        if (conversationContext.recentMessages.length > 0) {
+          console.log(`Latest message: "${conversationContext.recentMessages[conversationContext.recentMessages.length - 1].substring(0, 50)}..."`);
+        }
+      }
+      
       serviceRecommendationsPromise = serviceRecommender.getFilteredRecommendations(
         userId, 
         userNeeds,

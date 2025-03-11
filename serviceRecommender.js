@@ -256,6 +256,55 @@ class ServiceRecommender {
       console.log(`Current CONFIDENCE_THRESHOLD: ${this.CONFIDENCE_THRESHOLD} (${this.CONFIDENCE_THRESHOLD * 100}%)`);
       console.log('User needs (detailed):', JSON.stringify(userNeeds, null, 2));
       
+      // Enhanced detection: Check if conversationContext contains messages with keywords
+      if (conversationContext && conversationContext.recentMessages && conversationContext.recentMessages.length > 0) {
+        const combinedText = conversationContext.recentMessages.join(' ').toLowerCase();
+        
+        // Check for developmental disorder keywords
+        if (combinedText.includes('発達障害') || 
+            combinedText.includes('adhd') || 
+            combinedText.includes('asd') || 
+            combinedText.includes('自閉症') || 
+            combinedText.includes('アスペルガー')) {
+          console.log('⚠️ Directly detected developmental disorder keywords in message');
+          // Ensure mental_health category exists
+          if (!userNeeds.mental_health) userNeeds.mental_health = {};
+          // Set neurodivergent_traits flag
+          userNeeds.mental_health.neurodivergent_traits = true;
+        }
+        
+        // Check for remote work keywords
+        if (combinedText.includes('在宅') || 
+            combinedText.includes('リモート') || 
+            combinedText.includes('remote') || 
+            combinedText.includes('テレワーク') || 
+            combinedText.includes('家から働')) {
+          console.log('⚠️ Directly detected remote work keywords in message');
+          // Ensure employment category exists
+          if (!userNeeds.employment) userNeeds.employment = {};
+          // Set remote_work_interest flag
+          userNeeds.employment.remote_work_interest = true;
+        }
+        
+        // Check for employment-related keywords
+        if (combinedText.includes('仕事') || 
+            combinedText.includes('就職') || 
+            combinedText.includes('就労') || 
+            combinedText.includes('働く') || 
+            combinedText.includes('転職')) {
+          console.log('⚠️ Directly detected employment keywords in message');
+          // Ensure employment category exists
+          if (!userNeeds.employment) userNeeds.employment = {};
+          // Set general_employment_interest flag
+          userNeeds.employment.general_employment_interest = true;
+          // If they're asking about jobs, they're likely seeking one
+          userNeeds.employment.seeking_job = true;
+        }
+      }
+      
+      // Log enhanced userNeeds after direct keyword detection
+      console.log('Enhanced user needs after keyword detection:', JSON.stringify(userNeeds, null, 2));
+      
       // Check if userNeeds is empty or has empty categories
       let hasNeeds = false;
       if (userNeeds) {
@@ -403,6 +452,44 @@ class ServiceRecommender {
       // Add enhanced logging for user needs
       console.log(`User needs for matching: ${JSON.stringify(userNeeds, null, 2)}`);
       
+      // Debug: Check if neurodivergent_traits is present
+      if (userNeeds.mental_health && userNeeds.mental_health.neurodivergent_traits) {
+        console.log('✅ neurodivergent_traits is present in user needs');
+        console.log('Services with neurodivergent_traits criteria:');
+        
+        // List services that may match this need
+        let matchingServicesCount = 0;
+        for (const service of this.services) {
+          if (service.criteria && service.criteria.needs && 
+              service.criteria.needs.includes('neurodivergent_traits')) {
+            console.log(`- ${service.name} (${service.id})`);
+            matchingServicesCount++;
+          }
+        }
+        console.log(`Found ${matchingServicesCount} services with neurodivergent_traits criteria`);
+      } else {
+        console.log('❌ neurodivergent_traits is NOT present in user needs');
+      }
+      
+      // Debug: Check if remote_work_interest is present
+      if (userNeeds.employment && userNeeds.employment.remote_work_interest) {
+        console.log('✅ remote_work_interest is present in user needs');
+        console.log('Services with remote_work_interest criteria:');
+        
+        // List services that may match this need
+        let matchingServicesCount = 0;
+        for (const service of this.services) {
+          if (service.criteria && service.criteria.needs && 
+              service.criteria.needs.includes('remote_work_interest')) {
+            console.log(`- ${service.name} (${service.id})`);
+            matchingServicesCount++;
+          }
+        }
+        console.log(`Found ${matchingServicesCount} services with remote_work_interest criteria`);
+      } else {
+        console.log('❌ remote_work_interest is NOT present in user needs');
+      }
+      
       const services = this.services.map(service => ({
         ...service,
         confidenceScore: 0
@@ -468,8 +555,19 @@ class ServiceRecommender {
       
       console.log(`Calculating score for service: ${service.name}`);
       
-      // DEBUG: Log complete user needs structure
-      console.log(`Complete userNeeds structure: ${JSON.stringify(userNeeds, null, 2)}`);
+      // Enhanced context extraction
+      const userMessages = [];
+      if (conversationContext && conversationContext.recentMessages) {
+        if (Array.isArray(conversationContext.recentMessages)) {
+          userMessages.push(...conversationContext.recentMessages);
+        } else if (typeof conversationContext.recentMessages === 'string') {
+          userMessages.push(conversationContext.recentMessages);
+        }
+      }
+      const messageText = userMessages.join(' ').toLowerCase();
+      
+      // DEBUG: Log extracted message text for keyword matching
+      console.log(`Message text for keyword matching: "${messageText.substring(0, 100)}..."`);
       
       // Check for needs criteria
       if (service.criteria.needs && Array.isArray(service.criteria.needs)) {
@@ -524,52 +622,61 @@ class ServiceRecommender {
             }
           }
           
-          // Special case handling for common needs that might have different names
+          // Enhanced special case handling with strong message-based keyword matching
           if (!needMatched) {
-            // Example: map "is_hikikomori" to potential similar concepts
-            if (need === "is_hikikomori" && 
-                ((userNeeds.social && userNeeds.social.isolation === true) || 
-                 (userNeeds.relationships && userNeeds.relationships.loneliness === true))) {
-              matchCount += 0.5; // Partial match
-              console.log(`⚠️ Partial match for ${need}: found similar needs`);
-              needMatched = true;
-            }
-            
-            // Special case: neurodivergent_traits - Check for any mention of developmental disorder
+            // Special case: neurodivergent_traits - Enhanced keyword check
             if (need === "neurodivergent_traits") {
-              const userMessage = conversationContext ? conversationContext.recentMessages : [];
-              const messageText = userMessage.join(' ').toLowerCase();
-              
               // Check for developmental disorder-related terms in message
               if (messageText.includes('発達障害') || 
                   messageText.includes('adhd') || 
                   messageText.includes('asd') || 
                   messageText.includes('自閉症') || 
-                  messageText.includes('アスペルガー')) {
-                matchCount += 0.8; // Strong match based on explicit mention
-                console.log(`⚠️ Special case match for ${need}: found developmental disorder mention in message`);
+                  messageText.includes('アスペルガー') ||
+                  messageText.includes('発達特性') ||
+                  messageText.includes('神経発達症') ||
+                  messageText.includes('注意欠陥') ||
+                  messageText.includes('多動性') ||
+                  messageText.includes('感覚過敏')) {
+                matchCount += 1.0; // Full match based on explicit mention
+                console.log(`⚠️ Full match for ${need} via enhanced keyword check: found developmental disorder mention in message`);
                 needMatched = true;
               }
             }
             
-            // Special case: remote_work_interest - Check for any mention of remote work
+            // Special case: remote_work_interest - Enhanced keyword check
             if (need === "remote_work_interest") {
-              const userMessage = conversationContext ? conversationContext.recentMessages : [];
-              const messageText = userMessage.join(' ').toLowerCase();
-              
               // Check for remote work-related terms in message
               if (messageText.includes('在宅') || 
                   messageText.includes('リモート') || 
                   messageText.includes('remote') || 
                   messageText.includes('テレワーク') || 
-                  messageText.includes('家から')) {
-                matchCount += 0.8; // Strong match based on explicit mention
-                console.log(`⚠️ Special case match for ${need}: found remote work mention in message`);
+                  messageText.includes('家から働') ||
+                  messageText.includes('在宅ワーク') ||
+                  messageText.includes('オンライン勤務') ||
+                  messageText.includes('自宅勤務')) {
+                matchCount += 1.0; // Full match based on explicit mention
+                console.log(`⚠️ Full match for ${need} via enhanced keyword check: found remote work mention in message`);
                 needMatched = true;
               }
             }
             
-            // Add more special cases as needed
+            // Special case: seeking_job - Enhanced keyword check
+            if (need === "seeking_job") {
+              // Check for job-seeking terms in message
+              if (messageText.includes('仕事を探') || 
+                  messageText.includes('就職したい') || 
+                  messageText.includes('就労したい') || 
+                  messageText.includes('働きたい') || 
+                  messageText.includes('転職したい') ||
+                  messageText.includes('求人') ||
+                  messageText.includes('職を探')) {
+                matchCount += 1.0; // Full match based on explicit mention
+                console.log(`⚠️ Full match for ${need} via enhanced keyword check: found job-seeking mention in message`);
+                needMatched = true;
+              }
+            }
+            
+            // Add other special cases as needed
           }
           
           if (!needMatched) {
