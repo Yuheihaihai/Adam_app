@@ -13,6 +13,49 @@ const fs = require('fs');
 const UserNeedsAnalyzer = require('./userNeedsAnalyzer');
 const ServiceRecommender = require('./serviceRecommender');
 
+// User Preferences Module
+const userPreferences = {
+  _prefStore: {}, // Simple in-memory storage
+  
+  getUserPreferences: function(userId) {
+    if (!this._prefStore[userId]) {
+      this._prefStore[userId] = {
+        recentlyShownServices: {}
+      };
+    }
+    return this._prefStore[userId];
+  },
+  
+  updateUserPreferences: function(userId, preferences) {
+    this._prefStore[userId] = preferences;
+    return this._prefStore[userId];
+  },
+  
+  trackImplicitFeedback: function(userId, userMessage, recentServices) {
+    // Placeholder for tracking user feedback on services
+    console.log(`Tracking feedback for user ${userId} on services:`, recentServices);
+    return true;
+  },
+  
+  processPreferenceCommand: function(userId, command) {
+    // Placeholder for processing user preference commands
+    console.log(`Processing preference command for user ${userId}: ${command}`);
+    return this.getUserPreferences(userId);
+  },
+  
+  getHelpMessage: function() {
+    return "設定を変更するには以下のコマンドを使用できます：\n- 設定確認：現在の設定を表示\n- 設定リセット：設定をデフォルトに戻す";
+  },
+  
+  getCurrentSettingsMessage: function(userId) {
+    return "現在の設定です。特別な設定はありません。";
+  },
+  
+  _getServiceCategory: function(service) {
+    return service && service.category ? service.category : "未分類";
+  }
+};
+
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
