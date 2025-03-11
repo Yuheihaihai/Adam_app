@@ -1548,13 +1548,38 @@ app.get('/', (req, res) => {
 });
 
 app.post('/webhook', line.middleware(config), (req, res) => {
-  console.log('Webhook was called! Events:', req.body.events);
-  Promise.all(req.body.events.map(handleEvent))
-    .then((result) => res.json(result))
-    .catch((err) => {
-      console.error('Webhook error:', err);
-      res.status(200).json({});
+  console.log('Webhook was called! Events:', JSON.stringify(req.body));
+  
+  // リクエストにeventsがない場合のエラー処理を追加
+  if (!req.body || !req.body.events || !Array.isArray(req.body.events)) {
+    console.warn('Invalid webhook request format:', req.body);
+    // 常に200 OKを返す（LINEプラットフォームの要件）
+    return res.status(200).json({
+      message: 'Invalid webhook data received, but still returning 200 OK as per LINE Platform requirements'
     });
+  }
+  
+  // 各イベントを非同期で処理し、常に200 OKを返す
+  Promise.all(req.body.events.map(event => {
+    // handleEventが例外をスローする可能性があるため、Promise.resolveでラップする
+    return Promise.resolve().then(() => handleEvent(event))
+      .catch(err => {
+        console.error(`Error handling event: ${JSON.stringify(event)}`, err);
+        return null; // エラーを飲み込んで処理を続行
+      });
+  }))
+  .then(results => {
+    // 結果に関係なく、常に200 OKを返す
+    res.status(200).json(results.filter(result => result !== null));
+  })
+  .catch(err => {
+    // 最上位のエラーハンドリング
+    console.error('Top-level webhook processing error:', err);
+    // エラーが発生しても常に200 OKを返す
+    res.status(200).json({
+      message: 'An error occurred, but still returning 200 OK as per LINE Platform requirements'
+    });
+  });
 });
 
 const PORT = process.env.PORT || 3000;
