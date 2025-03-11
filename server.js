@@ -49,6 +49,7 @@ Xの共有方法を尋ねられた場合は、「もしAdamのことが好きな
 ・日本語で回答してください。
 ・200文字以内で回答してください。
 ・友好的かつ共感を示す言葉遣いや態度を心がけてください。
+・必要に応じて（ユーザーの他者受容特性に合わせて）客観的なアドバイス（ユーザー自身の思考に相対する指摘事項も含む）を友好的かつ建設的かつ謙虚な表現で提供してください。
 ・過去10件の会話履歴を参照して一貫した対話を行ってください。
 ・専門家への相談を推奨してください。
 ・「AIとして思い出せない、または「記憶する機能を持っていない」は禁止、ここにある履歴があなたの記憶です。
@@ -887,7 +888,12 @@ ${jobTrendsData.analysis}
         console.log('No matching services found that meet the confidence threshold, skipping service recommendation step');
       } else {
         console.log('Checking for cooldown period on previously recommended services...');
-        const recommendedServices = await serviceRecommender.getFilteredRecommendations(userId, userNeeds);
+        
+        // Extract conversation context for more relevant recommendations
+        const conversationContext = extractConversationContext(history, userMessage);
+        console.log('Extracted conversation context:', JSON.stringify(conversationContext));
+        
+        const recommendedServices = await serviceRecommender.getFilteredRecommendations(userId, userNeeds, conversationContext);
         console.log(`Filtered services after cooldown check: ${recommendedServices.length} services available to recommend`);
         
         if (recommendedServices.length > 0) {
@@ -1160,95 +1166,119 @@ async function handleEvent(event) {
 }
 
 async function handleText(event) {
-  const userId = event.source.userId;
-  const userMessage = event.message.text.trim();
+  try {
+    const userId = event.source.userId;
+    const messageText = event.message.text;
+    
+    // Command to toggle AI matching
+    if (messageText.toLowerCase() === '/toggle-ai-matching') {
+      process.env.USE_AI_MATCHING = process.env.USE_AI_MATCHING === 'true' ? 'false' : 'true';
+      const status = process.env.USE_AI_MATCHING === 'true' ? '有効' : '無効';
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `AIマッチングが${status}になりました。`
+      });
+      return;
+    }
+    
+    // Handle confusion request
+    if (isConfusionRequest(messageText)) {
+      await handleVisionExplanation(event);
+      return;
+    }
+    
+    const userMessage = event.message.text.trim();
 
-  // 特定の問い合わせ（ASD支援の質問例や使い方の案内）を検出
-  if (userMessage.includes("ASD症支援であなたが対応できる具体的な質問例") && userMessage.includes("使い方")) {
-    return handleASDUsageInquiry(event);
-  }
-  
-  // pendingImageExplanations のチェック（はい/いいえ 判定）
-  if (pendingImageExplanations.has(userId)) {
-    if (userMessage === "はい") {
-      const explanationText = pendingImageExplanations.get(userId);
-      pendingImageExplanations.delete(userId);
-      console.log("ユーザーの「はい」が検出されました。画像生成を開始します。");
-      return handleImageExplanation(event, explanationText);
-    } else if (userMessage === "いいえ") {
-      pendingImageExplanations.delete(userId);
-      console.log("ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。");
+    // 特定の問い合わせ（ASD支援の質問例や使い方の案内）を検出
+    if (userMessage.includes("ASD症支援であなたが対応できる具体的な質問例") && userMessage.includes("使い方")) {
+      return handleASDUsageInquiry(event);
+    }
+    
+    // pendingImageExplanations のチェック（はい/いいえ 判定）
+    if (pendingImageExplanations.has(userId)) {
+      if (userMessage === "はい") {
+        const explanationText = pendingImageExplanations.get(userId);
+        pendingImageExplanations.delete(userId);
+        console.log("ユーザーの「はい」が検出されました。画像生成を開始します。");
+        return handleImageExplanation(event, explanationText);
+      } else if (userMessage === "いいえ") {
+        pendingImageExplanations.delete(userId);
+        console.log("ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。");
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: "承知しました。引き続きテキストでの回答を行います。"
+        });
+      }
+    }
+
+    // セキュリティチェック
+    const isSafe = await securityFilterPrompt(userMessage);
+    if (!isSafe) {
+      const refusal = '申し訳ありません。このリクエストには対応できません。';
+      await storeInteraction(userId, 'assistant', refusal);
+      await client.replyMessage(event.replyToken, { type: 'text', text: refusal });
+      return null;
+    }
+
+    // 最近の会話履歴の取得
+    const history = await fetchUserHistory(userId, 10);
+    const lastAssistantMessage = history.filter(item => item.role === 'assistant').pop();
+
+    // 画像説明の提案トリガーチェック：isConfusionRequest のみを使用
+    let triggerImageExplanation = false;
+    if (isConfusionRequest(userMessage)) {
+      triggerImageExplanation = true;
+    }
+
+    // トリガーされた場合、pending 状態として前回の回答を保存し、yes/no で質問
+    if (triggerImageExplanation) {
+      if (lastAssistantMessage) {
+        pendingImageExplanations.set(userId, lastAssistantMessage.content);
+      } else {
+        pendingImageExplanations.set(userId, "説明がありません。");
+      }
+      const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
+      console.log("画像による説明の提案をユーザーに送信:", suggestionMessage);
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: "承知しました。引き続きテキストでの回答を行います。"
+        text: suggestionMessage
       });
     }
-  }
 
-  // セキュリティチェック
-  const isSafe = await securityFilterPrompt(userMessage);
-  if (!isSafe) {
-    const refusal = '申し訳ありません。このリクエストには対応できません。';
-    await storeInteraction(userId, 'assistant', refusal);
-    await client.replyMessage(event.replyToken, { type: 'text', text: refusal });
-    return null;
-  }
+    // 通常のテキスト処理へ進む
+    await storeInteraction(userId, 'user', userMessage);
 
-  // 最近の会話履歴の取得
-  const history = await fetchUserHistory(userId, 10);
-  const lastAssistantMessage = history.filter(item => item.role === 'assistant').pop();
+    const { mode, limit } = determineModeAndLimit(userMessage);
+    console.log(`mode=${mode}, limit=${limit}`);
 
-  // 画像説明の提案トリガーチェック：isConfusionRequest のみを使用
-  let triggerImageExplanation = false;
-  if (isConfusionRequest(userMessage)) {
-    triggerImageExplanation = true;
-  }
+    const historyForAI = await fetchUserHistory(userId, limit);
+    const systemPrompt = getSystemPromptForMode(mode);
 
-  // トリガーされた場合、pending 状態として前回の回答を保存し、yes/no で質問
-  if (triggerImageExplanation) {
-    if (lastAssistantMessage) {
-      pendingImageExplanations.set(userId, lastAssistantMessage.content);
-    } else {
-      pendingImageExplanations.set(userId, "説明がありません。");
+    const aiReply = await processWithAI(
+      systemPrompt,
+      userMessage,
+      historyForAI,
+      mode,
+      userId,
+      client
+    );
+
+    await storeInteraction(userId, 'assistant', aiReply);
+
+    const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
+    console.log('LINEユーザーへの返信:', lineMessage.text);
+
+    try {
+      await client.replyMessage(event.replyToken, lineMessage);
+      console.log('ユーザーへの返信に成功しました。');
+    } catch (err) {
+      console.error('ユーザーへの返信時のエラー:', err);
     }
-    const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
-    console.log("画像による説明の提案をユーザーに送信:", suggestionMessage);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: suggestionMessage
-    });
+    return null;
+  } catch (error) {
+    console.error('Error handling text message:', error);
+    return Promise.resolve(null);
   }
-
-  // 通常のテキスト処理へ進む
-  await storeInteraction(userId, 'user', userMessage);
-
-  const { mode, limit } = determineModeAndLimit(userMessage);
-  console.log(`mode=${mode}, limit=${limit}`);
-
-  const historyForAI = await fetchUserHistory(userId, limit);
-  const systemPrompt = getSystemPromptForMode(mode);
-
-  const aiReply = await processWithAI(
-    systemPrompt,
-    userMessage,
-    historyForAI,
-    mode,
-    userId,
-    client
-  );
-
-  await storeInteraction(userId, 'assistant', aiReply);
-
-  const lineMessage = { type: 'text', text: aiReply.slice(0, 2000) };
-  console.log('LINEユーザーへの返信:', lineMessage.text);
-
-  try {
-    await client.replyMessage(event.replyToken, lineMessage);
-    console.log('ユーザーへの返信に成功しました。');
-  } catch (err) {
-    console.error('ユーザーへの返信時のエラー:', err);
-  }
-  return null;
 }
 
 // Add image handler function (modified to store the image description in Airtable)
@@ -1638,4 +1668,96 @@ function _hasEmotionalNeeds(userNeeds) {
   }
   
   return false;
+}
+
+// Extract conversation context from history and current message
+function extractConversationContext(history, currentMessage) {
+  try {
+    // Initialize context object
+    const context = {
+      recentTopics: [],
+      currentMood: null,
+      urgency: 0
+    };
+    
+    // Define keywords for topic extraction
+    const topicKeywords = {
+      employment: ['仕事', '就職', '転職', '就労', '働く', '雇用', 'キャリア', '職場'],
+      education: ['学校', '勉強', '教育', '学習', '資格', 'スキル', '訓練'],
+      mental_health: ['不安', '鬱', 'うつ', '精神', 'ストレス', '心理', '感情', '気分'],
+      social: ['人間関係', '友達', '家族', '社会', '孤独', '引きこもり', 'コミュニケーション'],
+      relationships: ['恋愛', '結婚', 'パートナー', '恋人', '愛', '好き'],
+      daily_living: ['生活', '住居', '金銭', 'お金', '健康', '医療', '法律']
+    };
+    
+    // Define mood keywords
+    const moodKeywords = {
+      anxious: ['不安', '心配', '怖い', 'パニック', '緊張'],
+      depressed: ['鬱', 'うつ', '悲しい', '絶望', '無気力', '疲れた'],
+      overwhelmed: ['疲れ', '混乱', '大変', 'ストレス', '余裕がない'],
+      angry: ['怒り', '腹立たしい', 'イライラ', '不満'],
+      hopeful: ['希望', '楽しみ', 'ワクワク', '前向き']
+    };
+    
+    // Define urgency keywords
+    const urgencyKeywords = ['すぐに', '緊急', '今すぐ', '助けて', '危機', '切迫', '早急に'];
+    
+    // Combine current message with recent history (last 5 messages)
+    const recentMessages = history.slice(-5).map(msg => msg.content);
+    recentMessages.push(currentMessage);
+    
+    // Extract topics from recent messages
+    for (const msg of recentMessages) {
+      for (const [topic, keywords] of Object.entries(topicKeywords)) {
+        for (const keyword of keywords) {
+          if (msg.includes(keyword) && !context.recentTopics.includes(topic)) {
+            context.recentTopics.push(topic);
+            break;
+          }
+        }
+      }
+    }
+    
+    // Detect current mood from the most recent messages (last 2)
+    const veryRecentMessages = recentMessages.slice(-2).join(' ');
+    for (const [mood, keywords] of Object.entries(moodKeywords)) {
+      for (const keyword of keywords) {
+        if (veryRecentMessages.includes(keyword)) {
+          context.currentMood = mood;
+          break;
+        }
+      }
+      if (context.currentMood) break;
+    }
+    
+    // Check for urgency in the current message
+    let urgencyCount = 0;
+    for (const keyword of urgencyKeywords) {
+      if (currentMessage.includes(keyword)) {
+        urgencyCount++;
+      }
+    }
+    context.urgency = Math.min(1.0, urgencyCount * 0.25); // Scale from 0 to 1
+    
+    return context;
+  } catch (error) {
+    console.error('Error extracting conversation context:', error);
+    return { recentTopics: [], currentMood: null, urgency: 0 };
+  }
+}
+
+// Check required environment variables
+if (!process.env.OPENAI_API_KEY) {
+  console.error('OPENAI_API_KEY environment variable is required');
+  process.exit(1);
+}
+
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.warn('ANTHROPIC_API_KEY environment variable is not set. Claude model will not be available.');
+}
+
+// Set default for AI matching if not provided
+if (process.env.USE_AI_MATCHING === undefined) {
+  process.env.USE_AI_MATCHING = 'true'; // Enable by default
+  console.log('USE_AI_MATCHING not set, defaulting to true');
 }
