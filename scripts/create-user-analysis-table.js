@@ -20,25 +20,13 @@ async function createUserAnalysisTable() {
   console.log('Checking if UserAnalysis table already exists...');
   
   try {
-    // テーブル一覧を取得して確認
-    const tables = await base.tables();
-    const userAnalysisExists = tables.some(table => table.name === 'UserAnalysis');
+    // テーブルが存在するかチェック（直接アクセスしてみる）
+    await base('UserAnalysis').select({
+      maxRecords: 1,
+      view: 'Grid view'
+    }).firstPage();
     
-    if (userAnalysisExists) {
-      console.log('UserAnalysis table already exists.');
-      return;
-    }
-    
-    console.log('\nUserAnalysis table does not exist.');
-    console.log('\n=== IMPORTANT MANUAL ACTION REQUIRED ===');
-    console.log('Please create the UserAnalysis table in your Airtable base with the following fields:');
-    console.log('1. UserID (Single line text)');
-    console.log('2. Mode (Single line text)');
-    console.log('3. AnalysisData (Long text)');
-    console.log('4. LastUpdated (Date with time)');
-    console.log('\nAirtable API does not support automatic table creation.');
-    console.log('After creating the table, the application will be able to store and retrieve user analysis data.');
-    console.log('===================================\n');
+    console.log('UserAnalysis table already exists!');
     
     // テスト用サンプルレコードの作成
     console.log('Would you like to create a test record in the UserAnalysis table? (yes/no)');
@@ -71,22 +59,44 @@ async function createUserAnalysisTable() {
           await base('UserAnalysis').create([{ fields: testData }]);
           console.log('Successfully created a test record in the UserAnalysis table!');
         } catch (err) {
-          if (err.error === 'NOT_FOUND') {
-            console.error('Error: UserAnalysis table not found. Please create it first.');
-          } else {
-            console.error('Error creating test record:', err);
-          }
+          console.error('Error creating test record:', err);
         }
+        process.exit(0);
       } else {
         console.log('Skipping test record creation.');
+        process.exit(0);
       }
-      
-      process.exit(0);
     });
-    
   } catch (err) {
-    console.error('Error:', err);
-    process.exit(1);
+    // テーブルが存在しない場合
+    if (err.statusCode === 404 || err.error === 'NOT_FOUND' || 
+        (err.message && err.message.includes('could not be found'))) {
+      console.log('\nUserAnalysis table does not exist.');
+      console.log('\n=== IMPORTANT MANUAL ACTION REQUIRED ===');
+      console.log('Please create the UserAnalysis table in your Airtable base with the following fields:');
+      console.log('1. UserID (Single line text)');
+      console.log('2. Mode (Single line text)');
+      console.log('3. AnalysisData (Long text)');
+      console.log('4. LastUpdated (Date with time)');
+      console.log('\nAirtable API does not support automatic table creation.');
+      console.log('After creating the table, the application will be able to store and retrieve user analysis data.');
+      console.log('===================================\n');
+      
+      console.log('\nWould you like to open Airtable website to create this table? (yes/no)');
+      process.stdin.once('data', (input) => {
+        const answer = input.toString().trim().toLowerCase();
+        if (answer === 'yes' || answer === 'y') {
+          console.log('Please visit: https://airtable.com/');
+          console.log('Navigate to your base, and create a table named "UserAnalysis" with the fields listed above.');
+        } else {
+          console.log('You can create the table later in the Airtable web interface.');
+        }
+        process.exit(0);
+      });
+    } else {
+      console.error('Error:', err);
+      process.exit(1);
+    }
   }
 }
 
