@@ -1318,7 +1318,10 @@ ${perplexityData.knowledge}
       console.log('\n📦 [5A] SERVICE RECOMMENDATIONS FOR RESPONSE:');
       serviceRecommendations.forEach((rec, index) => {
         if (index < 3) { // Just log the top 3 to avoid clutter
-          console.log(`    ├─ [${index + 1}] ${rec.serviceName}: confidence ${rec.confidence.toFixed(2)}`);
+          // 安全にconfidenceプロパティにアクセス
+          const confidenceStr = rec.confidence ? `confidence ${rec.confidence.toFixed(2)}` : 'confidence N/A';
+          const serviceName = rec.serviceName || rec;
+          console.log(`    ├─ [${index + 1}] ${serviceName}: ${confidenceStr}`);
         }
       });
     } else {
