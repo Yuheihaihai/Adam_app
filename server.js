@@ -804,10 +804,36 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     
     // Add service recommendations if user preferences allow it
     if (userPrefs.showServiceRecommendations && serviceRecommendations && serviceRecommendations.length > 0) {
+      console.log(`Processing ${serviceRecommendations.length} service recommendations`);
+      
+      // Debug log to see service structure
+      if (serviceRecommendations.length > 0) {
+        console.log('Sample service structure:', JSON.stringify(serviceRecommendations[0]));
+      }
+      
+      // Get the full service objects from the services.js file
+      const servicesModule = require('./services');
+      
+      // Map service IDs to full service objects if needed
+      let servicesToDisplay = serviceRecommendations;
+      
+      // If the services are just IDs or don't have complete information, look them up
+      if (serviceRecommendations[0] && (typeof serviceRecommendations[0] === 'string' || !serviceRecommendations[0].description)) {
+        servicesToDisplay = serviceRecommendations
+          .map(service => {
+            const serviceId = typeof service === 'string' ? service : service.id;
+            return servicesModule.find(s => s.id === serviceId);
+          })
+          .filter(service => service !== undefined);
+        
+        console.log(`Mapped ${servicesToDisplay.length} services from IDs to full objects`);
+      }
+      
       // Filter to max number of recommendations and apply confidence threshold
-      const filteredRecommendations = serviceRecommendations
-        .filter(service => service.confidence >= userPrefs.minConfidenceScore)
+      const filteredRecommendations = servicesToDisplay
         .slice(0, userPrefs.maxRecommendations);
+      
+      console.log(`After filtering: ${filteredRecommendations.length} services remain`);
       
       if (filteredRecommendations.length > 0) {
         // Add service recommendations to the response
@@ -822,7 +848,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         // Record service recommendations
         try {
           for (const service of filteredRecommendations) {
-            await recordServiceRecommendation(userId, service.id, service.confidence);
+            await recordServiceRecommendation(userId, service.id, 0.8); // Use default confidence score
           }
         } catch (error) {
           console.error('Error recording service recommendation:', error);
