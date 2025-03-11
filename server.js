@@ -17,6 +17,11 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
 app.use(timeout('60s'));
+app.use(express.json()); // JSONボディの解析を有効化
+
+// APIルートの登録
+const intentRoutes = require('./routes/api/intent');
+app.use('/api/intent', intentRoutes);
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
