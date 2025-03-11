@@ -1152,6 +1152,18 @@ async function handleText(event) {
     const userId = event.source.userId;
     const messageText = event.message.text;
     
+    // Check for general help request
+    if (userMessage.toLowerCase() === 'ヘルプ' || 
+        userMessage.toLowerCase() === 'help' || 
+        userMessage.toLowerCase() === 'へるぷ') {
+      // Return the general help message
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: helpSystem.getGeneralHelp()
+      });
+      return;
+    }
+    
     // Handle confusion request
     if (isConfusionRequest(messageText)) {
       await handleVisionExplanation(event);
@@ -1806,6 +1818,31 @@ if (!process.env.ANTHROPIC_API_KEY) {
   console.warn('ANTHROPIC_API_KEY environment variable is not set. Claude model will not be available.');
 }
 
+// Add this before the UserPreferences class
+
+/**
+ * Centralized Help System
+ * All user guidance and help documentation is consolidated here
+ */
+const helpSystem = {
+  // General help
+  getGeneralHelp() {
+    return `ADamとの使い方:
+・一般的な会話: 質問や悩みを自由に話しかけてください
+・ヘルプ: 「ヘルプ」と入力すると、このメッセージが表示されます
+・サービス設定: 「サービス設定について」と入力すると、サービス推薦の設定方法を確認できます`;
+  },
+  
+  // Service recommendation settings help
+  getServiceSettingsHelp() {
+    return `サービス表示の設定方法：
+・「サービスを表示して」または「サービスを表示しないで」と言っていただくと、サービス表示のオン/オフを切り替えられます。
+・「サービスを3つ表示して」のように数字を指定すると、表示するサービスの数を変更できます（0～5まで）。
+・「信頼度80%以上のサービスを表示して」のように言っていただくと、表示する信頼度の閾値を変更できます（40%～90%まで）。
+・「今の設定は？」と聞いていただくと、現在の設定を確認できます。`;
+  }
+};
+
 class UserPreferences {
   constructor() {
     this.preferences = {};
@@ -1871,11 +1908,8 @@ class UserPreferences {
 
   // Get help message explaining available preference commands
   getHelpMessage() {
-    return `サービス表示の設定方法：
-・「サービスを表示して」または「サービスを表示しないで」と言っていただくと、サービス表示のオン/オフを切り替えられます。
-・「サービスを3つ表示して」のように数字を指定すると、表示するサービスの数を変更できます（0～5まで）。
-・「信頼度80%以上のサービスを表示して」のように言っていただくと、表示する信頼度の閾値を変更できます（40%～90%まで）。
-・「今の設定は？」と聞いていただくと、現在の設定を確認できます。`;
+    // Uses the centralized help system
+    return helpSystem.getServiceSettingsHelp();
   }
 
   // Get current settings message for a user
