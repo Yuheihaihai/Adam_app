@@ -4,8 +4,18 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 
+// サービスデータが正しく読み込まれているか確認
+console.log(`Loaded ${services.length} services from services.js`);
+if (services.length > 0) {
+  console.log(`First service: ${JSON.stringify(services[0].id)} - ${JSON.stringify(services[0].name)}`);
+  console.log(`Sample criteria: ${JSON.stringify(services[0].criteria)}`);
+} else {
+  console.log('WARNING: No services found in services.js!');
+}
+
 // Define constants at the module level to prevent accidental changes
-const DEFAULT_CONFIDENCE_THRESHOLD = 0.8; // 80% confidence threshold (updated from 60%)
+const DEFAULT_CONFIDENCE_THRESHOLD = 0.7; // 70%に設定 (元は80%)
+console.log(`Service matching module loaded with DEFAULT_CONFIDENCE_THRESHOLD: ${DEFAULT_CONFIDENCE_THRESHOLD} (${DEFAULT_CONFIDENCE_THRESHOLD * 100}%)`);
 const DEFAULT_COOLDOWN_DAYS = 7;
 
 class ServiceRecommender {
@@ -17,6 +27,7 @@ class ServiceRecommender {
     this.localStoragePath = path.join(__dirname, 'local_recommendations.json');
     this.services = services; // Use the imported services module
     this.confidenceThreshold = 0.4;
+    console.log(`Initial confidenceThreshold set to: ${this.confidenceThreshold} (${this.confidenceThreshold * 100}%)`);
     this.openaiApiKey = process.env.OPENAI_API_KEY;
     this.useAiMatching = true; // Always use AI matching
     this.aiModel = "gpt-4o-mini"; // Always use GPT-4o-mini
@@ -61,7 +72,7 @@ class ServiceRecommender {
     
     // Set the threshold
     this.CONFIDENCE_THRESHOLD = validatedThreshold;
-    console.log(`Service matching confidence threshold set to ${(this.CONFIDENCE_THRESHOLD * 100).toFixed(0)}%`);
+    console.log(`Service matching confidence threshold set to ${(this.CONFIDENCE_THRESHOLD * 100).toFixed(0)}% (input was: ${threshold}, validated to: ${validatedThreshold})`);
   }
   
   // Load local recommendations from file
@@ -242,9 +253,31 @@ class ServiceRecommender {
   async getFilteredRecommendations(userId, userNeeds, conversationContext = null) {
     try {
       console.log(`Getting recommendations for user ${userId}`);
-      console.log('User needs:', JSON.stringify(userNeeds));
+      console.log(`Current CONFIDENCE_THRESHOLD: ${this.CONFIDENCE_THRESHOLD} (${this.CONFIDENCE_THRESHOLD * 100}%)`);
+      console.log('User needs (detailed):', JSON.stringify(userNeeds, null, 2));
+      
+      // Check if userNeeds is empty or has empty categories
+      let hasNeeds = false;
+      if (userNeeds) {
+        for (const category in userNeeds) {
+          if (userNeeds[category] && Object.keys(userNeeds[category]).length > 0) {
+            for (const need in userNeeds[category]) {
+              if (userNeeds[category][need] === true) {
+                hasNeeds = true;
+                break;
+              }
+            }
+            if (hasNeeds) break;
+          }
+        }
+      }
+      
+      if (!hasNeeds) {
+        console.log('WARNING: No user needs detected. This may prevent service matching.');
+      }
+      
       if (conversationContext) {
-        console.log('Conversation context:', JSON.stringify(conversationContext));
+        console.log('Conversation context:', JSON.stringify(conversationContext, null, 2));
       }
       
       // Create a cache key based on user needs and context
@@ -352,25 +385,48 @@ class ServiceRecommender {
         this._setConfidenceThreshold(DEFAULT_CONFIDENCE_THRESHOLD);
       }
 
-      // Get all services from the 'Services' table
-      const records = await this.airtableBase('Services').select().all();
-      const services = records.map(record => ({
-        id: record.id,
-        name: record.get('Name'),
-        description: record.get('Description'),
-        url: record.get('URL'),
-        criteria: record.get('Criteria') ? JSON.parse(record.get('Criteria')) : {},
+      console.log(`Current DEFAULT_CONFIDENCE_THRESHOLD: ${DEFAULT_CONFIDENCE_THRESHOLD} (${DEFAULT_CONFIDENCE_THRESHOLD * 100}%)`);
+      console.log(`Current CONFIDENCE_THRESHOLD: ${this.CONFIDENCE_THRESHOLD} (${this.CONFIDENCE_THRESHOLD * 100}%)`);
+
+      // Use the imported services from services.js instead of fetching from Airtable
+      console.log(`Using ${this.services.length} services from local services.js file`);
+      
+      // Log the first service for debugging
+      if (this.services.length > 0) {
+        console.log(`First service: ${JSON.stringify(this.services[0], null, 2)}`);
+      } else {
+        console.log('WARNING: No services found in services.js');
+        return [];
+      }
+      
+      console.log(`User needs for matching: ${JSON.stringify(userNeeds, null, 2)}`);
+      
+      const services = this.services.map(service => ({
+        ...service,
         confidenceScore: 0
       }));
 
       // Calculate confidence score for each service
       for (const service of services) {
         service.confidenceScore = this._calculateConfidenceScore(service, userNeeds, conversationContext);
-        console.log(`Service ${service.name} confidence score: ${service.confidenceScore}`);
+        console.log(`Service ${service.name} confidence score: ${service.confidenceScore.toFixed(2)}`);
       }
 
       // Filter services by confidence threshold
       const matchingServices = services.filter(service => service.confidenceScore >= this.CONFIDENCE_THRESHOLD);
+      console.log(`Found ${matchingServices.length} matching services with confidence >= ${this.CONFIDENCE_THRESHOLD}`);
+      
+      if (matchingServices.length === 0) {
+        console.log('DEBUG: No services matched. Confidence threshold may be too high or user needs may not match any services.');
+        
+        // Log the highest scoring services for debugging
+        const sortedServices = [...services].sort((a, b) => b.confidenceScore - a.confidenceScore);
+        const topServices = sortedServices.slice(0, 3);
+        console.log('Top scoring services (even though below threshold):');
+        topServices.forEach(service => {
+          console.log(`- ${service.name}: ${service.confidenceScore.toFixed(2)}`);
+        });
+      }
       
       // Sort by confidence score (highest first)
       matchingServices.sort((a, b) => b.confidenceScore - a.confidenceScore);
@@ -391,75 +447,85 @@ class ServiceRecommender {
    */
   _calculateConfidenceScore(service, userNeeds, conversationContext = null) {
     try {
+      // If no criteria defined, return 0
       if (!service.criteria || Object.keys(service.criteria).length === 0) {
         return 0;
       }
 
       let totalCriteria = 0;
       let matchCount = 0;
-      let negativeMatchCount = 0;
+      let negativePenalty = 0;
       
-      // Process positive criteria (needs that should match)
+      console.log(`Calculating score for service: ${service.name}`);
+      
+      // Check for needs criteria
       if (service.criteria.needs && Array.isArray(service.criteria.needs)) {
-        totalCriteria += service.criteria.needs.length;
+        const needsCriteria = service.criteria.needs;
+        totalCriteria += needsCriteria.length;
         
-        for (const need of service.criteria.needs) {
-          if (userNeeds[need] && userNeeds[need] > 0) {
-            // Weight the match based on the strength of the need
-            matchCount += (userNeeds[need] / 5); // Normalize to 0-1 range (assuming needs are 1-5)
+        console.log(`Service needs criteria: ${JSON.stringify(needsCriteria)}`);
+        
+        // Check each need in the criteria
+        for (const need of needsCriteria) {
+          let needMatched = false;
+          
+          // Check all categories in userNeeds
+          for (const category in userNeeds) {
+            if (userNeeds[category] && typeof userNeeds[category] === 'object') {
+              // Check if this need exists in this category
+              if (userNeeds[category][need] === true) {
+                matchCount++;
+                needMatched = true;
+                console.log(`✅ Need matched: ${need}`);
+                break;
+              }
+            }
+          }
+          
+          if (!needMatched) {
+            console.log(`❌ Need not matched: ${need}`);
           }
         }
       }
       
-      // Process negative criteria (needs that should NOT match)
+      // Check for exclusion criteria
       if (service.criteria.excludes && Array.isArray(service.criteria.excludes)) {
-        for (const exclude of service.criteria.excludes) {
-          if (userNeeds[exclude] && userNeeds[exclude] > 3) { // Only count strong negative matches
-            negativeMatchCount++;
+        const exclusionCriteria = service.criteria.excludes;
+        console.log(`Service exclusion criteria: ${JSON.stringify(exclusionCriteria)}`);
+        
+        // Check each exclusion criterion
+        for (const exclusion of exclusionCriteria) {
+          // Check all categories in userNeeds
+          for (const category in userNeeds) {
+            if (userNeeds[category] && typeof userNeeds[category] === 'object') {
+              // If the user has this excluded need, apply a penalty
+              if (userNeeds[category][exclusion] === true) {
+                negativePenalty += 0.3; // 30% penalty for each exclusion match
+                console.log(`⚠️ Exclusion matched: ${exclusion} (penalty: 0.3)`);
+                break;
+              }
+            }
           }
         }
       }
       
-      // Apply negative matches as penalties
-      const negativePenalty = negativeMatchCount * 0.2; // Each negative match reduces score by 20%
-      
-      // Calculate base score from positive matches
+      // Calculate base score from needs match
       let score = totalCriteria > 0 ? matchCount / totalCriteria : 0;
+      console.log(`Base score from needs: ${score.toFixed(2)} (matched ${matchCount}/${totalCriteria} criteria)`);
       
-      // Apply context-based adjustments if context is available
+      // Apply context-based adjustments if available
       if (conversationContext) {
-        // Check for explicit requests for advice or recommendations
-        if (conversationContext.text) {
-          const requestTerms = [
-            'アドバイス', 'お勧め', 'おすすめ', 'おススメ', '教えて', 'サービス', 
-            'サイト', 'アプリ', '紹介', '推薦', 'オススメ', '良い', 'いい', 
-            '助言', 'アドバイザー', 'コンサルタント', 'どうすれば', '手伝って'
-          ];
-          
-          // Check if any of the request terms are in the conversation context
-          const requestMatches = requestTerms.filter(term => 
-            conversationContext.text.includes(term)
-          );
-          
-          // Calculate bonus based on number of matches (up to 0.25 or 25%)
-          const explicitRequestBonus = Math.min(0.25, requestMatches.length * 0.05);
-          
-          if (explicitRequestBonus > 0) {
-            console.log(`Adding ${(explicitRequestBonus * 100).toFixed(1)}% bonus for explicit advice/recommendation request`);
-            score += explicitRequestBonus;
-          }
-        }
-        
-        // Topic relevance boost
+        // Topic-based adjustment
         if (service.criteria.topics && Array.isArray(service.criteria.topics) && 
-            conversationContext.recentTopics && conversationContext.recentTopics.length > 0) {
-          const topicMatches = service.criteria.topics.filter(topic => 
-            conversationContext.recentTopics.includes(topic));
+            conversationContext.recentTopics && Array.isArray(conversationContext.recentTopics)) {
+          const topicOverlap = conversationContext.recentTopics.filter(
+            topic => service.criteria.topics.includes(topic)
+          ).length;
           
-          if (topicMatches.length > 0) {
-            // Boost score based on topic relevance (up to 20%)
-            const topicBoost = Math.min(0.2, topicMatches.length * 0.1);
+          if (topicOverlap > 0) {
+            const topicBoost = 0.1 * topicOverlap;
             score += topicBoost;
+            console.log(`Adding ${topicBoost.toFixed(2)} boost for ${topicOverlap} topic matches`);
           }
         }
         
@@ -469,21 +535,29 @@ class ServiceRecommender {
           if (service.criteria.moods.includes(conversationContext.currentMood)) {
             // Boost score for mood-appropriate services (15%)
             score += 0.15;
+            console.log(`Adding 0.15 boost for mood relevance`);
           }
         }
         
         // Urgency-based adjustment
         if (service.criteria.urgent === true && conversationContext.urgency > 0.5) {
           // Boost score for urgent services when urgency is detected (up to 25%)
-          score += conversationContext.urgency * 0.25;
+          const urgencyBoost = conversationContext.urgency * 0.25;
+          score += urgencyBoost;
+          console.log(`Adding ${urgencyBoost.toFixed(2)} boost for urgency`);
         }
       }
       
       // Apply negative penalty after all boosts
-      score = Math.max(0, score - negativePenalty);
+      if (negativePenalty > 0) {
+        score = Math.max(0, score - negativePenalty);
+        console.log(`Applied exclusion penalty: -${negativePenalty.toFixed(2)}, new score: ${score.toFixed(2)}`);
+      }
       
       // Cap at 1.0
-      return Math.min(1.0, score);
+      const finalScore = Math.min(1.0, score);
+      console.log(`Service ${service.name} final confidence score: ${finalScore.toFixed(2)}`);
+      return finalScore;
     } catch (error) {
       console.error('Error calculating confidence score:', error);
       return 0;
@@ -745,7 +819,7 @@ class ServiceRecommender {
       
       // Prepare the prompt for the AI model
       const prompt = {
-        model: this.aiModel, // Use the model specified in the constructor
+        model: "gpt-4o-mini",
         messages: [
           {
             role: "system",
