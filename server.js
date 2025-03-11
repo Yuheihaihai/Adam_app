@@ -836,12 +836,55 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       console.log(`After filtering: ${filteredRecommendations.length} services remain`);
       
       if (filteredRecommendations.length > 0) {
-        // Add service recommendations to the response
-        responseText += '\n\n【お役立ち情報】\n';
+        // Analyze conversation context to determine the best way to present services
+        const presentationContext = analyzeConversationForServicePresentation(history, userMessage, userNeeds);
+        
+        // Create a contextual introduction based on user needs and conversation context
+        let introText = '\n\n【お役立ち情報】\n';
+        
+        // Customize introduction based on identified user needs and emotional state
+        if (userNeeds.employment && userNeeds.employment.career_transition) {
+          if (presentationContext.emotionalState === 'distressed') {
+            introText = '\n\n【キャリア支援サービス】\nお仕事の状況は大変かと思います。少しでもお役に立てるかもしれないサービスをご紹介します：\n';
+          } else {
+            introText = '\n\n【キャリア支援サービス】\nお仕事の状況に役立つかもしれないサービスをご紹介します：\n';
+          }
+        } else if (userNeeds.mental_health && (userNeeds.mental_health.shows_depression || userNeeds.mental_health.shows_anxiety)) {
+          if (presentationContext.emotionalState === 'distressed') {
+            introText = '\n\n【メンタルヘルスサポート】\nつらい気持ちをサポートできるかもしれないサービスです：\n';
+          } else {
+            introText = '\n\n【メンタルヘルスサポート】\nこちらのサービスが心の健康をサポートするかもしれません：\n';
+          }
+        } else if (userNeeds.social && (userNeeds.social.isolation || userNeeds.social.is_hikikomori)) {
+          introText = '\n\n【コミュニティサポート】\n以下のサービスが社会とのつながりをサポートします：\n';
+        } else if (userNeeds.daily_living && userNeeds.daily_living.financial_assistance) {
+          introText = '\n\n【生活支援サービス】\n経済的な支援に関する以下のサービスが参考になるかもしれません：\n';
+        }
+        
+        // Add service recommendations to the response with improved formatting
+        responseText += introText;
+        
+        // Check if this is a new user (fewer than 3 interactions)
+        const isNewUser = history.length < 3;
+        
+        // Add a subtle hint for new users about how to control service display
+        if (isNewUser && !presentationContext.hasSeenServicesBefore) {
+          responseText += '（「サービス表示オフ」と言っていただくと、サービス情報を非表示にできます）\n\n';
+        }
+        
+        // Display the services with improved formatting
         filteredRecommendations.forEach((service, index) => {
-          responseText += `${index + 1}. ${service.name}: ${service.description}\n`;
-          if (service.url) {
-            responseText += `   ${service.url}\n`;
+          // Customize service presentation based on context
+          if (presentationContext.shouldBeMinimal) {
+            // Minimal presentation for users who seem overwhelmed
+            responseText += `${index + 1}. **${service.name}**\n   ${service.url}\n\n`;
+          } else {
+            // Standard presentation
+            responseText += `${index + 1}. **${service.name}**\n   ${service.description}\n`;
+            if (service.url) {
+              responseText += `   ${service.url}\n`;
+            }
+            responseText += '\n';
           }
         });
         
@@ -1647,7 +1690,8 @@ class UserPreferences {
     this.defaultPreferences = {
       showServiceRecommendations: true,
       maxRecommendations: 3,
-      minConfidenceScore: 0.6
+      minConfidenceScore: 0.6,
+      serviceInteractions: {} // Track interactions with services
     };
     this.preferencesPath = path.join(__dirname, 'user_preferences.json');
     this._loadPreferences();
@@ -1751,20 +1795,44 @@ class UserPreferences {
       // Negative reactions to service recommendations
       'そのサービスは', 'サービスは', 'リンクは', 'お役立ち情報は',
       // General negative expressions
-      '興味ない', '関係ない', '気にしない', '無視して', '気にならない'
+      '興味ない', '関係ない', '気にしない', '無視して', '気にならない',
+      // Subtle negative feedback
+      '別に', 'どうでもいい', '必要ない', '見なくていい', '結構です', 'いいです', 'けっこうです'
+    ];
+    
+    // More subtle negative patterns that might indicate disinterest
+    const subtleNegativePatterns = [
+      'わからない', '知らない', '使わない', '使えない', '役に立たない', '意味ない',
+      '見ても', '読まない', '読めない', '難しい', '面倒', 'めんどう', 'めんどくさい'
     ];
     
     // Check if message contains negative feedback about services
     const hasServiceReference = lowerMessage.includes('サービス') || 
                                lowerMessage.includes('リンク') || 
                                lowerMessage.includes('お役立ち') || 
-                               lowerMessage.includes('情報');
+                               lowerMessage.includes('情報') ||
+                               lowerMessage.includes('紹介');
                                
     const hasNegativeFeedback = negativePatterns.some(pattern => lowerMessage.includes(pattern));
+    const hasSubtleNegativeFeedback = subtleNegativePatterns.some(pattern => lowerMessage.includes(pattern));
     
     // If message contains both service reference and negative feedback, turn off services
     if (hasServiceReference && hasNegativeFeedback) {
       return this.updateUserPreferences(userId, { showServiceRecommendations: false });
+    }
+    
+    // If message contains both service reference and subtle negative feedback, reduce number of recommendations
+    if (hasServiceReference && hasSubtleNegativeFeedback) {
+      const currentPrefs = this.getUserPreferences(userId);
+      // Reduce number of recommendations but don't turn off completely
+      const newMaxRecs = Math.max(1, currentPrefs.maxRecommendations - 1);
+      // Increase confidence threshold to show only more relevant services
+      const newConfidence = Math.min(0.8, currentPrefs.minConfidenceScore + 0.1);
+      
+      return this.updateUserPreferences(userId, { 
+        maxRecommendations: newMaxRecs,
+        minConfidenceScore: newConfidence
+      });
     }
     
     // Check for turning ON service recommendations - natural language variations
@@ -1812,6 +1880,36 @@ class UserPreferences {
     
     return null;
   }
+  
+  // Track user interaction with a service
+  recordServiceInteraction(userId, serviceId, interactionType) {
+    if (!this.preferences[userId]) {
+      this.preferences[userId] = { ...this.defaultPreferences };
+    }
+    
+    if (!this.preferences[userId].serviceInteractions) {
+      this.preferences[userId].serviceInteractions = {};
+    }
+    
+    if (!this.preferences[userId].serviceInteractions[serviceId]) {
+      this.preferences[userId].serviceInteractions[serviceId] = {
+        impressions: 0,
+        clicks: 0,
+        lastShown: null
+      };
+    }
+    
+    const interaction = this.preferences[userId].serviceInteractions[serviceId];
+    
+    if (interactionType === 'impression') {
+      interaction.impressions++;
+      interaction.lastShown = Date.now();
+    } else if (interactionType === 'click') {
+      interaction.clicks++;
+    }
+    
+    this._savePreferences();
+  }
 }
 
 // Initialize user preferences
@@ -1822,8 +1920,77 @@ async function recordServiceRecommendation(userId, serviceId, confidenceScore) {
   try {
     // Use the serviceRecommender's recordRecommendation method
     await serviceRecommender.recordRecommendation(userId, serviceId);
+    
+    // Also record this as an impression in user preferences
+    userPreferences.recordServiceInteraction(userId, serviceId, 'impression');
+    
     console.log(`Recorded recommendation for user ${userId}, service ${serviceId} with confidence ${confidenceScore}`);
   } catch (error) {
     console.error('Error recording service recommendation:', error);
   }
+}
+
+/**
+ * Analyze conversation context to determine how to present service recommendations
+ * @param {Array} history - Conversation history
+ * @param {string} currentMessage - Current user message
+ * @param {Object} userNeeds - Analyzed user needs
+ * @returns {Object} - Context for service presentation
+ */
+function analyzeConversationForServicePresentation(history, currentMessage, userNeeds) {
+  // Default context
+  const context = {
+    emotionalState: 'neutral', // neutral, distressed, positive
+    hasSeenServicesBefore: false,
+    shouldBeMinimal: false,
+    recentTopics: []
+  };
+  
+  // Check if user has seen services before
+  const assistantMessages = history.filter(msg => msg.role === 'assistant');
+  context.hasSeenServicesBefore = assistantMessages.some(msg => 
+    msg.content.includes('【お役立ち情報】') || 
+    msg.content.includes('【キャリア支援サービス】') ||
+    msg.content.includes('【メンタルヘルスサポート】') ||
+    msg.content.includes('【コミュニティサポート】') ||
+    msg.content.includes('【生活支援サービス】')
+  );
+  
+  // Analyze emotional state from current message and recent history
+  const distressIndicators = [
+    'つらい', '苦しい', '悲しい', '不安', 'やばい', '死にたい', '辛い', 
+    '助けて', 'たすけて', '怖い', 'こわい', '疲れた', '疲れる', 'つかれた'
+  ];
+  
+  const userMessages = [currentMessage, ...history
+    .filter(msg => msg.role === 'user')
+    .map(msg => msg.content)
+    .slice(0, 3)]; // Consider current message and 3 most recent user messages
+  
+  // Check for distress indicators
+  const hasDistressIndicators = userMessages.some(msg => 
+    distressIndicators.some(indicator => msg.includes(indicator))
+  );
+  
+  if (hasDistressIndicators) {
+    context.emotionalState = 'distressed';
+    
+    // If user is in distress, use minimal presentation to avoid overwhelming
+    if (userNeeds.mental_health && 
+        (userNeeds.mental_health.shows_depression || 
+         userNeeds.mental_health.shows_anxiety)) {
+      context.shouldBeMinimal = true;
+    }
+  }
+  
+  // Extract recent topics from conversation
+  const allText = userMessages.join(' ');
+  const topicKeywords = [
+    '仕事', '転職', '就職', '勉強', '学校', '家族', '友達', '恋愛', 
+    '健康', 'メンタル', '引きこもり', 'ひきこもり', '金銭', 'お金'
+  ];
+  
+  context.recentTopics = topicKeywords.filter(keyword => allText.includes(keyword));
+  
+  return context;
 }
