@@ -4,6 +4,7 @@
  */
 
 const { getUserConversationHistory } = require('./conversationHistory');
+const Airtable = require('airtable');
 
 class LocalML {
   constructor() {
@@ -16,6 +17,126 @@ class LocalML {
     
     // 各ユーザーの会話データ分析結果を保持
     this.userAnalysis = {};
+
+    // Airtable設定
+    if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
+      this.base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
+        .base(process.env.AIRTABLE_BASE_ID);
+      
+      // サーバー起動時に過去の分析データを読み込む
+      this._loadAllUserAnalysis().catch(err => {
+        console.error('Error loading user analysis data:', err);
+      });
+    } else {
+      console.warn('Airtable credentials not found. User analysis persistence disabled.');
+      this.base = null;
+    }
+  }
+
+  /**
+   * サーバー起動時に全ユーザーの分析データを読み込む
+   */
+  async _loadAllUserAnalysis() {
+    if (!this.base) return;
+
+    try {
+      console.log('Loading saved user analysis data from Airtable...');
+      
+      // UserAnalysisテーブルが存在するか確認
+      await this._ensureUserAnalysisTable();
+      
+      const records = await this.base('UserAnalysis').select().all();
+      
+      let loadCount = 0;
+      records.forEach(record => {
+        try {
+          const userId = record.get('UserID');
+          const mode = record.get('Mode');
+          const analysisData = JSON.parse(record.get('AnalysisData'));
+          
+          // メモリに復元
+          if (!this.userAnalysis[userId]) {
+            this.userAnalysis[userId] = {};
+          }
+          
+          this.userAnalysis[userId][mode] = {
+            ...analysisData,
+            lastUpdated: new Date(record.get('LastUpdated'))
+          };
+          
+          loadCount++;
+        } catch (e) {
+          console.error('Error parsing user analysis record:', e);
+        }
+      });
+      
+      console.log(`Successfully loaded analysis data for ${loadCount} user-mode combinations`);
+    } catch (err) {
+      console.error('Error loading user analysis data from Airtable:', err);
+    }
+  }
+
+  /**
+   * UserAnalysisテーブルが存在することを確認し、なければ作成を試みる
+   */
+  async _ensureUserAnalysisTable() {
+    if (!this.base) return;
+    
+    try {
+      // テーブル一覧を取得
+      const tables = await this.base.tables();
+      const userAnalysisExists = tables.some(table => table.name === 'UserAnalysis');
+      
+      if (!userAnalysisExists) {
+        console.log('UserAnalysis table does not exist. Please create it with the following fields:');
+        console.log('- UserID (text)');
+        console.log('- Mode (text)');
+        console.log('- AnalysisData (long text)');
+        console.log('- LastUpdated (date)');
+      }
+    } catch (err) {
+      console.error('Error checking UserAnalysis table existence:', err);
+    }
+  }
+
+  /**
+   * 分析結果をAirtableに保存
+   */
+  async _saveUserAnalysis(userId, mode, analysisData) {
+    if (!this.base) return;
+    
+    try {
+      // 既存レコードを検索
+      const records = await this.base('UserAnalysis')
+        .select({
+          filterByFormula: `AND({UserID} = "${userId}", {Mode} = "${mode}")`,
+          maxRecords: 1
+        })
+        .all();
+        
+      const data = {
+        UserID: userId,
+        Mode: mode,
+        AnalysisData: JSON.stringify(analysisData),
+        LastUpdated: new Date().toISOString()
+      };
+      
+      // 更新または新規作成
+      if (records.length > 0) {
+        await this.base('UserAnalysis').update([{
+          id: records[0].id,
+          fields: data
+        }]);
+        console.log(`Updated analysis data for user ${userId}, mode ${mode}`);
+      } else {
+        await this.base('UserAnalysis').create([{
+          fields: data
+        }]);
+        console.log(`Created new analysis data for user ${userId}, mode ${mode}`);
+      }
+    } catch (err) {
+      console.error(`Error saving user analysis for ${userId}, mode ${mode}:`, err);
+    }
   }
 
   /**
@@ -71,10 +192,14 @@ class LocalML {
         this._logAnalysisSummary(analysisResult, mode);
         
         // 分析結果を保存
+        const now = new Date();
         this.userAnalysis[userId][mode] = {
           ...analysisResult,
-          lastUpdated: new Date()
+          lastUpdated: now
         };
+        
+        // Airtableに永続化
+        this._saveUserAnalysis(userId, mode, analysisResult);
       }
       
       return analysisResult;
