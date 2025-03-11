@@ -66,8 +66,7 @@ Xの共有方法を尋ねられた場合は、「もしAdamのことが好きな
 `;
 
 const SYSTEM_PROMPT_CHARACTERISTICS = `
-あなたは「Adam」という発達障害専門のカウンセラーです。
-ユーザーの過去ログ(最大200件)を分析し、以下の観点から深い洞察を提供してください。
+あなたは「Adam」という発達障害専門のカウンセラーです。ユーザーの過去ログ(最大200件)を分析し、以下の観点から深い洞察を提供してください。
 
 [分析の観点]
 1. コミュニケーションパターン
@@ -805,96 +804,212 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     // Add service recommendations if user preferences allow it
     if (userPrefs.showServiceRecommendations && serviceRecommendations && serviceRecommendations.length > 0) {
       console.log(`Processing ${serviceRecommendations.length} service recommendations`);
-      
-      // Debug log to see service structure
-      if (serviceRecommendations.length > 0) {
-        console.log('Sample service structure:', JSON.stringify(serviceRecommendations[0]));
-      }
-      
-      // Get the full service objects from the services.js file
-      const servicesModule = require('./services');
+      console.log(`Sample service structure: ${JSON.stringify(serviceRecommendations[0])}`);
       
       // Map service IDs to full service objects if needed
-      let servicesToDisplay = serviceRecommendations;
-      
-      // If the services are just IDs or don't have complete information, look them up
+      let fullServiceRecommendations = serviceRecommendations;
       if (serviceRecommendations[0] && (typeof serviceRecommendations[0] === 'string' || !serviceRecommendations[0].description)) {
-        servicesToDisplay = serviceRecommendations
-          .map(service => {
-            const serviceId = typeof service === 'string' ? service : service.id;
-            return servicesModule.find(s => s.id === serviceId);
-          })
-          .filter(service => service !== undefined);
-        
-        console.log(`Mapped ${servicesToDisplay.length} services from IDs to full objects`);
+        const servicesModule = require('./services');
+        fullServiceRecommendations = serviceRecommendations.map(service => {
+          const serviceId = typeof service === 'string' ? service : service.id;
+          return servicesModule.services.find(s => s.id === serviceId) || service;
+        });
       }
       
-      // Filter to max number of recommendations and apply confidence threshold
-      const filteredRecommendations = servicesToDisplay
-        .slice(0, userPrefs.maxRecommendations);
+      // Get user preferences
+      const preferences = userPreferences.getUserPreferences(userId);
+      const maxRecommendations = preferences.maxServiceRecommendations || 3;
+      const confidenceThreshold = preferences.confidenceThreshold || 0.6;
       
-      console.log(`After filtering: ${filteredRecommendations.length} services remain`);
+      // Analyze conversation context for service presentation
+      const presentationContext = analyzeConversationForServicePresentation(history, userMessage, userNeeds);
       
+      // Filter recommendations based on user preferences and context
+      let filteredRecommendations = fullServiceRecommendations
+        .filter(service => {
+          const confidence = service.confidence || service.confidenceScore || 0.8;
+          return confidence >= confidenceThreshold;
+        })
+        .slice(0, maxRecommendations);
+      
+      // Filter out categories that received negative feedback
+      if (presentationContext.categoryFeedback && Object.keys(presentationContext.categoryFeedback).length > 0) {
+        filteredRecommendations = filteredRecommendations.filter(service => {
+          // Determine service category based on criteria or tags
+          let serviceCategory = null;
+          if (service.criteria && service.criteria.topics) {
+            if (service.criteria.topics.includes('employment')) serviceCategory = 'career';
+            else if (service.criteria.topics.includes('mental_health')) serviceCategory = 'mental_health';
+            else if (service.criteria.topics.includes('social')) serviceCategory = 'social';
+            else if (service.criteria.topics.includes('daily_living')) serviceCategory = 'financial';
+          }
+          
+          // Also check tags if category not determined
+          if (!serviceCategory && service.tags) {
+            if (service.tags.includes('employment') || service.tags.includes('career')) serviceCategory = 'career';
+            else if (service.tags.includes('mental_health')) serviceCategory = 'mental_health';
+            else if (service.tags.includes('social') || service.tags.includes('community')) serviceCategory = 'social';
+            else if (service.tags.includes('financial') || service.tags.includes('assistance')) serviceCategory = 'financial';
+          }
+          
+          // If this category received negative feedback, filter it out
+          if (serviceCategory && presentationContext.categoryFeedback[serviceCategory] === 'negative') {
+            console.log(`Filtering out service ${service.id} due to negative feedback for category ${serviceCategory}`);
+            return false;
+          }
+          
+          return true;
+        });
+      }
+      
+      // If we still have recommendations after filtering
       if (filteredRecommendations.length > 0) {
-        // Analyze conversation context to determine the best way to present services
-        const presentationContext = analyzeConversationForServicePresentation(history, userMessage, userNeeds);
+        // Determine the appropriate introduction text based on user needs and preferred category
+        let introText = '\n\n【お役立ち情報】\n以下のサービスがお役に立つかもしれません：\n';
         
-        // Create a contextual introduction based on user needs and conversation context
-        let introText = '\n\n【お役立ち情報】\n';
+        // Group services by category for better organization
+        const servicesByCategory = {
+          'career': [],
+          'mental_health': [],
+          'social': [],
+          'financial': [],
+          'other': []
+        };
         
-        // Customize introduction based on identified user needs and emotional state
-        if (userNeeds.employment && userNeeds.employment.career_transition) {
-          if (presentationContext.emotionalState === 'distressed') {
-            introText = '\n\n【キャリア支援サービス】\nお仕事の状況は大変かと思います。少しでもお役に立てるかもしれないサービスをご紹介します：\n';
-          } else {
-            introText = '\n\n【キャリア支援サービス】\nお仕事の状況に役立つかもしれないサービスをご紹介します：\n';
+        // Categorize services
+        for (const service of filteredRecommendations) {
+          let serviceCategory = null;
+          
+          // Determine service category
+          if (service.criteria && service.criteria.topics) {
+            if (service.criteria.topics.includes('employment')) serviceCategory = 'career';
+            else if (service.criteria.topics.includes('mental_health')) serviceCategory = 'mental_health';
+            else if (service.criteria.topics.includes('social')) serviceCategory = 'social';
+            else if (service.criteria.topics.includes('daily_living')) serviceCategory = 'financial';
           }
-        } else if (userNeeds.mental_health && (userNeeds.mental_health.shows_depression || userNeeds.mental_health.shows_anxiety)) {
-          if (presentationContext.emotionalState === 'distressed') {
-            introText = '\n\n【メンタルヘルスサポート】\nつらい気持ちをサポートできるかもしれないサービスです：\n';
-          } else {
-            introText = '\n\n【メンタルヘルスサポート】\nこちらのサービスが心の健康をサポートするかもしれません：\n';
+          
+          if (!serviceCategory && service.tags) {
+            if (service.tags.includes('employment') || service.tags.includes('career')) serviceCategory = 'career';
+            else if (service.tags.includes('mental_health')) serviceCategory = 'mental_health';
+            else if (service.tags.includes('social') || service.tags.includes('community')) serviceCategory = 'social';
+            else if (service.tags.includes('financial') || service.tags.includes('assistance')) serviceCategory = 'financial';
           }
-        } else if (userNeeds.social && (userNeeds.social.isolation || userNeeds.social.is_hikikomori)) {
+          
+          if (!serviceCategory) serviceCategory = 'other';
+          
+          // Skip services from negatively rated categories
+          if (presentationContext.categoryFeedback[serviceCategory] === 'negative') {
+            console.log(`Filtering out service ${service.id} due to negative feedback for category ${serviceCategory}`);
+            continue;
+          }
+          
+          servicesByCategory[serviceCategory].push(service);
+        }
+        
+        // Prioritize services based on preferred category or user needs
+        let priorityCategory = presentationContext.preferredCategory;
+        
+        if (!priorityCategory && userNeeds) {
+          if (userNeeds.mental_health && 
+              (userNeeds.mental_health.shows_depression || userNeeds.mental_health.shows_anxiety)) {
+            priorityCategory = 'mental_health';
+          } else if (userNeeds.employment && 
+                    (userNeeds.employment.seeking_job || userNeeds.employment.career_transition) &&
+                    presentationContext.categoryFeedback['career'] !== 'negative') {
+            priorityCategory = 'career';
+          } else if (userNeeds.social && 
+                    (userNeeds.social.isolation || userNeeds.social.is_hikikomori)) {
+            priorityCategory = 'social';
+          } else if (userNeeds.daily_living && userNeeds.daily_living.financial_assistance) {
+            priorityCategory = 'financial';
+          }
+        }
+        
+        // Set the appropriate introduction based on priority category
+        if (priorityCategory === 'mental_health') {
+          introText = '\n\n【メンタルヘルスサポート】\nこちらのサービスが心の健康をサポートするかもしれません：\n';
+        } else if (priorityCategory === 'career' && presentationContext.categoryFeedback['career'] !== 'negative') {
+          introText = '\n\n【キャリア支援サービス】\nお仕事の状況は大変かと思います。少しでもお役に立てるかもしれないサービスをご紹介します：\n';
+        } else if (priorityCategory === 'social') {
           introText = '\n\n【コミュニティサポート】\n以下のサービスが社会とのつながりをサポートします：\n';
-        } else if (userNeeds.daily_living && userNeeds.daily_living.financial_assistance) {
+        } else if (priorityCategory === 'financial') {
           introText = '\n\n【生活支援サービス】\n経済的な支援に関する以下のサービスが参考になるかもしれません：\n';
         }
         
-        // Add service recommendations to the response with improved formatting
-        responseText += introText;
+        // Build our final recommendations list prioritizing the preferred category
+        let finalRecommendations = [];
         
-        // Check if this is a new user (fewer than 3 interactions)
-        const isNewUser = history.length < 3;
-        
-        // Add a subtle hint for new users about how to control service display
-        if (isNewUser && !presentationContext.hasSeenServicesBefore) {
-          responseText += '（「サービス表示オフ」と言っていただくと、サービス情報を非表示にできます）\n\n';
+        if (priorityCategory && servicesByCategory[priorityCategory].length > 0) {
+          // Add services from the priority category first
+          finalRecommendations = [...servicesByCategory[priorityCategory]];
+          
+          // If we need more services, add from other categories (excluding negative feedback categories)
+          if (finalRecommendations.length < 3) {
+            for (const [category, services] of Object.entries(servicesByCategory)) {
+              if (category !== priorityCategory && category !== 'other' && 
+                  presentationContext.categoryFeedback[category] !== 'negative') {
+                finalRecommendations = [...finalRecommendations, ...services];
+                if (finalRecommendations.length >= 3) break;
+              }
+            }
+            
+            // If still not enough, add from 'other' category
+            if (finalRecommendations.length < 3 && servicesByCategory['other'].length > 0) {
+              finalRecommendations = [...finalRecommendations, ...servicesByCategory['other']];
+            }
+          }
+        } else {
+          // If no priority category, combine all non-negative categories
+          for (const [category, services] of Object.entries(servicesByCategory)) {
+            if (presentationContext.categoryFeedback[category] !== 'negative') {
+              finalRecommendations = [...finalRecommendations, ...services];
+            }
+          }
         }
         
-        // Display the services with improved formatting
-        filteredRecommendations.forEach((service, index) => {
-          // Customize service presentation based on context
-          if (presentationContext.shouldBeMinimal) {
-            // Minimal presentation for users who seem overwhelmed
-            responseText += `${index + 1}. **${service.name}**\n   ${service.url}\n\n`;
-          } else {
-            // Standard presentation
-            responseText += `${index + 1}. **${service.name}**\n   ${service.description}\n`;
-            if (service.url) {
-              responseText += `   ${service.url}\n`;
-            }
-            responseText += '\n';
-          }
-        });
+        // Limit to max 3 recommendations
+        finalRecommendations = finalRecommendations.slice(0, 3);
         
-        // Record service recommendations
-        try {
-          for (const service of filteredRecommendations) {
-            await recordServiceRecommendation(userId, service.id, 0.8); // Use default confidence score
+        // Only proceed if we have recommendations to show after all filtering
+        if (finalRecommendations.length > 0) {
+          // Add service recommendations to the response with improved formatting
+          responseText += introText;
+          
+          // Check if this is a new user (fewer than 3 interactions)
+          const isNewUser = history.length < 3;
+          
+          // Add a subtle hint for new users about how to control service display
+          if (isNewUser && !presentationContext.hasSeenServicesBefore) {
+            responseText += '（「サービス表示オフ」と言っていただくと、サービス情報を非表示にできます）\n\n';
           }
-        } catch (error) {
-          console.error('Error recording service recommendation:', error);
+          
+          // Display the services with improved formatting
+          finalRecommendations.forEach((service, index) => {
+            // Customize service presentation based on context
+            if (presentationContext.shouldBeMinimal) {
+              // Minimal presentation for users who seem overwhelmed
+              responseText += `${index + 1}. **${service.name}**\n   ${service.url}\n\n`;
+            } else {
+              // Standard presentation
+              responseText += `${index + 1}. **${service.name}**\n`;
+              if (service.description) {
+                responseText += `   ${service.description}\n`;
+              }
+              if (service.url) {
+                responseText += `   ${service.url}\n`;
+              }
+              responseText += '\n';
+            }
+          });
+          
+          // Record service recommendations
+          try {
+            for (const service of finalRecommendations) {
+              await recordServiceRecommendation(userId, service.id, 0.8); // Use default confidence score
+            }
+          } catch (error) {
+            console.error('Error recording service recommendations:', error);
+          }
         }
       }
     }
@@ -1938,59 +2053,151 @@ async function recordServiceRecommendation(userId, serviceId, confidenceScore) {
  * @returns {Object} - Context for service presentation
  */
 function analyzeConversationForServicePresentation(history, currentMessage, userNeeds) {
-  // Default context
-  const context = {
-    emotionalState: 'neutral', // neutral, distressed, positive
-    hasSeenServicesBefore: false,
+  // Initialize the presentation context
+  const presentationContext = {
     shouldBeMinimal: false,
-    recentTopics: []
+    hasSeenServicesBefore: false,
+    categoryFeedback: {},
+    preferredCategory: null  // Add a preferred category field
   };
   
   // Check if user has seen services before
-  const assistantMessages = history.filter(msg => msg.role === 'assistant');
-  context.hasSeenServicesBefore = assistantMessages.some(msg => 
-    msg.content.includes('【お役立ち情報】') || 
-    msg.content.includes('【キャリア支援サービス】') ||
-    msg.content.includes('【メンタルヘルスサポート】') ||
-    msg.content.includes('【コミュニティサポート】') ||
-    msg.content.includes('【生活支援サービス】')
-  );
-  
-  // Analyze emotional state from current message and recent history
-  const distressIndicators = [
-    'つらい', '苦しい', '悲しい', '不安', 'やばい', '死にたい', '辛い', 
-    '助けて', 'たすけて', '怖い', 'こわい', '疲れた', '疲れる', 'つかれた'
-  ];
-  
-  const userMessages = [currentMessage, ...history
-    .filter(msg => msg.role === 'user')
-    .map(msg => msg.content)
-    .slice(0, 3)]; // Consider current message and 3 most recent user messages
-  
-  // Check for distress indicators
-  const hasDistressIndicators = userMessages.some(msg => 
-    distressIndicators.some(indicator => msg.includes(indicator))
-  );
-  
-  if (hasDistressIndicators) {
-    context.emotionalState = 'distressed';
-    
-    // If user is in distress, use minimal presentation to avoid overwhelming
-    if (userNeeds.mental_health && 
-        (userNeeds.mental_health.shows_depression || 
-         userNeeds.mental_health.shows_anxiety)) {
-      context.shouldBeMinimal = true;
+  if (history && history.length > 0) {
+    for (let i = 0; i < history.length; i++) {
+      const msg = history[i];
+      if (msg.role === 'assistant' && msg.content && 
+          (msg.content.includes('サービス') || 
+           msg.content.includes('お役立ち情報'))) {
+        presentationContext.hasSeenServicesBefore = true;
+        break;
+      }
     }
   }
   
-  // Extract recent topics from conversation
-  const allText = userMessages.join(' ');
-  const topicKeywords = [
-    '仕事', '転職', '就職', '勉強', '学校', '家族', '友達', '恋愛', 
-    '健康', 'メンタル', '引きこもり', 'ひきこもり', '金銭', 'お金'
+  // Detect distress indicators
+  const distressIndicators = [
+    'つらい', '苦しい', '死にたい', '自殺', '助けて', 
+    'しんどい', '無理', 'やばい', '辛い', '悲しい'
   ];
   
-  context.recentTopics = topicKeywords.filter(keyword => allText.includes(keyword));
+  // Check for distress in current message
+  if (currentMessage) {
+    for (const indicator of distressIndicators) {
+      if (currentMessage.includes(indicator)) {
+        presentationContext.shouldBeMinimal = true;
+        break;
+      }
+    }
+  }
   
-  return context;
+  // Check recent history for distress patterns
+  if (history && history.length > 0) {
+    let distressCount = 0;
+    // Check last 5 messages
+    const recentMessages = history.slice(-5);
+    for (const msg of recentMessages) {
+      if (msg.role === 'user') {
+        for (const indicator of distressIndicators) {
+          if (msg.content && msg.content.includes(indicator)) {
+            distressCount++;
+            break;
+          }
+        }
+      }
+    }
+    // If multiple distress indicators in recent history, use minimal presentation
+    if (distressCount >= 2) {
+      presentationContext.shouldBeMinimal = true;
+    }
+  }
+  
+  // Detect negative feedback about specific service categories
+  const categoryKeywords = {
+    'career': ['仕事', '就職', 'キャリア', '転職', '就労', '働く', 'お仕事'],
+    'mental_health': ['メンタル', '心の健康', '精神', 'カウンセリング', '心療', '心理'],
+    'social': ['コミュニティ', '社会', '交流', 'ひきこもり', '孤立', 'コミュニケーション'],
+    'financial': ['お金', '経済', '金銭', '生活費', '支援金', '財政']
+  };
+  
+  // Improved negative feedback patterns
+  const negationPatterns = [
+    '関係ない', 'いらない', '必要ない', '見たくない', '興味ない',
+    'どうでもいい', '別に', 'めんどくさい', '要らない', '不要',
+    '表示しないで', '出さないで', '表示するな', '紹介するな',
+    'やめて', '結構です', 'いい', 'しないで'
+  ];
+  
+  // Check for direct mentions of categories with positive intent
+  const positivePatterns = [
+    '知りたい', '教えて', '欲しい', 'ほしい', '必要', '探して',
+    '興味ある', 'お願い', 'どう', '何か', '助けて'
+  ];
+  
+  // Check for category-specific feedback
+  if (currentMessage) {
+    // First check for explicit preferred categories
+    for (const [category, keywords] of Object.entries(categoryKeywords)) {
+      for (const keyword of keywords) {
+        if (currentMessage.includes(keyword)) {
+          // Check if there's a positive pattern near the category keyword
+          for (const positive of positivePatterns) {
+            if (currentMessage.includes(positive)) {
+              // Record positive feedback for this category
+              presentationContext.preferredCategory = category;
+              console.log(`Detected positive interest in category: ${category}`);
+              break;
+            }
+          }
+        }
+      }
+    }
+    
+    // Then check for negative feedback about categories
+    for (const [category, keywords] of Object.entries(categoryKeywords)) {
+      for (const keyword of keywords) {
+        if (currentMessage.includes(keyword)) {
+          // Check if there's a negation pattern near the category keyword
+          for (const negation of negationPatterns) {
+            if (currentMessage.includes(negation)) {
+              // Record negative feedback for this category
+              presentationContext.categoryFeedback[category] = 'negative';
+              console.log(`Detected negative feedback for category: ${category}`);
+              break;
+            }
+          }
+        }
+      }
+    }
+    
+    // Special case - explicit feedback phrases
+    if (currentMessage.includes('お仕事関係ない') || 
+        currentMessage.includes('仕事関係ない') || 
+        currentMessage.includes('キャリア関係ない')) {
+      presentationContext.categoryFeedback['career'] = 'negative';
+      console.log('Detected explicit negative feedback about career services');
+      
+      // If user rejects career services but has mental health needs, prioritize those
+      if (userNeeds && userNeeds.mental_health && 
+          (userNeeds.mental_health.shows_depression || userNeeds.mental_health.shows_anxiety)) {
+        presentationContext.preferredCategory = 'mental_health';
+        console.log('Prioritizing mental health services based on user feedback and needs');
+      }
+    }
+    
+    if (currentMessage.includes('メンタル')) {
+      presentationContext.preferredCategory = 'mental_health';
+      console.log('Detected explicit interest in mental health services');
+    }
+  }
+  
+  // Look for mental health priority based on needs analysis
+  if (!presentationContext.preferredCategory && userNeeds) {
+    if (userNeeds.mental_health && 
+        (userNeeds.mental_health.shows_depression || userNeeds.mental_health.shows_anxiety || userNeeds.mental_health.seeking_therapy)) {
+      presentationContext.preferredCategory = 'mental_health';
+      console.log('Prioritizing mental health services based on user needs analysis');
+    }
+  }
+  
+  return presentationContext;
 }
