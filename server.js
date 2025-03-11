@@ -1320,7 +1320,19 @@ ${perplexityData.knowledge}
         if (index < 3) { // Just log the top 3 to avoid clutter
           // 安全にconfidenceプロパティにアクセス
           const confidenceStr = rec.confidence ? `confidence ${rec.confidence.toFixed(2)}` : 'confidence N/A';
-          const serviceName = rec.serviceName || rec;
+          
+          // 適切なサービス名の表示処理（オブジェクトの場合の処理を改善）
+          let serviceName;
+          if (typeof rec === 'string') {
+            serviceName = rec;
+          } else if (rec.serviceName) {
+            serviceName = rec.serviceName;
+          } else if (rec.id) {
+            serviceName = rec.id;
+          } else {
+            serviceName = JSON.stringify(rec).substring(0, 30); // 長すぎる場合は切り詰める
+          }
+          
           console.log(`    ├─ [${index + 1}] ${serviceName}: ${confidenceStr}`);
         }
       });
