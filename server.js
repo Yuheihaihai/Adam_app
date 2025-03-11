@@ -1133,6 +1133,179 @@ ${perplexityData.knowledge}
     
     console.log('\n=== WORKFLOW VISUALIZATION: COMPLETE ===\n');
     
+    // New logging: Analyze how ML data influenced the AI response
+    if (mode === 'career' && perplexityData) {
+      console.log('\n=== ML DATA INFLUENCE ANALYSIS ===');
+      
+      // Analyze job market influence
+      if (perplexityData.jobTrends && perplexityData.jobTrends.analysis) {
+        console.log('\n📊 ML INFLUENCE: JOB MARKET DATA');
+        
+        // Extract key phrases from job trends analysis
+        const jobTrendsText = perplexityData.jobTrends.analysis;
+        const keyPhrases = extractSignificantPhrases(jobTrendsText);
+        console.log('   ├─ Key market insights from Perplexity:');
+        keyPhrases.forEach((phrase, index) => {
+          if (index < 5) { // Limit to top 5 phrases
+            console.log(`   │  ${index + 1}. ${phrase}`);
+          }
+        });
+        
+        // Check if these phrases appear in the response
+        const phrasesInResponse = keyPhrases.filter(phrase => 
+          aiResponse.includes(phrase) || 
+          aiResponse.includes(phrase.substring(0, Math.min(phrase.length, 15)))
+        );
+        
+        console.log('   ├─ Market data influence detection:');
+        if (phrasesInResponse.length > 0) {
+          console.log(`   │  ✅ Found ${phrasesInResponse.length} market insights in the response`);
+          phrasesInResponse.forEach((phrase, index) => {
+            if (index < 3) { // Limit to top 3 matches
+              console.log(`   │     - "${phrase.substring(0, 30)}..."`)
+            }
+          });
+        } else {
+          console.log('   │  ⚠️ No direct market data phrases detected in response');
+          console.log('   │     (Data may still have influenced general reasoning)');
+        }
+        
+        // Check for job URLs influence
+        if (perplexityData.jobTrends.urls) {
+          const urlsIncluded = aiResponse.includes('http') || aiResponse.includes('www') || 
+                              aiResponse.includes('求人') || aiResponse.includes('サイト');
+          console.log(`   │  ${urlsIncluded ? '✅' : '❌'} Job URLs influence: ${urlsIncluded ? 'Detected' : 'Not detected'}`);
+        }
+      }
+      
+      // Analyze user characteristics influence
+      if (perplexityData.knowledge) {
+        console.log('\n👤 ML INFLUENCE: USER CHARACTERISTICS');
+        
+        // Extract key insights from user analysis
+        const userInsightsText = perplexityData.knowledge;
+        const userInsights = extractSignificantPhrases(userInsightsText);
+        console.log('   ├─ Key user insights from Perplexity:');
+        userInsights.forEach((insight, index) => {
+          if (index < 5) { // Limit to top 5 insights
+            console.log(`   │  ${index + 1}. ${insight}`);
+          }
+        });
+        
+        // Check if these insights appear in the response
+        const insightsInResponse = userInsights.filter(insight => 
+          aiResponse.includes(insight) || 
+          aiResponse.includes(insight.substring(0, Math.min(insight.length, 15)))
+        );
+        
+        console.log('   ├─ User characteristics influence detection:');
+        if (insightsInResponse.length > 0) {
+          console.log(`   │  ✅ Found ${insightsInResponse.length} user traits in the response`);
+          insightsInResponse.forEach((insight, index) => {
+            if (index < 3) { // Limit to top 3 matches
+              console.log(`   │     - "${insight.substring(0, 30)}..."`)
+            }
+          });
+        } else {
+          console.log('   │  ⚠️ No direct user trait phrases detected in response');
+          console.log('   │     (Characteristics may still have guided overall approach)');
+        }
+        
+        // Look for terms that suggest personality-based recommendations
+        const personalTerms = ["あなたの", "あなたは", "personality", "特性", "傾向", "タイプ", "向いています", "合っています"];
+        const personalRecommendation = personalTerms.some(term => aiResponse.includes(term));
+        console.log(`   │  ${personalRecommendation ? '✅' : '❌'} Personalized approach: ${personalRecommendation ? 'Detected' : 'Not detected'}`);
+      }
+      
+      // Overall influence assessment
+      console.log('\n🔄 ML INFLUENCE: OVERALL ASSESSMENT');
+      // Compare response length with and without ML data
+      const averageBaseResponseLength = 1000; // Estimated average
+      const responseLengthRatio = aiResponse.length / averageBaseResponseLength;
+      console.log(`   ├─ Response richness: ${responseLengthRatio.toFixed(2)}x typical length`);
+      
+      // Check for market terminology
+      const marketTerms = ["市場", "トレンド", "需要", "業界", "成長", "最新", "現在"];
+      const marketTermsCount = marketTerms.filter(term => aiResponse.includes(term)).length;
+      console.log(`   ├─ Market awareness: ${marketTermsCount}/${marketTerms.length} market terms used`);
+      
+      // Check for specificity
+      const specificTerms = ["具体的", "例えば", "たとえば", "特に", "実際に", "現実的"];
+      const specificTermsCount = specificTerms.filter(term => aiResponse.includes(term)).length;
+      console.log(`   ├─ Response specificity: ${specificTermsCount}/${specificTerms.length} specificity indicators`);
+      
+      // Time references - check if response discusses current time period
+      const timeTerms = ["2023年", "2024年", "2025年", "現在", "最近", "近年", "今日", "将来"];
+      const timeTermsCount = timeTerms.filter(term => aiResponse.includes(term)).length;
+      console.log(`   ├─ Temporal relevance: ${timeTermsCount}/${timeTerms.length} time references`);
+      
+      // Final assessment based on indicators
+      const influenceScore = (
+        (marketTermsCount / marketTerms.length) * 0.3 + 
+        (specificTermsCount / specificTerms.length) * 0.3 + 
+        (timeTermsCount / timeTerms.length) * 0.2 + 
+        Math.min(responseLengthRatio / 2, 1) * 0.2
+      ) * 100;
+      
+      console.log(`   └─ ML influence score: ${Math.round(influenceScore)}% (estimated impact on response)`);
+    }
+    
+    // Helper function to extract meaningful phrases from text
+    function extractSignificantPhrases(text) {
+      if (!text) return [];
+      
+      // Split into sentences
+      const sentences = text.split(/。|\./).filter(s => s.trim().length > 10);
+      
+      // Extract key phrases (8-30 characters)
+      let phrases = [];
+      for (const sentence of sentences) {
+        // Split by common separators
+        const parts = sentence.split(/、|,|（|）|\(|\)|「|」|『|』|"|"|'|'/).filter(p => p.trim().length >= 8 && p.trim().length <= 30);
+        phrases = [...phrases, ...parts.map(p => p.trim())];
+        
+        // If the sentence itself is a good length, include it too
+        if (sentence.trim().length >= 8 && sentence.trim().length <= 40) {
+          phrases.push(sentence.trim());
+        }
+      }
+      
+      // Deduplicate and filter out very similar phrases
+      const uniquePhrases = [];
+      for (const phrase of phrases) {
+        if (!uniquePhrases.some(p => 
+          p.includes(phrase) || 
+          phrase.includes(p) || 
+          levenshteinDistance(p, phrase) < Math.min(p.length, phrase.length) * 0.3
+        )) {
+          uniquePhrases.push(phrase);
+        }
+      }
+      
+      return uniquePhrases.slice(0, 10); // Return up to 10 phrases
+    }
+    
+    // Helper function for string similarity
+    function levenshteinDistance(a, b) {
+      const matrix = Array(a.length + 1).fill().map(() => Array(b.length + 1).fill(0));
+      
+      for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+      for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+      
+      for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+          const cost = a[i-1] === b[j-1] ? 0 : 1;
+          matrix[i][j] = Math.min(
+            matrix[i-1][j] + 1,
+            matrix[i][j-1] + 1,
+            matrix[i-1][j-1] + cost
+          );
+        }
+      }
+      
+      return matrix[a.length][b.length];
+    }
+    
     // Process the AI response
     let responseText = aiResponse;
     
