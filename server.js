@@ -806,7 +806,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       console.log(`Processing ${serviceRecommendations.length} service recommendations`);
       
       // Detect if user is asking for advice or sharing a problem
-      const isAskingForAdvice = detectAdviceRequest(userMessage);
+      const isAskingForAdvice = detectAdviceRequest(userMessage, history);
       
       // Log whether user is asking for advice
       console.log(`Is user asking for advice: ${isAskingForAdvice}`);
@@ -2615,22 +2615,39 @@ function createNaturalTransition(responseContent, priorityCategory, shouldBeMini
 
 /**
  * Detects if a user message is asking for advice or sharing a problem
- * This function determines if service recommendations would be appropriate
+ * Uses a hybrid approach combining explicit pattern matching with nuanced intent recognition
  * 
  * @param {string} message - The user's message
+ * @param {Array} [history] - Optional conversation history for context analysis
  * @returns {boolean} - Whether the user is asking for advice or sharing a problem
  */
-function detectAdviceRequest(message) {
+function detectAdviceRequest(message, history = null) {
   if (!message) return false;
   
   // Convert to lowercase for matching
   const lowerMessage = message.toLowerCase();
   
-  // Patterns indicating user is asking for advice
+  // 1. EXPLICIT PATTERN MATCHING (High precision)
+  // ---------------------------------------------
+  
+  // Explicit advice request patterns (highest confidence)
+  const explicitAdvicePatterns = [
+    'アドバイスください', 'アドバイス下さい', 'アドバイスを下さい', 'アドバイスをください',
+    'アドバイスが欲しい', 'アドバイスがほしい', 'アドバイスをお願い', '助言ください',
+    '助言下さい', 'どうしたらいい', 'どうすればいい', 'おすすめを教えて'
+  ];
+  
+  // If it's an explicit advice request, immediately return true
+  if (explicitAdvicePatterns.some(pattern => lowerMessage.includes(pattern))) {
+    console.log('Explicit advice request detected - high confidence');
+    return true;
+  }
+  
+  // Patterns indicating user is asking for advice (medium-high confidence)
   const advicePatterns = [
     // Questions about recommendations
     'おすすめ', 'お勧め', 'オススメ', 'どうしたら', 'どうすれば', 'どうすべき',
-    'アドバイス', '助言', 'サポート', '教えて', 'アドバイスください', '助けて',
+    'アドバイス', '助言', 'サポート', '教えて', '助けて',
     
     // Problem sharing patterns
     '困って', '悩んで', '苦労して', '大変', '難しい', '辛い', 'つらい',
@@ -2660,20 +2677,122 @@ function detectAdviceRequest(message) {
     return false;
   }
   
-  // Check for advice request patterns
-  const isAdviceRequest = advicePatterns.some(pattern => lowerMessage.includes(pattern));
+  // 2. NUANCED INTENT RECOGNITION (Higher recall)
+  // ---------------------------------------------
   
-  // If message contains a direct question about a problem area, it's likely asking for advice
-  if (hasQuestionMark && isAdviceRequest) {
+  // Subtle patterns that might indicate advice-seeking (lower confidence)
+  const subtleAdvicePatterns = [
+    'かな', 'ですか', 'だろうか', 'と思う', 'けど', 'でも', 'しかし',
+    'わからない', '知らない', '迷って', '選べない', '決められない', 
+    '良い方法', 'いい方法', 'べき', 'べきか', 'たらいい', 'たらよい',
+    'どうかな', 'どうでしょう', 'いかがでしょう', 'なんとか',
+    'どう思', 'どう感じ', 'どんな風に', 'どのように', 'やり方'
+  ];
+  
+  // Life problem domain keywords (indicating potential needs)
+  const problemDomainKeywords = [
+    // Employment/Career
+    '転職', '就活', '退職', '働き', '仕事', '職場', '上司', '同僚', '部下', 
+    'キャリア', '昇進', '給料', '面接', '履歴書', '職務', '転勤', '異動',
+    
+    // Relationships
+    '恋愛', '結婚', '離婚', 'パートナー', '夫', '妻', '彼氏', '彼女', 
+    '別れ', '振られ', 'デート', '告白', '不倫', '浮気', '片思い',
+    
+    // Mental Health
+    'うつ', '不安', 'パニック', 'ストレス', '眠れ', '集中', '記憶', 
+    'やる気', 'モチベーション', '意欲', '無気力', '自殺', '死にたい',
+    
+    // Daily Life Challenges
+    '生活費', '家賃', '借金', '節約', '貯金', '保険', '税金', '引越し',
+    '住まい', '近所', '騒音', 'トラブル', '苦情'
+  ];
+  
+  // Contextual analysis factors
+  let contextualScore = 0;
+  
+  // Message length analysis (longer messages often indicate problem sharing)
+  if (message.length > 100) contextualScore += 1;
+  if (message.length > 200) contextualScore += 1;
+  
+  // Check for subtle advice patterns
+  const subtleAdviceCount = subtleAdvicePatterns.filter(pattern => 
+    lowerMessage.includes(pattern)
+  ).length;
+  contextualScore += Math.min(2, subtleAdviceCount * 0.5);
+  
+  // Check for problem domain keywords
+  const problemDomainCount = problemDomainKeywords.filter(keyword => 
+    lowerMessage.includes(keyword)
+  ).length;
+  contextualScore += Math.min(2, problemDomainCount * 0.5);
+  
+  // Question mark analysis
+  if (hasQuestionMark) contextualScore += 1;
+  
+  // First-person perspective indicators ('私は', '僕は', etc.)
+  if (/私は|私が|僕は|僕が|俺は|俺が|わたしは|わたしが/.test(lowerMessage)) {
+    contextualScore += 0.5;
+  }
+  
+  // Analyze history context if available
+  if (history && history.length >= 2) {
+    // Check if previous message was from assistant suggesting to share more details
+    const previousAssistantMessage = history.filter(msg => msg.role === 'assistant').pop();
+    if (previousAssistantMessage && 
+        previousAssistantMessage.content && 
+        /詳しく|教えて|どのよう|具体的に|例えば/.test(previousAssistantMessage.content.toLowerCase())) {
+      contextualScore += 1;
+      console.log('Context bonus: Assistant previously asked for details');
+    }
+    
+    // Check for conversation flow indicating problem discussion
+    const recentUserMessages = history.filter(msg => msg.role === 'user').slice(-3);
+    const problemDiscussion = recentUserMessages.some(msg => 
+      msg.content && problemDomainKeywords.some(keyword => msg.content.toLowerCase().includes(keyword))
+    );
+    if (problemDiscussion) {
+      contextualScore += 1;
+      console.log('Context bonus: Ongoing problem discussion detected');
+    }
+  }
+  
+  // 3. COMBINE APPROACHES FOR FINAL DECISION
+  // ----------------------------------------
+  
+  // Check for standard explicit patterns (same as the original implementation)
+  const hasStandardAdvicePattern = advicePatterns.some(pattern => lowerMessage.includes(pattern));
+  
+  // Decision logic combining explicit patterns with nuanced analysis
+  if (hasQuestionMark && hasStandardAdvicePattern) {
+    console.log('Question with advice keywords detected');
     return true;
   }
   
-  // If message is long and contains problem indicators, it's likely sharing a problem
-  if (message.length > 50 && isAdviceRequest) {
+  if (message.length > 50 && hasStandardAdvicePattern) {
+    console.log('Longer message with advice keywords detected');
     return true;
   }
   
-  // Default - don't show recommendations unless clearly asking for advice
+  // Nuanced detection based on contextual score
+  if (contextualScore >= 3) {
+    console.log(`Nuanced advice request detected (score: ${contextualScore})`);
+    return true;
+  }
+  
+  // Medium confidence: Both some advice pattern and good contextual score
+  if (hasStandardAdvicePattern && contextualScore >= 2) {
+    console.log(`Medium confidence advice request (explicit pattern + context score: ${contextualScore})`);
+    return true;
+  }
+  
+  // Low confidence detection for very long, problem-describing messages
+  if (message.length > 300 && contextualScore >= 1.5) {
+    console.log(`Long problem description detected (length: ${message.length}, score: ${contextualScore})`);
+    return true;
+  }
+  
+  // Default - don't show recommendations unless detected by one of the rules above
   return false;
 }
 
