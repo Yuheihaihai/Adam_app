@@ -1382,7 +1382,7 @@ ${perplexityData.knowledge}
         // Get user preferences
         const preferences = userPreferences.getUserPreferences(userId);
         const maxRecommendations = preferences.maxRecommendations || 3;
-        const confidenceThreshold = preferences.minConfidenceScore || 0.6;
+        const confidenceThreshold = preferences.minConfidenceScore || 0.8; // Updated from 0.6 to 0.8 (80%)
         
         // Create a presentation context with our simplified approach
         const presentationContext = {

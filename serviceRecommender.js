@@ -5,7 +5,7 @@ const path = require('path');
 const axios = require('axios');
 
 // Define constants at the module level to prevent accidental changes
-const DEFAULT_CONFIDENCE_THRESHOLD = 0.6; // 60% confidence threshold
+const DEFAULT_CONFIDENCE_THRESHOLD = 0.8; // 80% confidence threshold (updated from 60%)
 const DEFAULT_COOLDOWN_DAYS = 7;
 
 class ServiceRecommender {
@@ -428,6 +428,28 @@ class ServiceRecommender {
       
       // Apply context-based adjustments if context is available
       if (conversationContext) {
+        // Check for explicit requests for advice or recommendations
+        if (conversationContext.text) {
+          const requestTerms = [
+            'アドバイス', 'お勧め', 'おすすめ', 'おススメ', '教えて', 'サービス', 
+            'サイト', 'アプリ', '紹介', '推薦', 'オススメ', '良い', 'いい', 
+            '助言', 'アドバイザー', 'コンサルタント', 'どうすれば', '手伝って'
+          ];
+          
+          // Check if any of the request terms are in the conversation context
+          const requestMatches = requestTerms.filter(term => 
+            conversationContext.text.includes(term)
+          );
+          
+          // Calculate bonus based on number of matches (up to 0.25 or 25%)
+          const explicitRequestBonus = Math.min(0.25, requestMatches.length * 0.05);
+          
+          if (explicitRequestBonus > 0) {
+            console.log(`Adding ${(explicitRequestBonus * 100).toFixed(1)}% bonus for explicit advice/recommendation request`);
+            score += explicitRequestBonus;
+          }
+        }
+        
         // Topic relevance boost
         if (service.criteria.topics && Array.isArray(service.criteria.topics) && 
             conversationContext.recentTopics && conversationContext.recentTopics.length > 0) {
