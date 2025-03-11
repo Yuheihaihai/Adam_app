@@ -8,6 +8,7 @@ const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
 const path = require('path');
 const fs = require('fs');
+const servicesData = require('./services');
 
 // Import service hub components
 const UserNeedsAnalyzer = require('./userNeedsAnalyzer');
@@ -1876,7 +1877,91 @@ async function handleText(event) {
 
     // AIでの処理を実行
     const result = await processWithAI(systemPrompt, userMessage, historyForAI, mode, userId, client);
-    return client.replyMessage(event.replyToken, { type: 'text', text: result.response });
+    
+    // サービス推奨がある場合、それを応答に追加
+    let finalResponse = result.response;
+    const serviceRecommendations = result.recommendations;
+    
+    if (serviceRecommendations && serviceRecommendations.length > 0) {
+      console.log(`Adding ${serviceRecommendations.length} service recommendations to response`);
+      
+      // サービス推奨の表示用カテゴリを決定
+      const category = mode === 'mental_health' ? 'mental_health' : 
+                      mode === 'career' ? 'career' : 'general';
+      
+      // 自然な移行テキストを作成
+      const transitionText = createNaturalTransition(finalResponse, category, false);
+      
+      // サービス情報を構築
+      let serviceText = '';
+      
+      // 最大3つのサービスを表示
+      const displayServices = serviceRecommendations.slice(0, 3);
+      
+      // サービス情報を追加
+      displayServices.forEach((service, index) => {
+        // サービス名の取得
+        let serviceName;
+        let serviceDescription = '';
+        
+        if (typeof service === 'string') {
+          // サービスIDからサービス情報を取得
+          const serviceInfo = servicesData.find(s => s.id === service);
+          if (serviceInfo) {
+            serviceName = serviceInfo.name;
+            serviceDescription = serviceInfo.description;
+          } else {
+            serviceName = service;
+          }
+        } else if (service.name) {
+          serviceName = service.name;
+          serviceDescription = service.description || '';
+        } else if (service.serviceName) {
+          serviceName = service.serviceName;
+          serviceDescription = service.description || '';
+        } else if (service.id) {
+          // サービスIDからサービス情報を取得
+          const serviceInfo = servicesData.find(s => s.id === service.id);
+          if (serviceInfo) {
+            serviceName = serviceInfo.name;
+            serviceDescription = serviceInfo.description;
+          } else {
+            serviceName = service.id;
+          }
+        }
+        
+        // サービス情報をテキストに追加
+        serviceText += `${index + 1}. ${serviceName}`;
+        if (serviceDescription) {
+          serviceText += `：${serviceDescription.substring(0, 80)}${serviceDescription.length > 80 ? '...' : ''}`;
+        }
+        serviceText += '\n';
+      });
+      
+      // 最終的な応答を構築
+      finalResponse = `${finalResponse}${transitionText}${serviceText}`;
+      
+      // 推奨されたサービスを記録（将来のユーザーフィードバック追跡のため）
+      const preferences = userPreferences.getUserPreferences(userId);
+      if (preferences) {
+        const timestamp = Date.now().toString();
+        const serviceIds = displayServices.map(service => 
+          typeof service === 'string' ? service : 
+          service.id ? service.id : 
+          service.serviceName ? service.serviceName : '');
+          
+        // 以前の表示済みサービス情報を読み込み
+        preferences.recentlyShownServices = preferences.recentlyShownServices || {};
+        
+        // 新しい表示済みサービス情報を追加
+        preferences.recentlyShownServices[timestamp] = serviceIds;
+        
+        // ユーザー設定を更新
+        userPreferences.updateUserPreferences(userId, preferences);
+      }
+    }
+    
+    return client.replyMessage(event.replyToken, { type: 'text', text: finalResponse });
   } catch (error) {
     console.error('Error handling text message:', error);
     return Promise.resolve(null);
