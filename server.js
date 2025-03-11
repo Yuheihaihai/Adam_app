@@ -13,6 +13,9 @@ const fs = require('fs');
 const UserNeedsAnalyzer = require('./userNeedsAnalyzer');
 const ServiceRecommender = require('./serviceRecommender');
 
+// Import ML Hook for enhanced machine learning capabilities
+const { processMlData, analyzeResponseWithMl } = require('./mlHook');
+
 // User Preferences Module
 const userPreferences = {
   _prefStore: {}, // Simple in-memory storage
@@ -920,6 +923,55 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
             return null;
           }
         }
+        // LocalML processing for other modes (general, mental_health, analysis)
+        else if (['general', 'mental_health', 'analysis'].includes(mode)) {
+          try {
+            console.log('\n🤖 [1C] ML AUGMENTATION: LOCALML DATA - Starting');
+            const localMlStartTime = Date.now();
+            
+            // Process ML data through mlHook
+            const { mlData } = await processMlData(userId, userMessage, mode);
+            
+            const localMlTime = Date.now() - localMlStartTime;
+            console.log(`    ├─ [1C.2] ML data processed in ${localMlTime}ms`);
+            
+            // Log ML data status
+            if (mlData) {
+              console.log('    ├─ [1C.3] ML DATA RESULTS:');
+              console.log(`    │  ✅ User ${mode} analysis: Retrieved`);
+              console.log(`    │    └─ Data size: ${JSON.stringify(mlData).length} bytes`);
+              
+              // Log detected traits or features based on mode
+              if (mode === 'general' && mlData.traits) {
+                console.log('    │    └─ Detected traits:');
+                Object.entries(mlData.traits).forEach(([trait, value]) => {
+                  console.log(`    │       - ${trait}: ${value}`);
+                });
+              } else if (mode === 'mental_health' && mlData.indicators) {
+                console.log('    │    └─ Detected indicators:');
+                Object.entries(mlData.indicators).forEach(([indicator, value]) => {
+                  console.log(`    │       - ${indicator}: ${value}`);
+                });
+              } else if (mode === 'analysis' && mlData.complexity) {
+                console.log('    │    └─ Detected complexity factors:');
+                Object.entries(mlData.complexity).forEach(([factor, value]) => {
+                  console.log(`    │       - ${factor}: ${value}`);
+                });
+              }
+            } else {
+              console.log('    ├─ [1C.3] ML DATA RESULTS:');
+              console.log('    │  ❌ No ML data available for this conversation');
+            }
+            
+            console.log('    └─ [1C.4] ML AUGMENTATION: LOCALML DATA - Completed');
+            
+            return mlData;
+          } catch (error) {
+            console.error('\n❌ Error processing LocalML data:', error.message);
+            console.log('   └─ Proceeding without ML augmentation');
+            return null;
+          }
+        }
         return null;
       })()
     ]);
@@ -1050,6 +1102,37 @@ ${perplexityData.knowledge}
       const percentIncrease = ((promptSizeIncrease / baselinePromptSize) * 100).toFixed(1);
       console.log(`    ├─ ML-augmented prompt size: ${mlAugmentedPromptSize} bytes`);
       console.log(`    └─ ML data added ${promptSizeIncrease} bytes (${percentIncrease}% increase)`);
+    }
+    // Add LocalML data for other modes (general, mental_health, analysis)
+    else if (['general', 'mental_health', 'analysis'].includes(mode)) {
+      console.log('\n🔄 [3B] INTEGRATING LOCAL ML DATA INTO PROMPT');
+      
+      // Record baseline prompt size before adding ML data
+      const baselinePromptSize = JSON.stringify(messages).length;
+      console.log(`    ├─ Baseline prompt size before ML data: ${baselinePromptSize} bytes`);
+      
+      // Get system prompt from ML data
+      const { systemPrompt } = await processMlData(userId, userMessage, mode);
+      
+      if (systemPrompt) {
+        console.log(`    ├─ Adding ${mode} mode ML analysis`);
+        console.log(`    │  └─ Analysis length: ${systemPrompt.length} characters`);
+        
+        // Add the ML system prompt
+        messages.push({
+          role: 'system',
+          content: systemPrompt
+        });
+        
+        // Log the ML data impact on prompt size
+        const mlAugmentedPromptSize = JSON.stringify(messages).length;
+        const promptSizeIncrease = mlAugmentedPromptSize - baselinePromptSize;
+        const percentIncrease = ((promptSizeIncrease / baselinePromptSize) * 100).toFixed(1);
+        console.log(`    ├─ ML-augmented prompt size: ${mlAugmentedPromptSize} bytes`);
+        console.log(`    └─ ML data added ${promptSizeIncrease} bytes (${percentIncrease}% increase)`);
+      } else {
+        console.log(`    └─ No ML data available to integrate`);
+      }
     }
     
     // Add user message after all context
@@ -1423,389 +1506,44 @@ ${perplexityData.knowledge}
       
       console.log(`   └─ ML influence score: ${Math.round(influenceScore)}% (estimated impact on response)`);
     }
-    
-    // Helper function to extract meaningful phrases from text
-    function extractSignificantPhrases(text) {
-      if (!text) return [];
+    // LocalML influence analysis for other modes
+    else if (['general', 'mental_health', 'analysis'].includes(mode)) {
+      // Use mlHook to analyze the response
+      const mlInfluence = analyzeResponseWithMl(aiResponse, perplexityData, mode);
       
-      // Split into sentences
-      const sentences = text.split(/。|\./).filter(s => s.trim().length > 10);
-      
-      // Extract key phrases (8-30 characters)
-      let phrases = [];
-      for (const sentence of sentences) {
-        // Split by common separators
-        const parts = sentence.split(/、|,|（|）|\(|\)|「|」|『|』|"|"|'|'/).filter(p => p.trim().length >= 8 && p.trim().length <= 30);
-        phrases = [...phrases, ...parts.map(p => p.trim())];
+      if (mlInfluence) {
+        console.log('\n=== LOCAL ML DATA INFLUENCE ANALYSIS ===');
+        console.log(`\n🔍 ML INFLUENCE SCORE: ${Math.round(mlInfluence.influence_score)}%`);
         
-        // If the sentence itself is a good length, include it too
-        if (sentence.trim().length >= 8 && sentence.trim().length <= 40) {
-          phrases.push(sentence.trim());
-        }
-      }
-      
-      // Deduplicate and filter out very similar phrases
-      const uniquePhrases = [];
-      for (const phrase of phrases) {
-        if (!uniquePhrases.some(p => 
-          p.includes(phrase) || 
-          phrase.includes(p) || 
-          levenshteinDistance(p, phrase) < Math.min(p.length, phrase.length) * 0.3
-        )) {
-          uniquePhrases.push(phrase);
-        }
-      }
-      
-      return uniquePhrases.slice(0, 10); // Return up to 10 phrases
-    }
-    
-    // Helper function for string similarity
-    function levenshteinDistance(a, b) {
-      const matrix = Array(a.length + 1).fill().map(() => Array(b.length + 1).fill(0));
-      
-      for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
-      for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
-      
-      for (let i = 1; i <= a.length; i++) {
-        for (let j = 1; j <= b.length; j++) {
-          const cost = a[i-1] === b[j-1] ? 0 : 1;
-          matrix[i][j] = Math.min(
-            matrix[i-1][j] + 1,
-            matrix[i][j-1] + 1,
-            matrix[i-1][j-1] + cost
-          );
-        }
-      }
-      
-      return matrix[a.length][b.length];
-    }
-    
-    // Process the AI response
-    let responseText = aiResponse;
-    
-    // Add service recommendations if user preferences allow it
-    if (userPrefs.showServiceRecommendations && serviceRecommendations && serviceRecommendations.length > 0) {
-      console.log(`\n=== SERVICE RECOMMENDATION DECISION ===`);
-      console.log(`Processing ${serviceRecommendations.length} service recommendations`);
-      
-      // Detect if user is asking for advice or sharing a problem
-      const isAskingForAdvice = detectAdviceRequest(userMessage, history);
-      
-      // Log whether user is asking for advice
-      console.log(`Is user asking for advice: ${isAskingForAdvice}`);
-      
-      // Check for explicit advice requests which should always allow service recommendations
-      const explicitAdvicePatterns = [
-        'アドバイスください', 'アドバイス下さい', 'アドバイスを下さい', 'アドバイスをください',
-        'アドバイスが欲しい', 'アドバイスがほしい', 'アドバイスをお願い', '助言ください',
-        '助言下さい', 'おすすめを教えて', 'お勧めを教えて', 'オススメを教えて'
-      ];
-      
-      const isExplicitAdviceRequest = explicitAdvicePatterns.some(pattern => 
-        userMessage && userMessage.includes(pattern)
-      );
-      
-      if (isExplicitAdviceRequest) {
-        console.log('✅ Explicit advice request detected in processWithAI - will show service recommendations');
-      }
-      
-      // Check timing and frequency constraints
-      const isTimeAppropriate = isAppropriateTimeForServices(history, userMessage);
-      console.log(`Is time appropriate: ${isTimeAppropriate}`);
-      
-      const isWithinFrequencyLimits = shouldShowServicesToday(userId, history, userMessage);
-      console.log(`Is within frequency limits: ${isWithinFrequencyLimits}`);
-      
-      // Check if we should show services - explicit advice requests always get recommendations
-      const shouldShow = isExplicitAdviceRequest || 
-                        (shouldShowServicesToday(userId, history, userMessage) && 
-                         isAppropriateTimeForServices(history, userMessage) &&
-                         isAskingForAdvice);
-      
-      console.log(`\nFINAL DECISION: ${shouldShow ? '✅ SHOWING' : '❌ NOT SHOWING'} service recommendations`);
-      
-      if (!shouldShow) {
-        if (isExplicitAdviceRequest) {
-          // This should not happen given our logic, but add a warning just in case
-          console.warn('WARNING: Explicit advice request detected but services not shown - check logic!');
-        } else if (!isAskingForAdvice) {
-          console.log('Reason: Not asking for advice');
-        } else if (!isAppropriateTimeForServices(history, userMessage)) {
-          console.log('Reason: Not an appropriate time based on conversation flow');
-        } else if (!shouldShowServicesToday(userId, history, userMessage)) {
-          console.log('Reason: Frequency/timing constraints');
-        } else {
-          console.log('Reason: Unknown reason');
-        }
-        console.log(`=== END SERVICE RECOMMENDATION DECISION ===\n`);
-      } else {
-        console.log(`Reason: ${isExplicitAdviceRequest ? 'Explicit advice request' : 'Detected advice need'}`);
-        console.log(`Sample service structure: ${JSON.stringify(serviceRecommendations[0])}`);
-        console.log(`=== END SERVICE RECOMMENDATION DECISION ===\n`);
-        
-        // Map service IDs to full service objects if needed
-        let fullServiceRecommendations = serviceRecommendations;
-        if (serviceRecommendations[0] && (typeof serviceRecommendations[0] === 'string' || !serviceRecommendations[0].description)) {
-          const servicesModule = require('./services');
-          fullServiceRecommendations = serviceRecommendations.map(service => {
-            const serviceId = typeof service === 'string' ? service : service.id;
-            return servicesModule.services.find(s => s.id === serviceId) || service;
-          });
-        }
-        
-        // Get user preferences
-        const preferences = userPreferences.getUserPreferences(userId);
-        const maxRecommendations = preferences.maxRecommendations || 3;
-        const confidenceThreshold = preferences.minConfidenceScore || 0.8; // Updated from 0.6 to 0.8 (80%)
-        
-        // Create a presentation context with our simplified approach
-        const presentationContext = {
-          shouldBeMinimal: false,
-          hasSeenServicesBefore: false,
-          categoryFeedback: preferences.categoryCooldowns || {},
-          preferredCategory: null
-        };
-        
-        // Check if user has seen services before
-        if (history && history.length > 0) {
-          for (let i = 0; i < history.length; i++) {
-            const msg = history[i];
-            if (msg.role === 'assistant' && msg.content && 
-                (msg.content.includes('サービス') || 
-                 msg.content.includes('お役立ち情報'))) {
-              presentationContext.hasSeenServicesBefore = true;
-        break;
-            }
-          }
-        }
-        
-        // Detect distress indicators for minimal presentation
-        const distressIndicators = [
-          'つらい', '苦しい', '死にたい', '自殺', '助けて', 
-          'しんどい', '無理', 'やばい', '辛い', '悲しい'
-        ];
-        
-        if (userMessage) {
-          for (const indicator of distressIndicators) {
-            if (userMessage.includes(indicator)) {
-              presentationContext.shouldBeMinimal = true;
-              break;
-            }
-          }
-        }
-        
-        // Apply cooldowns to filter out services in cooldown categories
-        fullServiceRecommendations = fullServiceRecommendations.filter(service => {
-          // Skip if no service
-          if (!service) return false;
-          
-          // Determine service category
-          const category = userPreferences._getServiceCategory(service);
-          
-          // Skip if category is in cooldown
-          if (category && preferences.categoryCooldowns && preferences.categoryCooldowns[category]) {
-            const cooldownUntil = new Date(preferences.categoryCooldowns[category]);
-            if (cooldownUntil > new Date()) {
-              console.log(`Filtering out service ${service.id} due to category cooldown until ${cooldownUntil}`);
-              return false;
-            }
-          }
-          
-          // Skip if service has received negative feedback
-          if (preferences.implicitFeedback && 
-              preferences.implicitFeedback[service.id] === 'negative') {
-            console.log(`Filtering out service ${service.id} due to previous negative feedback`);
-            return false;
-          }
-          
-          return true;
-        });
-        
-        // Filter recommendations based on user preferences and context
-        let filteredRecommendations = fullServiceRecommendations
-          .filter(service => {
-            const confidence = service.confidence || service.confidenceScore || 0.8;
-            return confidence >= confidenceThreshold;
-          })
-          .slice(0, maxRecommendations);
-        
-        // Determine the appropriate introduction text based on user needs and preferred category
-        let introText = '\n\n【お役立ち情報】\n以下のサービスがお役に立つかもしれません：\n';
-        
-        // Group services by category for better organization
-        const servicesByCategory = {
-          'career': [],
-          'mental_health': [],
-          'social': [],
-          'financial': [],
-          'other': []
-        };
-        
-        // Categorize services
-        for (const service of filteredRecommendations) {
-          let serviceCategory = null;
-          
-          // Determine service category
-          if (service.criteria && service.criteria.topics) {
-            if (service.criteria.topics.includes('employment')) serviceCategory = 'career';
-            else if (service.criteria.topics.includes('mental_health')) serviceCategory = 'mental_health';
-            else if (service.criteria.topics.includes('social')) serviceCategory = 'social';
-            else if (service.criteria.topics.includes('daily_living')) serviceCategory = 'financial';
-          }
-          
-          if (!serviceCategory && service.tags) {
-            if (service.tags.includes('employment') || service.tags.includes('career')) serviceCategory = 'career';
-            else if (service.tags.includes('mental_health')) serviceCategory = 'mental_health';
-            else if (service.tags.includes('social') || service.tags.includes('community')) serviceCategory = 'social';
-            else if (service.tags.includes('financial') || service.tags.includes('assistance')) serviceCategory = 'financial';
-          }
-          
-          if (!serviceCategory) serviceCategory = 'other';
-          
-          // Skip services from negatively rated categories
-          if (presentationContext.categoryFeedback[serviceCategory] === 'negative') {
-            console.log(`Filtering out service ${service.id} due to negative feedback for category ${serviceCategory}`);
-            continue;
-          }
-          
-          servicesByCategory[serviceCategory].push(service);
-        }
-        
-        // Prioritize services based on preferred category or user needs
-        let priorityCategory = presentationContext.preferredCategory;
-        
-        if (!priorityCategory && userNeeds) {
-          if (userNeeds.mental_health && 
-              (userNeeds.mental_health.shows_depression || userNeeds.mental_health.shows_anxiety)) {
-            priorityCategory = 'mental_health';
-          } else if (userNeeds.employment && 
-                    (userNeeds.employment.seeking_job || userNeeds.employment.career_transition) &&
-                    presentationContext.categoryFeedback['career'] !== 'negative') {
-            priorityCategory = 'career';
-          } else if (userNeeds.social && 
-                    (userNeeds.social.isolation || userNeeds.social.is_hikikomori)) {
-            priorityCategory = 'social';
-          } else if (userNeeds.daily_living && userNeeds.daily_living.financial_assistance) {
-            priorityCategory = 'financial';
-          }
-        }
-        
-        // Set the appropriate introduction based on priority category
-        if (priorityCategory === 'mental_health') {
-          introText = '\n\n【メンタルヘルスサポート】\nこちらのサービスが心の健康をサポートするかもしれません：\n';
-        } else if (priorityCategory === 'career' && presentationContext.categoryFeedback['career'] !== 'negative') {
-          introText = '\n\n【キャリア支援サービス】\nお仕事の状況は大変かと思います。少しでもお役に立てるかもしれないサービスをご紹介します：\n';
-        } else if (priorityCategory === 'social') {
-          introText = '\n\n【コミュニティサポート】\n以下のサービスが社会とのつながりをサポートします：\n';
-        } else if (priorityCategory === 'financial') {
-          introText = '\n\n【生活支援サービス】\n経済的な支援に関する以下のサービスが参考になるかもしれません：\n';
-        }
-        
-        // Build our final recommendations list prioritizing the preferred category
-        let finalRecommendations = [];
-        
-        if (priorityCategory && servicesByCategory[priorityCategory].length > 0) {
-          // Add services from the priority category first
-          finalRecommendations = [...servicesByCategory[priorityCategory]];
-          
-          // If we need more services, add from other categories (excluding negative feedback categories)
-          if (finalRecommendations.length < 3) {
-            for (const [category, services] of Object.entries(servicesByCategory)) {
-              if (category !== priorityCategory && category !== 'other' && 
-                  presentationContext.categoryFeedback[category] !== 'negative') {
-                finalRecommendations = [...finalRecommendations, ...services];
-                if (finalRecommendations.length >= 3) break;
-              }
-            }
-            
-            // If still not enough, add from 'other' category
-            if (finalRecommendations.length < 3 && servicesByCategory['other'].length > 0) {
-              finalRecommendations = [...finalRecommendations, ...servicesByCategory['other']];
-            }
+        if (mlInfluence.influence_detected) {
+          console.log('   ├─ ML data influence: ✅ Detected');
+          if (mlInfluence.influence_details && mlInfluence.influence_details.detected_terms) {
+            console.log(`   ├─ Detected ${mlInfluence.influence_details.detected_terms.length} ML-influenced terms`);
+            mlInfluence.influence_details.detected_terms.slice(0, 5).forEach((term, i) => {
+              console.log(`   │  ${i+1}. ${term}`);
+            });
           }
         } else {
-          // If no priority category, combine all non-negative categories
-          for (const [category, services] of Object.entries(servicesByCategory)) {
-            if (presentationContext.categoryFeedback[category] !== 'negative') {
-              finalRecommendations = [...finalRecommendations, ...services];
-            }
-          }
+          console.log('   ├─ ML data influence: ❌ Not detected');
+          console.log('   ├─ ML data may still have influenced general approach');
         }
         
-        // Limit to max 3 recommendations
-        finalRecommendations = finalRecommendations.slice(0, 3);
-        
-        // Only proceed if we have recommendations to show after all filtering
-        if (finalRecommendations.length > 0) {
-          // Create a natural transition based on message content
-          const introText = createNaturalTransition(
-            responseText, 
-            priorityCategory, 
-            presentationContext.shouldBeMinimal
-          );
-          
-          // Add service recommendations to the response with improved formatting
-          responseText += introText;
-          
-          // Check if this is a new user (fewer than 3 interactions)
-          const isNewUser = history.length < 5;
-          
-          // Add a subtle hint for new users about how to control service display
-          if (isNewUser && !presentationContext.hasSeenServicesBefore) {
-            responseText += '\n（「サービス表示オフ」と言っていただくと、サービス情報を非表示にできます）\n';
-          }
-          
-          // Store shown services for later implicit feedback tracking
-          const shownServices = [];
-          
-          // Display the services with improved formatting
-          finalRecommendations.forEach((service, index) => {
-            // Keep track of shown services
-            shownServices.push(service);
-            
-            // Customize service presentation based on context
-            if (presentationContext.shouldBeMinimal) {
-              // Minimal presentation for users who seem overwhelmed
-              responseText += `${index + 1}. **${service.name}**\n   ${service.url}\n\n`;
-            } else {
-              // Standard presentation
-              responseText += `${index + 1}. **${service.name}**\n`;
-              if (service.description) {
-                responseText += `   ${service.description}\n`;
-              }
-              if (service.url) {
-                responseText += `   ${service.url}\n`;
-              }
-              responseText += '\n';
-            }
-          });
-          
-          // Save recently shown services in preferences for future reference
-          if (!preferences.recentlyShownServices) {
-            preferences.recentlyShownServices = {};
-          }
-          preferences.recentlyShownServices[Date.now()] = finalRecommendations.map(
-            service => typeof service === 'string' ? service : service.id
-          );
-          userPreferences.updateUserPreferences(userId, preferences);
-          
-          // Record service recommendations
-          try {
-            for (const service of finalRecommendations) {
-              await recordServiceRecommendation(userId, service.id, 0.8); // Use default confidence score
-            }
-          } catch (error) {
-            console.error('Error recording service recommendations:', error);
-          }
-        }
+        // Mode-specific analysis
+        console.log(`   └─ ${mode.toUpperCase()} mode influence details in logs`);
       }
     }
     
-    console.log(`Total processing time: ${Date.now() - startTime}ms`);
-    return responseText;
+    // Return response and service recommendations
+    return {
+      response: aiResponse,
+      recommendations: serviceRecommendations
+    };
   } catch (error) {
     console.error('Error in processWithAI:', error);
-    return '申し訳ありません。処理中にエラーが発生しました。もう一度お試しください。';
+    return {
+      response: '申し訳ありません。処理中にエラーが発生しました。もう一度お試しください。',
+      recommendations: []
+    };
   }
 }
 
@@ -2103,7 +1841,7 @@ async function handleText(event) {
 
     // AIでの処理を実行
     const result = await processWithAI(systemPrompt, userMessage, historyForAI, mode, userId, client);
-    return client.replyMessage(event.replyToken, { type: 'text', text: result });
+    return client.replyMessage(event.replyToken, { type: 'text', text: result.response });
   } catch (error) {
     console.error('Error handling text message:', error);
     return Promise.resolve(null);
@@ -2438,4 +2176,321 @@ function extractKeyInsights(text, count = 3) {
   
   // Return top insights
   return sortedSentences.slice(0, count).map(s => s.trim());
+}
+
+// Helper function to extract meaningful phrases from text
+function extractSignificantPhrases(text) {
+  if (!text) return [];
+  
+  // Split into sentences
+  const sentences = text.split(/。|\./).filter(s => s.trim().length > 10);
+  
+  // Extract key phrases (8-30 characters)
+  let phrases = [];
+  for (const sentence of sentences) {
+    // Split by common separators
+    const parts = sentence.split(/、|,|（|）|\(|\)|「|」|『|』|"|"|'|'/).filter(p => p.trim().length >= 8 && p.trim().length <= 30);
+    phrases = [...phrases, ...parts.map(p => p.trim())];
+    
+    // If the sentence itself is a good length, include it too
+    if (sentence.trim().length >= 8 && sentence.trim().length <= 40) {
+      phrases.push(sentence.trim());
+    }
+  }
+  
+  // Deduplicate and filter out very similar phrases
+  const uniquePhrases = [];
+  for (const phrase of phrases) {
+    if (!uniquePhrases.some(p => 
+      p.includes(phrase) || 
+      phrase.includes(p) || 
+      levenshteinDistance(p, phrase) < Math.min(p.length, phrase.length) * 0.3
+    )) {
+      uniquePhrases.push(phrase);
+    }
+  }
+  
+  return uniquePhrases.slice(0, 10); // Return up to 10 phrases
+}
+
+// Helper function for string similarity
+function levenshteinDistance(a, b) {
+  const matrix = Array(a.length + 1).fill().map(() => Array(b.length + 1).fill(0));
+  
+  for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+  for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+  
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i-1] === b[j-1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i-1][j] + 1,
+        matrix[i][j-1] + 1,
+        matrix[i-1][j-1] + cost
+      );
+    }
+  }
+  
+  return matrix[a.length][b.length];
+}
+
+// Create a natural transition based on message content
+function createNaturalTransition(responseText, category, isMinimal) {
+  // Detect existing content and direction of conversation
+  const hasPositiveAdvice = 
+    responseText.includes('可能性') || 
+    responseText.includes('チャンス') || 
+    responseText.includes('機会') ||
+    responseText.includes('おすすめ') ||
+    responseText.includes('お勧め');
+    
+  const hasTechnicalAdvice = 
+    responseText.includes('スキル') || 
+    responseText.includes('技術') || 
+    responseText.includes('プログラミング') || 
+    responseText.includes('開発');
+    
+  const hasCareerAdvice = 
+    responseText.includes('キャリア') || 
+    responseText.includes('仕事') || 
+    responseText.includes('就職') || 
+    responseText.includes('転職');
+    
+  const hasMentalAdvice = 
+    responseText.includes('ストレス') || 
+    responseText.includes('不安') || 
+    responseText.includes('悩み') ||
+    responseText.includes('落ち込み');
+    
+  // If minimal presentation for users in distress
+  if (isMinimal) {
+    return '\n\n【サポート情報】\n必要な時にご覧いただければ幸いです：\n';
+  }
+  
+  // Choose transition based on detected context
+  if (category === 'mental_health' || hasMentalAdvice) {
+    return '\n\n【メンタルヘルスサポート】\nこちらのサービスが心の健康をサポートするかもしれません：\n';
+  } else if (category === 'career' || hasCareerAdvice) {
+    return '\n\n【キャリア支援サービス】\nキャリアアップに役立つかもしれないサービスをご紹介します：\n';
+  } else if (category === 'social') {
+    return '\n\n【コミュニティサポート】\n以下のサービスが社会とのつながりをサポートします：\n';
+  } else if (category === 'financial') {
+    return '\n\n【生活支援サービス】\n経済的な支援に関する以下のサービスが参考になるかもしれません：\n';
+  } else if (hasTechnicalAdvice) {
+    return '\n\n【技術支援サービス】\nスキルアップに役立つかもしれないサービスをご紹介します：\n';
+  } else if (hasPositiveAdvice) {
+    return '\n\n【お役立ち情報】\nさらに参考になるかもしれないサービスをご紹介します：\n';
+  } else {
+    return '\n\n【参考情報】\n以下のサービスもお役に立つかもしれません：\n';
+  }
+}
+
+/**
+ * Detect if the user is asking for advice or recommendations
+ */
+function detectAdviceRequest(userMessage, history) {
+  if (!userMessage) return false;
+  
+  // Direct advice request patterns
+  const advicePatterns = [
+    'どうしたら', 'どうすれば', 'どうすれば良い', 'どうすればいい',
+    'どうしよう', '助けて', 'アドバイス', '教えて', 'どう思',
+    'サービス', 'オススメ', 'おすすめ', 'お勧め'
+  ];
+  
+  // Check for direct advice requests
+  for (const pattern of advicePatterns) {
+    if (userMessage.includes(pattern)) {
+      return true;
+    }
+  }
+  
+  // Check for question marks and question words
+  if (userMessage.includes('？') || userMessage.includes('?')) {
+    const questionWords = ['何', 'どの', 'どう', 'いつ', 'どこ', 'だれ', '誰', 'なぜ', 'なに'];
+    for (const word of questionWords) {
+      if (userMessage.includes(word)) {
+        return true;
+      }
+    }
+  }
+  
+  // Problem statement patterns that imply advice need
+  const problemPatterns = [
+    '悩んでいる', '困っている', '心配', '不安', 'ストレス', 
+    '難しい', '大変', 'つらい', '辛い', '苦しい'
+  ];
+  
+  // Count problem indicators
+  let problemCount = 0;
+  for (const pattern of problemPatterns) {
+    if (userMessage.includes(pattern)) {
+      problemCount++;
+    }
+  }
+  
+  // If multiple problem indicators, likely needs advice
+  if (problemCount >= 2) {
+    return true;
+  }
+  
+  // Check message length - longer messages often describe problems needing advice
+  if (userMessage.length > 100 && problemCount >= 1) {
+    return true;
+  }
+  
+  // If no other indicators, check context from recent history
+  if (history && history.length > 0) {
+    // Look at the most recent assistant message
+    const lastAssistantMessage = history.filter(msg => msg.role === 'assistant').pop();
+    
+    if (lastAssistantMessage && lastAssistantMessage.content) {
+      // If assistant asked a question and user is responding
+      if ((lastAssistantMessage.content.includes('でしょうか') || 
+           lastAssistantMessage.content.includes('ですか') ||
+           lastAssistantMessage.content.includes('いかがですか')) &&
+          userMessage.length < 50) {
+        // Short reply to assistant question - likely not asking for advice
+        return false;
+      }
+      
+      // If assistant previously asked about problems
+      if (lastAssistantMessage.content.includes('どのようなお悩み') || 
+          lastAssistantMessage.content.includes('どんな問題') ||
+          lastAssistantMessage.content.includes('何かお困り')) {
+        // User is likely describing a problem needing advice
+        return true;
+      }
+    }
+  }
+  
+  // Default - not enough indicators of advice request
+  return false;
+}
+
+/**
+ * Check if it's an appropriate time in the conversation to show service recommendations
+ */
+function isAppropriateTimeForServices(history, userMessage) {
+  if (!history || history.length < 1) return true;
+  
+  // Check if the conversation just started (fewer than 4 messages)
+  if (history.length < 4) {
+    return false; // Too early in conversation
+  }
+  
+  // Get the most recent messages
+  const recentMessages = history.slice(-5);
+  
+  // Check if services were already shown very recently
+  let lastServiceTime = -1;
+  for (let i = recentMessages.length - 1; i >= 0; i--) {
+    const msg = recentMessages[i];
+    if (msg.role === 'assistant' && 
+        msg.content && 
+        (msg.content.includes('サービス') || 
+         msg.content.includes('【お役立ち情報】') || 
+         msg.content.includes('【サポート情報】'))) {
+      lastServiceTime = i;
+      break;
+    }
+  }
+  
+  // If services were shown in the last message, don't show again
+  if (lastServiceTime === recentMessages.length - 1) {
+    return false;
+  }
+  
+  // If services were shown in the last 2 exchanges, check if user engaged
+  if (lastServiceTime >= 0 && lastServiceTime >= recentMessages.length - 3) {
+    // Check if user mentioned services or seemed interested
+    const userResponse = recentMessages[lastServiceTime + 1];
+    if (userResponse && userResponse.role === 'user' && userResponse.content) {
+      const interestWords = ['ありがとう', 'サービス', 'いいね', '助かる', '使ってみ'];
+      const showedInterest = interestWords.some(word => userResponse.content.includes(word));
+      
+      if (!showedInterest) {
+        // User didn't engage with previous recommendations
+        return false;
+      }
+    }
+  }
+  
+  // Check if user seems to be in a rapid back-and-forth informational exchange
+  let shortExchangeCount = 0;
+  for (let i = 0; i < recentMessages.length - 1; i++) {
+    if (recentMessages[i].role === 'user' && 
+        recentMessages[i + 1].role === 'assistant' && 
+        recentMessages[i].content && recentMessages[i + 1].content &&
+        recentMessages[i].content.length < 30 && 
+        recentMessages[i + 1].content.length < 200) {
+      shortExchangeCount++;
+    }
+  }
+  
+  // If in the middle of a rapid exchange, don't interrupt with services
+  if (shortExchangeCount >= 2 && userMessage && userMessage.length < 30) {
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Check frequency and timing constraints for showing services
+ */
+function shouldShowServicesToday(userId, history, userMessage) {
+  // Explicit advice request patterns
+  const explicitAdvicePatterns = [
+    'アドバイスください', 'アドバイス下さい', 'アドバイスをください',
+    'アドバイスが欲しい', 'アドバイスをお願い', '助言ください',
+    'おすすめを教えて', 'サービスを教えて', 'サービスある'
+  ];
+  
+  // If user explicitly asks for advice/services, always show
+  if (userMessage && explicitAdvicePatterns.some(pattern => userMessage.includes(pattern))) {
+    return true;
+  }
+  
+  try {
+    // Use a shared function to get/set last service time
+    const userPrefs = userPreferences.getUserPreferences(userId);
+    const lastServiceTime = userPrefs.lastServiceTime || 0;
+    const now = Date.now();
+    
+    // If user recently received service recommendations (within last 4 hours)
+    if (lastServiceTime > 0 && now - lastServiceTime < 4 * 60 * 60 * 1000) {
+      // Count total service recommendations today
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      
+      let servicesToday = 0;
+      if (userPrefs.recentlyShownServices) {
+        for (const timestamp in userPrefs.recentlyShownServices) {
+          if (parseInt(timestamp) > todayStart.getTime()) {
+            servicesToday += userPrefs.recentlyShownServices[timestamp].length;
+          }
+        }
+      }
+      
+      // Limit to no more than 9 service recommendations per day
+      if (servicesToday >= 9) {
+        return false;
+      }
+      
+      // If fewer than 5 service recommendations today, require a longer minimum gap
+      if (servicesToday < 5 && now - lastServiceTime < 45 * 60 * 1000) {
+        return false; // Less than 45 minutes since last recommendation
+      }
+      
+      // General rule: Don't recommend more than once per 30 minutes
+      return now - lastServiceTime >= 30 * 60 * 1000;
+    }
+    
+    // If it's been more than 4 hours, allow recommendations
+    return true;
+  } catch (err) {
+    console.error('Error in shouldShowServicesToday:', err);
+    return true; // Default to showing if there's an error
+  }
 }
