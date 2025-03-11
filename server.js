@@ -2506,6 +2506,7 @@ function isAppropriateTimeForServices(history, currentMessage) {
   
   // First check if the message is an explicit advice request
   const explicitAdvicePatterns = [
+    'アドバイス', // Added standalone "advice" as explicit request
     'アドバイスください', 'アドバイス下さい', 'アドバイスを下さい', 'アドバイスをください',
     'アドバイスが欲しい', 'アドバイスがほしい', 'アドバイスをお願い', '助言ください',
     '助言下さい', 'おすすめを教えて', 'お勧めを教えて', 'オススメを教えて'
@@ -2653,6 +2654,7 @@ function detectAdviceRequest(message, history = null) {
   
   // Explicit advice request patterns (highest confidence)
   const explicitAdvicePatterns = [
+    'アドバイス', // Added standalone "advice" as explicit request
     'アドバイスください', 'アドバイス下さい', 'アドバイスを下さい', 'アドバイスをください',
     'アドバイスが欲しい', 'アドバイスがほしい', 'アドバイスをお願い', '助言ください',
     '助言下さい', 'どうしたらいい', 'どうすればいい', 'おすすめを教えて',
@@ -2952,6 +2954,16 @@ function detectAdviceRequest(message, history = null) {
     detectionLog.result = true;
     
     console.log(`✅ DETECTED: Long problem description (length: ${message.length}, score: ${contextualScore.toFixed(1)})`);
+    console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
+    return true;
+  }
+  
+  // Add special case for single-word/short advice terms
+  if (hasStandardAdvicePattern && message.length < 15) {
+    detectionLog.detectionReason = 'Direct advice term';
+    detectionLog.result = true;
+    
+    console.log(`✅ DETECTED: Direct advice term in short message`);
     console.log(`=== ADVICE REQUEST DETECTION RESULT: ${detectionLog.result} (${detectionLog.detectionReason}) ===\n`);
     return true;
   }
