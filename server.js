@@ -3075,7 +3075,28 @@ function detectAdviceRequest(userMessage, history) {
   
   // First check if the message contains negative feedback about recommendations
   const lowerMessage = userMessage.toLowerCase();
-  const hasNegativeFeedback = FEEDBACK_PATTERNS.negative.some(pattern => lowerMessage.includes(pattern));
+  
+  // Define negative feedback patterns directly (same as used elsewhere in the code)
+  const negativeFeedbackPatterns = [
+    '要らない', 'いらない', '不要', '邪魔', '見たくない', 
+    '表示しないで', '非表示', '消して', '表示するな', '出すな',
+    'オススメ要らないです', 'おすすめ要らないです', 'お勧め要らないです',
+    'サービス要らない', 'サービスいらない', 'サービス不要', 'サービス邪魔', 
+    'お勧め要らない', 'お勧めいらない', 'お勧め不要', 'お勧め邪魔', 
+    'おすすめ要らない', 'おすすめいらない', 'おすすめ不要', 'おすすめ邪魔', 
+    'オススメ要らない', 'オススメいらない', 'オススメ不要', 'オススメ邪魔', 
+    '推奨要らない', '推奨いらない', '推奨不要', '推奨邪魔',
+    'サービスは結構です', 'お勧めは結構です', 'おすすめは結構です', 'オススメは結構です',
+    'サービス要りません', 'お勧め要りません', 'おすすめ要りません', 'オススメ要りません',
+    'もういい', 'もういらない', 'もう十分', 'もう結構',
+    'やめて', '止めて', '停止', 'やめてください', '止めてください', '停止してください',
+    'うざい', 'うるさい', 'しつこい', 'ノイズ', '迷惑',
+    'もう表示しないで', 'もう出さないで', 'もう見せないで',
+    '要らないです', 'いらないです', '不要です', '邪魔です',
+    'サービス表示オフ', 'お勧め表示オフ', 'おすすめ表示オフ', 'オススメ表示オフ'
+  ];
+  
+  const hasNegativeFeedback = negativeFeedbackPatterns.some(pattern => lowerMessage.includes(pattern));
   
   if (hasNegativeFeedback) {
     console.log('Message contains negative feedback about recommendations - not showing services');
@@ -3100,7 +3121,7 @@ function detectAdviceRequest(userMessage, history) {
     
     // We'll use Promise.resolve to keep the function signature the same
     // but in the real implementation, we would await the LLM call
-    return analyzeShouldShowRecommendation(userMessage)
+    return analyzeShouldShowRecommendation(userMessage, negativeFeedbackPatterns)
       .then(shouldShow => {
         if (shouldShow) {
           console.log(`LLM confirmed recommendation intent in: "${userMessage}"`);
@@ -3126,10 +3147,18 @@ function detectAdviceRequest(userMessage, history) {
 /**
  * LLMを使用して、ユーザーメッセージがサービス推奨を求めているかを判断
  * @param {string} userMessage - ユーザーからのメッセージ
+ * @param {string[]} negativeFeedbackPatterns - 否定的フィードバックのパターン配列
  * @returns {Promise<boolean>} - サービス推奨を表示すべきかどうか
  */
-async function analyzeShouldShowRecommendation(userMessage) {
+async function analyzeShouldShowRecommendation(userMessage, negativeFeedbackPatterns) {
   try {
+    // 否定的フィードバックパターンを最初にチェック（LLM呼び出し前の高速チェック）
+    const lowerMessage = userMessage.toLowerCase();
+    if (negativeFeedbackPatterns.some(pattern => lowerMessage.includes(pattern))) {
+      console.log('Simple pattern match found negative feedback - not using LLM');
+      return false;
+    }
+    
     // OpenAI APIの設定
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
