@@ -252,20 +252,8 @@ function needsKnowledge(userMessage) {
     '社風', '企業', '組織', '会社', '給料', '年収', '報酬'
   ];
   
-  // Find all matching terms for logging
-  const matchedTerms = careerTerms.filter(term => userMessage.includes(term));
-  
-  if (matchedTerms.length > 0) {
-    console.log('📊 [PERPLEXITY ML] Career terms detected:', matchedTerms.join(', '));
-    return true;
-  } else {
-    console.log('📊 [PERPLEXITY ML] No career terms detected in message');
-    return false;
-  }
+  return careerTerms.some(term => userMessage.includes(term));
 }
 
-// モジュールエクスポート
-module.exports = {
-  PerplexitySearch,
-  needsKnowledge
-}; 
+// Export the PerplexitySearch class
+module.exports = PerplexitySearch; 
