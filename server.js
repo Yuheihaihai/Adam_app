@@ -8,6 +8,7 @@ const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
 const servicesData = require('./services');
 const { explicitAdvicePatterns } = require('./advice_patterns');
 
@@ -1936,13 +1937,16 @@ async function handleImage(event) {
   const userId = event.source.userId;
 
   try {
-    // ユーザー履歴に画像メッセージを記録
-    await storeInteraction(userId, 'user', '画像が送信されました');
+    // 画像メッセージIDを取得
+    const messageId = event.message.id;
+    
+    // ユーザー履歴に画像メッセージを記録（メッセージIDも保存）
+    await storeInteraction(userId, 'user', `画像が送信されました (ID: ${messageId})`);
 
     // 画像の受信を確認するメッセージを返信
     await client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '画像を受け取りました。現在、画像処理機能は開発中です。もし画像について説明が必要な場合は「この画像について教えて」とメッセージをお送りください。'
+      text: '画像を受け取りました。この画像について知りたい場合は「この画像について教えて」または「この画像を分析して」とメッセージをお送りください。'
     });
 
     return Promise.resolve();
@@ -2325,7 +2329,7 @@ function isConfusionRequest(text) {
   if (!text || typeof text !== 'string') return false;
   
   // First check if the message contains image-related terms
-  const imageTerms = ['画像', '写真', 'イメージ', '図', 'がぞう', 'しゃしん', 'ピクチャ', '絵'];
+  const imageTerms = ['画像', '写真', 'イメージ', '図', 'がぞう', 'しゃしん', 'ピクチャ', '絵', 'この'];
   const hasImageTerm = imageTerms.some(term => text.includes(term));
   
   // Then check for confusion patterns
@@ -2341,8 +2345,22 @@ function isConfusionRequest(text) {
   
   // More specific explanation request patterns that must be image-related
   const explanationPatterns = [
-    '説明して', '教えて'
+    '説明して', '教えて', '分析して', '解析して', '教えてください', '説明してください', 
+    '分析してください', '解析してください', 'について', 'を説明', 'を分析', 'を解析', 
+    'を認識', '認識して', '何が写って', '何が写ってる', '何が写っている'
   ];
+  
+  // Image analysis specific phrases that should be detected regardless of other patterns
+  const directAnalysisRequests = [
+    'この画像について', 'この写真について', 'この画像を分析', 'この写真を分析',
+    'この画像を解析', 'この写真を解析', 'この画像を説明', 'この写真を説明',
+    'この画像の内容', 'この写真の内容', 'この画像に写っているもの', 'この写真に写っているもの'
+  ];
+  
+  // Direct request for image analysis
+  if (directAnalysisRequests.some(phrase => text.includes(phrase))) {
+    return true;
+  }
   
   // Return true if:
   // 1. Contains a confusion pattern AND an image term, OR
@@ -2367,7 +2385,7 @@ async function handleVisionExplanation(event) {
     
     // Find the most recent image message
     const lastImageMessage = history
-      .filter(item => item.role === 'user' && item.type === 'image')
+      .filter(item => item.content && item.content.includes('画像が送信されました'))
       .pop();
     
     if (!lastImageMessage) {
@@ -2378,36 +2396,80 @@ async function handleVisionExplanation(event) {
       });
       return;
     }
-    
-    // Reply with explanation that we're processing the image
+
+    // 処理中であることを通知
     await client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '画像を確認しています。少々お待ちください。画像の内容について説明します。'
+      text: '画像を分析しています。少々お待ちください...'
+    });
+
+    // 画像メッセージIDを抽出
+    const messageIdMatch = lastImageMessage.content.match(/\(ID: ([^)]+)\)/);
+    const messageId = messageIdMatch ? messageIdMatch[1] : null;
+    
+    if (!messageId) {
+      throw new Error('画像メッセージIDが見つかりませんでした');
+    }
+    
+    console.log(`Using image message ID: ${messageId} for analysis`);
+
+    // LINE APIを使用して画像コンテンツを取得
+    const stream = await client.getMessageContent(messageId);
+    
+    // 画像データをバッファに変換
+    const chunks = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+    }
+    const imageBuffer = Buffer.concat(chunks);
+    
+    // Base64エンコード
+    const base64Image = imageBuffer.toString('base64');
+    
+    // OpenAI Vision APIに送信するリクエストを準備
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
     });
     
-    // In a real implementation, you would process the image here
-    // For now, we'll just log that we would process it
-    console.log(`Would process image explanation for user ${userId}`);
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "この画像について詳しく説明してください。何が写っていて、どんな状況か、重要な詳細を教えてください。" },
+            { 
+              type: "image_url", 
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 500
+    });
     
-    // Send a follow-up message with the explanation
-    // In a real implementation, this would be the result of image analysis
-    setTimeout(async () => {
-      try {
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: '画像の説明機能は現在開発中です。もうしばらくお待ちください。'
-        });
-      } catch (error) {
-        console.error('Error sending follow-up explanation:', error);
-      }
-    }, 2000);
+    const analysis = response.choices[0].message.content;
+    console.log(`Image analysis completed for user ${userId}`);
+    
+    // ユーザーに分析結果を送信
+    await client.pushMessage(userId, {
+      type: 'text',
+      text: analysis
+    });
+    
+    // 会話履歴に画像分析を記録
+    await storeInteraction(userId, 'assistant', `[画像分析] ${analysis}`);
+    
   } catch (error) {
     console.error('Error in handleVisionExplanation:', error);
-    // Try to send an error message
+    
+    // エラーメッセージを送信
     try {
-      await client.replyMessage(event.replyToken, {
+      await client.pushMessage(userId, {
         type: 'text',
-        text: '申し訳ありません。画像の処理中にエラーが発生しました。'
+        text: '申し訳ありません。画像の分析中にエラーが発生しました: ' + error.message
       });
     } catch (replyError) {
       console.error('Error sending error reply:', replyError);
