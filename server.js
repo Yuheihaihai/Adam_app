@@ -2575,6 +2575,9 @@ async function handleVisionExplanation(event, explanationText) {
   try {
     // explanationTextが提供されている場合、それを使用して画像説明を生成
     if (explanationText) {
+      console.log(`[DALL-E] Starting image generation process for user ${userId}`);
+      console.log(`[DALL-E] Using explanation text: "${explanationText.substring(0, 100)}${explanationText.length > 100 ? '...' : ''}"`);
+      
       await client.replyMessage(event.replyToken, {
         type: 'text',
         text: `「${explanationText}」に基づく画像を生成しています。少々お待ちください...`
@@ -2582,13 +2585,17 @@ async function handleVisionExplanation(event, explanationText) {
       
       // DALL-Eを使用して画像を生成
       try {
+        console.log(`[DALL-E] Initializing OpenAI client with API key length: ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.length : 0}`);
         const openai = new OpenAI({
           apiKey: process.env.OPENAI_API_KEY
         });
         
         // 画像生成のプロンプトを強化
         const enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${explanationText}`;
+        console.log(`[DALL-E] Enhanced prompt created (length: ${enhancedPrompt.length})`);
+        console.log(`[DALL-E] Sending request to OpenAI API (model: dall-e-3, size: 1024x1024, quality: standard)`);
         
+        const startTime = Date.now();
         const response = await openai.images.generate({
           model: "dall-e-3",
           prompt: enhancedPrompt,
@@ -2596,13 +2603,17 @@ async function handleVisionExplanation(event, explanationText) {
           size: "1024x1024",
           quality: "standard"
         });
+        const requestDuration = Date.now() - startTime;
         
+        console.log(`[DALL-E] Response received in ${requestDuration}ms`);
         const imageUrl = response.data[0].url;
         
         // 生成された画像のURLを取得
-        console.log(`Generated image URL: ${imageUrl}`);
+        console.log(`[DALL-E] Generated image URL: ${imageUrl}`);
+        console.log(`[DALL-E] Prompt used: "${response.data[0].revised_prompt ? response.data[0].revised_prompt.substring(0, 100) + '...' : 'No revised prompt'}"`)
         
         // 画像をLINEに送信
+        console.log(`[DALL-E] Sending image to user ${userId} via LINE`);
         await client.pushMessage(userId, [
           {
             type: 'image',
@@ -2616,10 +2627,13 @@ async function handleVisionExplanation(event, explanationText) {
         ]);
         
         // 生成した画像情報を保存
+        console.log(`[DALL-E] Storing interaction record for user ${userId}`);
         await storeInteraction(userId, 'assistant', `[生成画像] ${explanationText}`);
+        console.log(`[DALL-E] Image generation process completed successfully`);
         
       } catch (error) {
-        console.error('DALL-E画像生成エラー:', error);
+        console.error(`[DALL-E] Error during image generation: ${error.message}`);
+        console.error(`[DALL-E] Error details:`, error);
         await client.pushMessage(userId, {
           type: 'text',
           text: '申し訳ありません。画像の生成中にエラーが発生しました。別の表現で試してみてください。'
