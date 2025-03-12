@@ -2471,7 +2471,7 @@ async function handleText(event) {
     let serviceNotificationReason = null;
     
     // サービス表示がオフの場合に理由を設定
-    if (!showServices && userPrefs && !userPrefs.showServiceRecommendations) {
+    if (!showServices && preferences && !preferences.showServiceRecommendations) {
       serviceNotificationReason = 'disabled';
     } else if (!showServices && !adviceRequested) {
       serviceNotificationReason = 'no_request';
