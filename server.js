@@ -1937,7 +1937,7 @@ async function handleImage(event) {
 
   try {
     // ユーザー履歴に画像メッセージを記録
-    await storeUserMessage(userId, '画像が送信されました', 'image');
+    await storeInteraction(userId, 'user', '画像が送信されました');
 
     // 画像の受信を確認するメッセージを返信
     await client.replyMessage(event.replyToken, {
