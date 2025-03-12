@@ -3010,19 +3010,19 @@ function shouldShowServicesToday(userId, history, userMessage) {
 }
 
 /**
- * Safety check for images using OpenAI's moderation capability
+ * Safety check for images using OpenAI's moderation capability with GPT-4o-mini
  * @param {string} base64Image - Base64 encoded image
  * @return {Promise<boolean>} - Whether the image passed the safety check
  */
 async function checkImageSafety(base64Image) {
   try {
-    // Using OpenAI's model to detect potential safety issues
+    // Using OpenAI's GPT-4o-mini model to detect potential safety issues
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     });
     
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
@@ -3045,7 +3045,7 @@ async function checkImageSafety(base64Image) {
     });
     
     const moderationResult = response.choices[0].message.content;
-    console.log(`Image safety check: ${moderationResult}`);
+    console.log(`Image safety check (4o-mini): ${moderationResult}`);
     
     // If the response starts with UNSAFE, the image didn't pass the safety check
     return !moderationResult.startsWith("UNSAFE");
