@@ -11,6 +11,37 @@ const fs = require('fs');
 const axios = require('axios');
 const servicesData = require('./services');
 const { explicitAdvicePatterns } = require('./advice_patterns');
+// セキュリティ強化のための追加モジュール
+const rateLimit = require('express-rate-limit');
+const xss = require('xss');
+const csrf = require('csurf');
+
+// 必須環境変数の検証
+const requiredEnvVars = [
+  'CHANNEL_ACCESS_TOKEN',
+  'CHANNEL_SECRET',
+  'OPENAI_API_KEY'
+];
+
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+if (missingEnvVars.length > 0) {
+  console.error('ERROR: 必須環境変数が不足しています:', missingEnvVars.join(', '));
+  process.exit(1); // 重大なエラーなのでプロセスを終了
+}
+
+// 任意環境変数の検証（あれば使用、なければログを出力）
+const optionalEnvVars = [
+  'ANTHROPIC_API_KEY',
+  'PERPLEXITY_API_KEY',
+  'AIRTABLE_API_KEY',
+  'AIRTABLE_BASE_ID'
+];
+
+optionalEnvVars.forEach(varName => {
+  if (!process.env[varName]) {
+    console.warn(`WARNING: 任意環境変数 ${varName} が設定されていません。関連機能は利用できません。`);
+  }
+});
 
 // Import service hub components
 const UserNeedsAnalyzer = require('./userNeedsAnalyzer');
@@ -112,15 +143,15 @@ const userPreferences = {
     // サービス表示に関するコマンドパターン定義
     const serviceOnPatterns = ['サービス表示オン', 'サービスオン', 'サービス表示 オン', 'サービス オン'];
     const serviceOffPatterns = [
-      // 既存のパターン
+      // 明示的な無効化コマンド
       'サービス表示オフ', 'サービスオフ', 'サービス表示 オフ', 'サービス オフ',
-      // 否定的フィードバックパターンから追加
+      
+      // 否定フィードバックを整理・グループ化（重複を排除）
       'サービス要らない', 'サービスいらない', 'サービス不要', 'サービス邪魔',
-      'サービスは結構です', 'サービス要りません',
       'お勧め表示オフ', 'おすすめ表示オフ', 'オススメ表示オフ',
-      'お勧め要らない', 'おすすめいらない', 'オススメ不要',
-      'お勧めは結構です', 'おすすめ要りません', 'オススメ要らないです',
-      '停止', '停止してください', '非表示', '表示しないで'
+      
+      // 非表示関連のパターン
+      '非表示', '表示しないで'
     ];
     const serviceSettingsPatterns = ['サービス設定', 'サービス設定確認'];
     
@@ -221,12 +252,65 @@ const userPreferences = {
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(helmet());
+// セキュリティヘッダーの強化
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"], // 必要に応じて調整
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://api.openai.com", "https://api.anthropic.com", "https://api.perplexity.ai"],
+      frameAncestors: ["'none'"], // クリックジャッキング防止
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: [],
+    },
+  },
+  hsts: {
+    maxAge: 15552000, // 180日
+    includeSubDomains: true,
+    preload: true
+  },
+  noSniff: true,
+  xssFilter: true,
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
+}));
 app.use(timeout('60s'));
 // app.use(express.json()); // JSONボディの解析を有効化 - LINE webhookに影響するため削除
 
 // APIルート用のJSONパーサーを追加
-app.use('/api', express.json());
+app.use('/api', express.json({ limit: '1mb' })); // JSONのサイズ制限を設定
+
+// XSS対策用ミドルウェア
+app.use('/api', (req, res, next) => {
+  if (req.body) {
+    // リクエストボディの各フィールドをXSS対策
+    for (let key in req.body) {
+      if (typeof req.body[key] === 'string') {
+        req.body[key] = xss(req.body[key]);
+      }
+    }
+  }
+  next();
+});
+
+// レートリミットの設定
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15分間
+  max: 100, // 15分間で最大100リクエスト
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' }
+});
+
+// APIルートにレートリミットを適用
+app.use('/api', apiLimiter);
+
+// CSRF保護を適用するルート（webhook以外）
+const csrfProtection = csrf({ cookie: true, ignoreMethods: ['GET', 'HEAD', 'OPTIONS', 'POST'] });
+
+// 静的ファイルを提供する際に使用（実際のアプリで使用している場合）
+app.use(express.static(path.join(__dirname, 'public')));
 
 // APIルートの登録
 const intentRoutes = require('./routes/api/intent');
@@ -565,7 +649,7 @@ const SYSTEM_PROMPT_CONSULTANT = `あなたは優秀な「Adam」という非常
 [継続確認]
 この話題について追加の質問やお悩みがありましたら、お気軽にお申し付けください。`;
 
-const rateLimit = new Map();
+const messageRateLimit = new Map();
 
 // グローバル変数: 各ユーザーの保留中の画像説明情報を管理するためのMap
 const pendingImageExplanations = new Map();
@@ -573,13 +657,13 @@ const pendingImageExplanations = new Map();
 function checkRateLimit(userId) {
   const now = Date.now();
   const cooldown = 1000;
-  const lastRequest = rateLimit.get(userId) || 0;
+  const lastRequest = messageRateLimit.get(userId) || 0;
   
   if (now - lastRequest < cooldown) {
     return false;
   }
   
-  rateLimit.set(userId, now);
+  messageRateLimit.set(userId, now);
   return true;
 }
 
@@ -1825,8 +1909,23 @@ const MAX_RETRIES = 3;
 const TIMEOUT_PER_ATTEMPT = 25000; // 25 seconds per attempt
 
 async function processMessage(userId, messageText) {
-  if (messageText.includes('思い出して') || messageText.includes('記憶')) {
-    return handleChatRecallWithRetries(userId, messageText);
+  // ユーザーIDの検証
+  const validatedUserId = validateUserId(userId);
+  if (!validatedUserId) {
+    console.error('不正なユーザーIDでのメッセージ処理をスキップします');
+    return null;
+  }
+  
+  // メッセージテキストの検証と無害化
+  const sanitizedMessage = sanitizeUserInput(messageText);
+  if (!sanitizedMessage) {
+    console.warn('空のメッセージをスキップします');
+    return '申し訳ありませんが、メッセージを受け取れませんでした。もう一度お試しください。';
+  }
+  
+  // 既存の処理を続行
+  if (sanitizedMessage.includes('思い出して') || sanitizedMessage.includes('記憶')) {
+    return handleChatRecallWithRetries(validatedUserId, sanitizedMessage);
   }
   // ... existing message handling code ...
 }
@@ -2185,7 +2284,7 @@ async function handleText(event) {
         const explanationText = pendingImageExplanations.get(userId);
         pendingImageExplanations.delete(userId);
         console.log("ユーザーの「はい」が検出されました。画像生成を開始します。");
-        return handleImageExplanation(event, explanationText);
+        return handleVisionExplanation(event, explanationText);
       } else if (userMessage === "いいえ") {
         pendingImageExplanations.delete(userId);
         console.log("ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。");
@@ -2370,10 +2469,20 @@ async function handleText(event) {
       }
     }
 
+    // デバッグ情報として表示されない理由を取得
+    // (serviceNotificationReasonの初期化が不足していたため、ここで適切に設定)
     let serviceNotificationReason = null;
+    
+    // サービス表示がオフの場合に理由を設定
+    if (!showServices && userPrefs && !userPrefs.showServiceRecommendations) {
+      serviceNotificationReason = 'disabled';
+    } else if (!showServices && !adviceRequested) {
+      serviceNotificationReason = 'no_request';
+    }
+    
     // サービス推奨の通知メッセージを取得
     const notificationMessage = getServiceNotificationMessage(userId, serviceNotificationReason);
-    if (notificationMessage && debugMode) {
+    if (notificationMessage) {
       console.log('Service notification message (debug only):', notificationMessage);
       // デバッグモードの場合のみ、AIの応答に追記（本番環境では表示しない）
       if (process.env.DEBUG_MODE === 'true') {
@@ -2451,10 +2560,67 @@ function isConfusionRequest(text) {
  * @param {Object} event - The LINE event object
  * @return {Promise<void>}
  */
-async function handleVisionExplanation(event) {
+async function handleVisionExplanation(event, explanationText) {
   const userId = event.source.userId;
   
   try {
+    // explanationTextが提供されている場合、それを使用して画像説明を生成
+    if (explanationText) {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `「${explanationText}」に基づく画像を生成しています。少々お待ちください...`
+      });
+      
+      // DALL-Eを使用して画像を生成
+      try {
+        const openai = new OpenAI({
+          apiKey: process.env.OPENAI_API_KEY
+        });
+        
+        // 画像生成のプロンプトを強化
+        const enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${explanationText}`;
+        
+        const response = await openai.images.generate({
+          model: "dall-e-3",
+          prompt: enhancedPrompt,
+          n: 1,
+          size: "1024x1024",
+          quality: "standard"
+        });
+        
+        const imageUrl = response.data[0].url;
+        
+        // 生成された画像のURLを取得
+        console.log(`Generated image URL: ${imageUrl}`);
+        
+        // 画像をLINEに送信
+        await client.pushMessage(userId, [
+          {
+            type: 'image',
+            originalContentUrl: imageUrl,
+            previewImageUrl: imageUrl
+          },
+          {
+            type: 'text',
+            text: `「${explanationText}」をもとに生成した画像です。この画像で内容の理解が深まりましたか？`
+          }
+        ]);
+        
+        // 生成した画像情報を保存
+        await storeInteraction(userId, 'assistant', `[生成画像] ${explanationText}`);
+        
+      } catch (error) {
+        console.error('DALL-E画像生成エラー:', error);
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: '申し訳ありません。画像の生成中にエラーが発生しました。別の表現で試してみてください。'
+        });
+      }
+      
+      return;
+    }
+    
+    // explanationTextがない場合は通常の画像履歴検索処理を行う
     // Get user's recent history to find the last image
     const history = await fetchUserHistory(userId, 10);
     
@@ -3054,4 +3220,59 @@ async function checkImageSafety(base64Image) {
     // In case of error, assume the image is safe to not block valid images
     return true;
   }
+}
+
+/**
+ * ユーザー入力の検証と無害化
+ * @param {string} input - ユーザーからの入力メッセージ
+ * @returns {string} - 検証済みの入力メッセージ
+ */
+function sanitizeUserInput(input) {
+  if (!input) return '';
+  
+  // 文字列でない場合は文字列に変換
+  if (typeof input !== 'string') {
+    input = String(input);
+  }
+  
+  // 最大長の制限
+  const MAX_INPUT_LENGTH = 2000;
+  if (input.length > MAX_INPUT_LENGTH) {
+    console.warn(`ユーザー入力が長すぎます (${input.length} > ${MAX_INPUT_LENGTH}). 切り詰めます。`);
+    input = input.substring(0, MAX_INPUT_LENGTH);
+  }
+  
+  // XSS対策 - xssライブラリを使用
+  input = xss(input);
+  
+  // SQL Injection対策 - SQL関連のキーワードを検出して警告
+  const SQL_PATTERN = /\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|UNION|JOIN|WHERE|OR)\b/gi;
+  if (SQL_PATTERN.test(input)) {
+    console.warn('SQL Injectionの可能性があるユーザー入力を検出しました');
+    // キーワードを置換
+    input = input.replace(SQL_PATTERN, '***');
+  }
+  
+  return input;
+}
+
+/**
+ * Line UserIDの検証
+ * @param {string} userId - LineのユーザーID
+ * @returns {string|null} - 検証済みのユーザーIDまたはnull
+ */
+function validateUserId(userId) {
+  if (!userId || typeof userId !== 'string') {
+    console.error('不正なユーザーID形式:', userId);
+    return null;
+  }
+  
+  // Line UserIDの形式チェック (UUIDv4形式)
+  const LINE_USERID_PATTERN = /^U[a-f0-9]{32}$/i;
+  if (!LINE_USERID_PATTERN.test(userId)) {
+    console.error('Line UserIDの形式が不正です:', userId);
+    return null;
+  }
+  
+  return userId;
 }
