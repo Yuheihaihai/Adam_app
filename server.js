@@ -1943,11 +1943,85 @@ async function handleImage(event) {
     // ユーザー履歴に画像メッセージを記録（メッセージIDも保存）
     await storeInteraction(userId, 'user', `画像が送信されました (ID: ${messageId})`);
 
-    // 画像の受信を確認するメッセージを返信
+    // 処理中であることを通知
     await client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '画像を受け取りました。この画像について知りたい場合は「この画像について教えて」または「この画像を分析して」とメッセージをお送りください。'
+      text: '画像を分析しています。少々お待ちください...'
     });
+
+    try {
+      console.log(`Using image message ID: ${messageId} for analysis`);
+
+      // LINE APIを使用して画像コンテンツを取得
+      const stream = await client.getMessageContent(messageId);
+      
+      // 画像データをバッファに変換
+      const chunks = [];
+      for await (const chunk of stream) {
+        chunks.push(chunk);
+      }
+      const imageBuffer = Buffer.concat(chunks);
+      
+      // Base64エンコード
+      const base64Image = imageBuffer.toString('base64');
+      
+      // 画像の安全性チェック
+      const isSafeImage = await checkImageSafety(base64Image);
+      
+      if (!isSafeImage) {
+        console.log('Image did not pass safety check');
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: '申し訳ありません。この画像は不適切であるため、分析できません。適切な画像をお送りください。'
+        });
+        return Promise.resolve();
+      }
+      
+      // OpenAI Vision APIに送信するリクエストを準備
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+      });
+      
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "この画像について詳しく説明してください。何が写っていて、どんな状況か、重要な詳細を教えてください。" },
+              { 
+                type: "image_url", 
+                image_url: {
+                  url: `data:image/jpeg;base64,${base64Image}`
+                }
+              }
+            ]
+          }
+        ],
+        max_tokens: 500
+      });
+      
+      const analysis = response.choices[0].message.content;
+      console.log(`Image analysis completed for user ${userId}`);
+      
+      // ユーザーに分析結果を送信
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: analysis
+      });
+      
+      // 会話履歴に画像分析を記録
+      await storeInteraction(userId, 'assistant', `[画像分析] ${analysis}`);
+      
+    } catch (analysisError) {
+      console.error('Error in image analysis:', analysisError);
+      
+      // エラーメッセージを送信
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '申し訳ありません。画像の分析中にエラーが発生しました: ' + analysisError.message
+      });
+    }
 
     return Promise.resolve();
   } catch (error) {
@@ -1982,11 +2056,12 @@ async function handleText(event) {
       return;
     }
     
+    // We've removed the confusion request handling since images are now analyzed immediately
     // Handle confusion request
-    if (isConfusionRequest(messageText)) {
-      await handleVisionExplanation(event);
-      return;
-    }
+    // if (isConfusionRequest(messageText)) {
+    //   await handleVisionExplanation(event);
+    //   return;
+    // }
     
     const userMessage = event.message.text.trim();
     
@@ -2931,5 +3006,52 @@ function shouldShowServicesToday(userId, history, userMessage) {
   } catch (err) {
     console.error('Error in shouldShowServicesToday:', err);
     return true; // Default to showing if there's an error
+  }
+}
+
+/**
+ * Safety check for images using OpenAI's moderation capability
+ * @param {string} base64Image - Base64 encoded image
+ * @return {Promise<boolean>} - Whether the image passed the safety check
+ */
+async function checkImageSafety(base64Image) {
+  try {
+    // Using OpenAI's model to detect potential safety issues
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "あなたは画像モデレーターです。この画像が安全かどうかを判断してください。画像が暴力的、性的、または不適切な内容が含まれている場合、それを特定してください。回答は「SAFE」または「UNSAFE」で始めてください。"
+        },
+        {
+          role: "user",
+          content: [
+            { 
+              type: "image_url", 
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 150,
+      temperature: 0
+    });
+    
+    const moderationResult = response.choices[0].message.content;
+    console.log(`Image safety check: ${moderationResult}`);
+    
+    // If the response starts with UNSAFE, the image didn't pass the safety check
+    return !moderationResult.startsWith("UNSAFE");
+  } catch (error) {
+    console.error('Error in image safety check:', error);
+    // In case of error, assume the image is safe to not block valid images
+    return true;
   }
 }
