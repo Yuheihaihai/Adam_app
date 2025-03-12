@@ -2155,20 +2155,6 @@ async function handleText(event) {
       return;
     }
     
-    // Handle confusion request
-    if (isConfusionRequest(messageText)) {
-      console.log("Confusion detected, offering image explanation");
-      const lastAssistantMessage = await fetchPastAiMessages(userId, 1);
-      if (lastAssistantMessage && lastAssistantMessage.length > 0) {
-        pendingImageExplanations.set(userId, lastAssistantMessage[0].content);
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。"
-        });
-        return;
-      }
-    }
-    
     const userMessage = event.message.text.trim();
     
     // Get user preferences to check for recently shown services
