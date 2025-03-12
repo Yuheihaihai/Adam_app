@@ -2305,6 +2305,17 @@ async function handleText(event) {
     let triggerImageExplanation = false;
     if (isConfusionRequest(userMessage)) {
       triggerImageExplanation = true;
+    } else {
+      // パターンベースで検出できなかった場合は、LLMによる検出を試みる
+      try {
+        const llmResult = await isConfusionRequestWithLLM(userMessage);
+        if (llmResult) {
+          console.log('[LLM] Confusion detected using gpt-4o-mini');
+          triggerImageExplanation = true;
+        }
+      } catch (error) {
+        console.error('[LLM] Error using LLM for confusion detection:', error);
+      }
     }
 
     // トリガーされた場合、pending 状態として前回の回答を保存し、yes/no で質問
@@ -2562,6 +2573,54 @@ function isConfusionRequest(text) {
   const hasExplanationRequest = explanationPatterns.some(pattern => text.includes(pattern));
   
   return (hasImageTerm && (hasConfusionPattern || hasExplanationRequest));
+}
+
+/**
+ * Checks if a message indicates user confusion or a request for explanation about an image using LLM
+ * @param {string} text - The message text to check
+ * @return {Promise<boolean>} - True if the message indicates confusion about an image
+ */
+async function isConfusionRequestWithLLM(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  try {
+    console.log('[LLM] Analyzing if message indicates confusion using gpt-4o-mini...');
+    
+    // First use the pattern-based detection
+    const patternBasedResult = isConfusionRequest(text);
+    
+    // If pattern-based detection already found confusion, return true immediately
+    if (patternBasedResult) {
+      console.log('[LLM] Pattern-based detection already identified confusion, skipping LLM check');
+      return true;
+    }
+    
+    // Using OpenAI's GPT-4o-mini model to detect confusion expressions
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "あなたは混乱表現を検出する専門家です。ユーザーのメッセージが「わからない」「理解できない」などの混乱や困惑を示す表現を含んでいるかを判断してください。特に画像に関する混乱や説明の要求を検出してください。回答は「CONFUSED」または「NOT_CONFUSED」のみとしてください。"
+        },
+        {
+          role: "user",
+          content: text
+        }
+      ],
+      max_tokens: 5,
+      temperature: 0
+    });
+    
+    const result = response.choices[0].message.content.trim();
+    console.log(`[LLM] Confusion detection result: ${result}`);
+    
+    return result === "CONFUSED";
+  } catch (error) {
+    console.error('[LLM] Error in confusion detection:', error);
+    // Fall back to pattern-based detection in case of error
+    return isConfusionRequest(text);
+  }
 }
 
 /**
@@ -3371,4 +3430,13 @@ function validateUserId(userId) {
   }
   
   return userId;
+}
+
+/**
+ * Handles user confusion requests by asking if they want an image explanation
+ * @param {Object} event - The LINE event object
+ * @return {Promise<void>}
+ */
+async function handleConfusionRequest(event) {
+  // ... existing code ...
 }
