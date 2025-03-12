@@ -1896,7 +1896,6 @@ async function fetchAndAnalyzeHistory(userId) {
 
 async function handleEvent(event) {
   if (event.type === 'follow') {
-    console.log('Handling follow event for user:', event.source.userId);
     return handleFollowEvent(event);
   }
 
@@ -1923,8 +1922,42 @@ async function handleEvent(event) {
     return Promise.resolve(null);
 
   } catch (error) {
-    console.error('Error in handleEvent:', error);
+    console.error(`Error in handleEvent: ${error}`);
     return Promise.resolve(null);
+  }
+}
+
+/**
+ * 画像メッセージを処理する関数
+ * @param {Object} event - LINEのメッセージイベント
+ * @returns {Promise}
+ */
+async function handleImage(event) {
+  const userId = event.source.userId;
+
+  try {
+    // ユーザー履歴に画像メッセージを記録
+    await storeUserMessage(userId, '画像が送信されました', 'image');
+
+    // 画像の受信を確認するメッセージを返信
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '画像を受け取りました。現在、画像処理機能は開発中です。もし画像について説明が必要な場合は「この画像について教えて」とメッセージをお送りください。'
+    });
+
+    return Promise.resolve();
+  } catch (error) {
+    console.error(`Error handling image: ${error}`);
+    
+    // エラーが発生した場合でもユーザーに通知
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '申し訳ありません、画像の処理中にエラーが発生しました。しばらくしてからもう一度お試しください。'
+    }).catch(replyError => {
+      console.error(`Failed to send error message: ${replyError}`);
+    });
+    
+    return Promise.resolve();
   }
 }
 
