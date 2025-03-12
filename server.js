@@ -3069,7 +3069,7 @@ function createNaturalTransition(responseText, category, isMinimal) {
 /**
  * Detect if the user is asking for advice or recommendations
  */
-function detectAdviceRequest(userMessage, history) {
+async function detectAdviceRequest(userMessage, history) {
   if (!userMessage) return false;
   
   // First check if the message contains negative feedback about recommendations
@@ -3084,9 +3084,36 @@ function detectAdviceRequest(userMessage, history) {
   
   // Use the explicitAdvicePatterns imported from advice_patterns.js
   // Check for explicit advice requests ONLY
+  let triggerFound = false;
+  let matchedPattern = '';
+  
   for (const pattern of explicitAdvicePatterns) {
     if (userMessage.includes(pattern)) {
-      console.log(`Explicit advice request detected: "${pattern}"`);
+      triggerFound = true;
+      matchedPattern = pattern;
+      break;
+    }
+  }
+  
+  // If we found a trigger word, use LLM to analyze context
+  if (triggerFound) {
+    console.log(`Trigger pattern found: "${matchedPattern}". Analyzing context with LLM...`);
+    try {
+      // Use a lightweight LLM (GPT-3.5-Turbo) for cost-efficient contextual analysis
+      const llmResult = await analyzeTriggerContext(userMessage, matchedPattern);
+      
+      if (llmResult.isActualRequest) {
+        console.log(`LLM confirms this is a genuine recommendation request (confidence: ${llmResult.confidence})`);
+        return true;
+      } else {
+        console.log(`LLM determined this is NOT a genuine recommendation request (confidence: ${llmResult.confidence})`);
+        console.log(`Reason: ${llmResult.reasoning}`);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error in LLM context analysis:', error);
+      // Fall back to simple pattern matching on error
+      console.log('Falling back to basic pattern matching due to LLM error');
       return true;
     }
   }
@@ -3094,6 +3121,66 @@ function detectAdviceRequest(userMessage, history) {
   // No explicit advice request found
   console.log('No explicit advice request detected');
   return false;
+}
+
+/**
+ * Use a lightweight LLM to analyze whether a message containing a trigger word
+ * is genuinely requesting recommendations
+ */
+async function analyzeTriggerContext(userMessage, matchedPattern) {
+  try {
+    console.log('[LLM Analysis] Starting contextual analysis of recommendation trigger');
+    
+    const messages = [
+      {
+        role: 'system',
+        content: `あなたはユーザーメッセージを分析し、ユーザーが本当にサービスやお勧めを求めているかどうかを判断するAIです。
+日本語のニュアンスや言い回しを理解し、単にトリガーワードが含まれているだけかを区別します。
+トリガーワードが含まれていても、ユーザーが実際にはおすすめを否定している場合や、別の文脈でそのワードを使っている場合は「false」と回答してください。
+回答形式は以下のJSONのみで返してください:
+{
+  "isActualRequest": true/false,
+  "confidence": 0.0～1.0の数値,
+  "reasoning": "判断理由の簡潔な説明"
+}`
+      },
+      {
+        role: 'user',
+        content: `以下のユーザーメッセージを分析してください。このメッセージには「${matchedPattern}」というトリガーワードが含まれています。
+ユーザーが本当にサービスやお勧めを求めているかどうかを判断し、JSONで回答してください。
+
+ユーザーメッセージ: "${userMessage}"`
+      }
+    ];
+    
+    // 軽量・低コストのモデルを使用
+    const response = await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      messages: messages,
+      temperature: 0.1,
+      max_tokens: 150,
+      response_format: { type: 'json_object' }
+    });
+    
+    const responseContent = response.choices[0].message.content;
+    console.log(`[LLM Analysis] Raw response: ${responseContent}`);
+    
+    // JSONをパース
+    const result = JSON.parse(responseContent);
+    return {
+      isActualRequest: result.isActualRequest,
+      confidence: result.confidence,
+      reasoning: result.reasoning
+    };
+  } catch (error) {
+    console.error('[LLM Analysis] Error analyzing context:', error);
+    // エラー時はデフォルト値を返す
+    return {
+      isActualRequest: true, // エラー時は安全側に倒してtrueを返す
+      confidence: 0.5,
+      reasoning: "LLM分析中にエラーが発生したため、デフォルト判定を返しています。"
+    };
+  }
 }
 
 /**
@@ -3167,9 +3254,9 @@ function isAppropriateTimeForServices(history, userMessage) {
 /**
  * Check frequency and timing constraints for showing services
  */
-function shouldShowServicesToday(userId, history, userMessage) {
+async function shouldShowServicesToday(userId, history, userMessage) {
   // If user explicitly asks for advice/services, always show
-  if (detectAdviceRequest(userMessage, history)) {
+  if (await detectAdviceRequest(userMessage, history)) {
     console.log('Explicit advice request detected in shouldShowServicesToday - always showing services');
     return true;
   }
