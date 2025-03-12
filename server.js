@@ -2197,6 +2197,7 @@ async function handleText(event) {
       }
     }
 
+    let serviceNotificationReason = null;
     // サービス推奨の通知メッセージを取得
     const notificationMessage = getServiceNotificationMessage(userId, serviceNotificationReason);
     if (notificationMessage && debugMode) {
