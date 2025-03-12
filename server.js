@@ -59,7 +59,8 @@ const userPreferences = {
       this._prefStore[userId] = {
         recentlyShownServices: {},
         showServiceRecommendations: true, // デフォルトでサービス推奨を有効にする
-        positiveFeedback: {} // 新規: ポジティブフィードバックの履歴を追跡
+        positiveFeedback: {}, // 新規: ポジティブフィードバックの履歴を追跡
+        recommendationDisabledUntil: null // 新規: サービス推奨を無効にする期限（null = 無効化していない）
       };
     }
     return this._prefStore[userId];
@@ -98,22 +99,49 @@ const userPreferences = {
     if (isPositiveFeedback && recentServices && recentServices.length > 0) {
       console.log(`Detected positive feedback from user ${userId}: "${userMessage}"`);
       
-      // If user gave positive feedback, ensure service recommendations are turned on
-      if (!prefs.showServiceRecommendations) {
-        prefs.showServiceRecommendations = true;
-        console.log(`Enabled service recommendations for user ${userId} due to positive feedback`);
-        
-        // Store the updated preferences
-        this.updateUserPreferences(userId, prefs);
-        
-        // Return true to indicate preferences were updated
-        return true;
-      }
+      // Track positive feedback for each service
+      recentServices.forEach(serviceId => {
+        if (!prefs.positiveFeedback[serviceId]) {
+          prefs.positiveFeedback[serviceId] = 0;
+        }
+        prefs.positiveFeedback[serviceId]++;
+      });
+      
+      // Save updated preferences
+      this.updateUserPreferences(userId, prefs);
+      return true; // Signal that positive feedback was detected
     }
     
-    // Placeholder for tracking user feedback on services
-    console.log(`Tracking feedback for user ${userId} on services:`, recentServices);
-    return false;
+    if (hasNegativeFeedback) {
+      // ネガティブフィードバックが検出された場合、おすすめを1ヶ月間無効化
+      this.disableRecommendationsTemporarily(userId, 30); // 30日間
+      return false;
+    }
+    
+    return false; // No feedback detected
+  },
+  
+  /**
+   * サービス推奨を一時的に無効化する
+   * @param {string} userId - ユーザーID
+   * @param {number} days - 無効化する日数
+   */
+  disableRecommendationsTemporarily: function(userId, days) {
+    const prefs = this.getUserPreferences(userId);
+    
+    // 現在の日時から指定された日数後の日時を計算
+    const disabledUntil = new Date();
+    disabledUntil.setDate(disabledUntil.getDate() + days);
+    
+    // 無効化期限を設定
+    prefs.recommendationDisabledUntil = disabledUntil.getTime();
+    
+    console.log(`サービス推奨を ${userId} に対して ${days} 日間無効化しました（${disabledUntil.toISOString()} まで）`);
+    
+    // 設定を保存
+    this.updateUserPreferences(userId, prefs);
+    
+    return disabledUntil;
   },
   
   processPreferenceCommand: function(userId, command) {
@@ -1300,41 +1328,58 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     // This ensures we only show recommendations when users actually want them
     let serviceRecommendationsPromise = Promise.resolve([]);
     let serviceNotificationReason = null;
+    let isAdviceRequestOnly = false;
 
     if (!userPrefs.showServiceRecommendations) {
       serviceNotificationReason = 'disabled';
       console.log('Skipping service recommendations: User preferences disabled');
+      
+      // ユーザーが明示的にアドバイスを要求している場合は、アドバイスのみ提供
+      if (detectAdviceRequest(userMessage, history)) {
+        isAdviceRequestOnly = true;
+        console.log('User explicitly asked for advice but service recommendations are disabled. Providing advice only.');
+      }
     } else if (!detectAdviceRequest(userMessage, history)) {
       serviceNotificationReason = 'no_request';
       console.log('Skipping service recommendations: No explicit advice request');
     } else {
       // Check timing constraints
-      const shouldShow = shouldShowServicesToday(userId, history, userMessage);
-      if (!shouldShow) {
-        // Check the reason
-        const now = Date.now();
-        const lastServiceTime = userPrefs.lastServiceTime || 0;
-        
-        // Count total service recommendations today
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        
-        let servicesToday = 0;
-        if (userPrefs.recentlyShownServices) {
-          for (const timestamp in userPrefs.recentlyShownServices) {
-            if (parseInt(timestamp) > todayStart.getTime()) {
-              servicesToday += userPrefs.recentlyShownServices[timestamp].length;
+      const shouldShowResult = shouldShowServicesToday(userId, history, userMessage);
+      
+      // adviceRequestOnly が true の場合、サービス推奨は無効化されているがアドバイス自体は提供
+      isAdviceRequestOnly = shouldShowResult && typeof shouldShowResult === 'object' && shouldShowResult.adviceRequestOnly;
+      
+      if (!shouldShowResult || isAdviceRequestOnly) {
+        // アドバイス要求のみの場合
+        if (isAdviceRequestOnly) {
+          serviceNotificationReason = 'advice_only';
+          console.log('Providing advice only: Service recommendations are temporarily disabled');
+        } else {
+          // Check the reason for normal disabling
+          const now = Date.now();
+          const lastServiceTime = userPrefs.lastServiceTime || 0;
+          
+          // Count total service recommendations today
+          const todayStart = new Date();
+          todayStart.setHours(0, 0, 0, 0);
+          
+          let servicesToday = 0;
+          if (userPrefs.recentlyShownServices) {
+            for (const timestamp in userPrefs.recentlyShownServices) {
+              if (parseInt(timestamp) > todayStart.getTime()) {
+                servicesToday += userPrefs.recentlyShownServices[timestamp].length;
+              }
             }
           }
+          
+          if (servicesToday >= 9) {
+            serviceNotificationReason = 'daily_limit';
+          } else {
+            serviceNotificationReason = 'cooldown';
+          }
+          
+          console.log(`Skipping service recommendations: Timing constraints not met (reason: ${serviceNotificationReason})`);
         }
-        
-        if (servicesToday >= 9) {
-          serviceNotificationReason = 'daily_limit';
-        } else {
-          serviceNotificationReason = 'cooldown';
-        }
-        
-        console.log(`Skipping service recommendations: Timing constraints not met (reason: ${serviceNotificationReason})`);
       } else {
         console.log('User explicitly asked for advice and timing is appropriate. Getting service recommendations...');
         // 最終的に表示が決まったら、表示時刻を記録
@@ -2199,6 +2244,26 @@ async function handleText(event) {
       }
     }
 
+    // 否定的なフィードバックを検出して推奨を無効化する処理を追加
+    const lowerMessage = userMessage.toLowerCase();
+    const hasNegativeFeedback = FEEDBACK_PATTERNS.negative.some(pattern => lowerMessage.includes(pattern));
+    
+    if (hasNegativeFeedback) {
+      console.log(`Negative feedback detected from user ${userId}: "${userMessage}"`);
+      
+      // サービス推奨を30日間無効化
+      const disableUntil = Date.now() + (30 * 24 * 60 * 60 * 1000); // 30日間
+      preferences.recommendationDisabledUntil = disableUntil;
+      preferences.showServiceRecommendations = false;
+      userPreferences.updateUserPreferences(userId, preferences);
+      
+      // 最小限の応答を返す
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'わかりました。'
+      });
+    }
+
     // Check for user preference commands
     const updatedPreferences = userPreferences.processPreferenceCommand(userId, userMessage);
     if (updatedPreferences) {
@@ -2274,10 +2339,10 @@ async function handleText(event) {
     // pendingImageExplanations のチェック（はい/いいえ 判定）
     if (pendingImageExplanations.has(userId)) {
       if (userMessage === "はい") {
-        const explanationText = pendingImageExplanations.get(userId);
+        // pendingImageExplantionsからの取得は無視し、常に最新の履歴を使う
         pendingImageExplanations.delete(userId);
         console.log("ユーザーの「はい」が検出されました。画像生成を開始します。");
-        return handleVisionExplanation(event, explanationText);
+        return handleVisionExplanation(event, null);
       } else if (userMessage === "いいえ") {
         pendingImageExplanations.delete(userId);
         console.log("ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。");
@@ -2634,21 +2699,20 @@ async function handleVisionExplanation(event, explanationText) {
   try {
     console.log(`[DALL-E] Starting image generation process for user ${userId}`);
     
-    // explanationTextがない、または "説明がありません。" の場合は、過去のメッセージを取得し直す
-    if (!explanationText || explanationText === "説明がありません。") {
-      console.log("[DALL-E] No valid explanation text provided. Attempting to fetch last assistant message");
-      const history = await fetchUserHistory(userId, 10);
-      const assistantMessages = history.filter(item => item.role === 'assistant');
-      
-      if (assistantMessages.length > 0) {
-        const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
-        console.log(`[DALL-E] Found last assistant message (length: ${lastAssistantMessage.content.length})`);
-        explanationText = lastAssistantMessage.content;
-      } else {
-        console.log("[DALL-E] No assistant messages found in history. Using fallback text");
-        // 安全な汎用的なプロンプトをフォールバックとして使用
-        explanationText = "知識を視覚的に説明する教育的な図表";
-      }
+    // 常に直前のAI回答を最優先で取得する
+    console.log("[DALL-E] Fetching last assistant message");
+    const history = await fetchUserHistory(userId, 10);
+    const assistantMessages = history.filter(item => item.role === 'assistant');
+    
+    // 履歴から最新のアシスタントメッセージを取得
+    if (assistantMessages.length > 0) {
+      const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+      console.log(`[DALL-E] Found last assistant message (length: ${lastAssistantMessage.content.length})`);
+      explanationText = lastAssistantMessage.content;
+    } else if (!explanationText || explanationText === "説明がありません。") {
+      // 履歴がなく、かつ有効な説明テキストもない場合のみフォールバック
+      console.log("[DALL-E] No assistant messages found in history. Using fallback text");
+      explanationText = "知識を視覚的に説明する教育的な図表";
     }
     
     // Clean explanationText by removing any existing [生成画像] prefix
@@ -2658,13 +2722,14 @@ async function handleVisionExplanation(event, explanationText) {
       console.log(`[DALL-E] Removed [生成画像] prefix from explanation text`);
     }
     
+    // 極端に短い説明文の場合、または「説明がありません」が含まれる場合は別のデフォルトテキストを使用
     // 極端に短い説明文の場合はデフォルトテキストを追加
-    if (cleanExplanationText.length < 10) {
-      console.log(`[DALL-E] Explanation text is too short (${cleanExplanationText.length} chars). Adding default context`);
-      cleanExplanationText = `わかりやすく視覚的に説明した${cleanExplanationText}についての図`;
+    if (cleanExplanationText.length < 10 || cleanExplanationText.includes("説明がありません")) {
+      console.log(`[DALL-E] Explanation text is too short or invalid. Using default prompt`);
+      cleanExplanationText = "会話の内容を視覚的に表現した教育的な図表";
+    } else {
+      console.log(`[DALL-E] Using explanation text: "${cleanExplanationText.substring(0, 100)}${cleanExplanationText.length > 100 ? '...' : ''}"`);
     }
-    
-    console.log(`[DALL-E] Using explanation text: "${cleanExplanationText.substring(0, 100)}${cleanExplanationText.length > 100 ? '...' : ''}"`);
     
     await client.replyMessage(event.replyToken, {
       type: 'text',
@@ -3281,162 +3346,38 @@ function isAppropriateTimeForServices(history, userMessage) {
 
 /**
  * Check frequency and timing constraints for showing services
+ * @return {boolean|Object} true/false または adviceRequestOnly プロパティを含むオブジェクト
  */
 function shouldShowServicesToday(userId, history, userMessage) {
-  // If user explicitly asks for advice/services, always show
-  if (detectAdviceRequest(userMessage, history)) {
-    console.log('Explicit advice request detected in shouldShowServicesToday - always showing services');
-    return true;
-  }
-  
   try {
-    // Use a shared function to get/set last service time
+    // ユーザー設定を取得
     const userPrefs = userPreferences.getUserPreferences(userId);
-    const lastServiceTime = userPrefs.lastServiceTime || 0;
+    
+    // 推奨が無効化されているかチェック
     const now = Date.now();
-    
-    // If user recently received service recommendations (within last 4 hours)
-    if (lastServiceTime > 0 && now - lastServiceTime < 4 * 60 * 60 * 1000) {
-      // Count total service recommendations today
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+    if (userPrefs.recommendationDisabledUntil && userPrefs.recommendationDisabledUntil > now) {
+      // 無効化期間中
+      const disabledUntilDate = new Date(userPrefs.recommendationDisabledUntil);
+      console.log(`サービス推奨は ${disabledUntilDate.toISOString()} まで無効化されています`);
       
-      let servicesToday = 0;
-      if (userPrefs.recentlyShownServices) {
-        for (const timestamp in userPrefs.recentlyShownServices) {
-          if (parseInt(timestamp) > todayStart.getTime()) {
-            servicesToday += userPrefs.recentlyShownServices[timestamp].length;
-          }
-        }
+      // アドバイス要求がある場合は、アドバイスのみ提供
+      if (detectAdviceRequest(userMessage, history)) {
+        console.log('サービス推奨は無効化されていますが、明示的なアドバイス要求があるためアドバイスのみ提供します');
+        return { adviceRequestOnly: true };
       }
       
-      // Limit to no more than 9 service recommendations per day
-      if (servicesToday >= 9) {
-        console.log('Daily service recommendation limit reached (9 per day) - not showing services');
-        return false;
-      }
-      
-      // If fewer than 5 service recommendations today, require a longer minimum gap
-      if (servicesToday < 5 && now - lastServiceTime < 45 * 60 * 1000) {
-        console.log('Time between service recommendations too short (< 45 minutes) - not showing services');
-        return false; // Less than 45 minutes since last recommendation
-      }
+      return false; // サービス推奨を表示しない
     }
-
-    return true;
-  } catch (err) {
-    console.error('Error in shouldShowServicesToday:', err);
-    return true; // Default to showing if there's an error
-  }
-}
-
-/**
- * Safety check for images using OpenAI's moderation capability with GPT-4o-mini
- * @param {string} base64Image - Base64 encoded image
- * @return {Promise<boolean>} - Whether the image passed the safety check
- */
-async function checkImageSafety(base64Image) {
-  try {
-    // Using OpenAI's GPT-4o-mini model to detect potential safety issues
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
-    });
     
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: "あなたは画像モデレーターです。この画像が安全かどうかを判断してください。画像が暴力的、性的、または不適切な内容が含まれている場合、それを特定してください。回答は「SAFE」または「UNSAFE」で始めてください。"
-        },
-        {
-          role: "user",
-          content: [
-            { 
-              type: "image_url", 
-              image_url: {
-                url: `data:image/jpeg;base64,${base64Image}`
-              }
-            }
-          ]
-        }
-      ],
-      max_tokens: 150,
-      temperature: 0
-    });
+    // 以下は通常のロジック
     
-    const moderationResult = response.choices[0].message.content;
-    console.log(`Image safety check (4o-mini): ${moderationResult}`);
-    
-    // If the response starts with UNSAFE, the image didn't pass the safety check
-    return !moderationResult.startsWith("UNSAFE");
+    // If user explicitly asks for advice/services, always show
+    if (detectAdviceRequest(userMessage, history)) {
+      console.log('Explicit advice request detected in shouldShowServicesToday - always showing services');
+      return true;
+    }
   } catch (error) {
-    console.error('Error in image safety check:', error);
-    // In case of error, assume the image is safe to not block valid images
-    return true;
+    console.error('Error in shouldShowServicesToday:', error);
+    return false; // エラーの場合はサービス推奨を表示しない
   }
-}
-
-/**
- * ユーザー入力の検証と無害化
- * @param {string} input - ユーザーからの入力メッセージ
- * @returns {string} - 検証済みの入力メッセージ
- */
-function sanitizeUserInput(input) {
-  if (!input) return '';
-  
-  // 文字列でない場合は文字列に変換
-  if (typeof input !== 'string') {
-    input = String(input);
-  }
-  
-  // 最大長の制限
-  const MAX_INPUT_LENGTH = 2000;
-  if (input.length > MAX_INPUT_LENGTH) {
-    console.warn(`ユーザー入力が長すぎます (${input.length} > ${MAX_INPUT_LENGTH}). 切り詰めます。`);
-    input = input.substring(0, MAX_INPUT_LENGTH);
-  }
-  
-  // XSS対策 - xssライブラリを使用
-  input = xss(input);
-  
-  // SQL Injection対策 - SQL関連のキーワードを検出して警告
-  const SQL_PATTERN = /\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|UNION|JOIN|WHERE|OR)\b/gi;
-  if (SQL_PATTERN.test(input)) {
-    console.warn('SQL Injectionの可能性があるユーザー入力を検出しました');
-    // キーワードを置換
-    input = input.replace(SQL_PATTERN, '***');
-  }
-  
-  return input;
-}
-
-/**
- * Line UserIDの検証
- * @param {string} userId - LineのユーザーID
- * @returns {string|null} - 検証済みのユーザーIDまたはnull
- */
-function validateUserId(userId) {
-  if (!userId || typeof userId !== 'string') {
-    console.error('不正なユーザーID形式:', userId);
-    return null;
-  }
-  
-  // Line UserIDの形式チェック (UUIDv4形式)
-  const LINE_USERID_PATTERN = /^U[a-f0-9]{32}$/i;
-  if (!LINE_USERID_PATTERN.test(userId)) {
-    console.error('Line UserIDの形式が不正です:', userId);
-    return null;
-  }
-  
-  return userId;
-}
-
-/**
- * Handles user confusion requests by asking if they want an image explanation
- * @param {Object} event - The LINE event object
- * @return {Promise<void>}
- */
-async function handleConfusionRequest(event) {
-  // ... existing code ...
 }
