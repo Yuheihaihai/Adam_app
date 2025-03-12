@@ -3072,6 +3072,16 @@ function createNaturalTransition(responseText, category, isMinimal) {
 function detectAdviceRequest(userMessage, history) {
   if (!userMessage) return false;
   
+  // First check if the message contains negative feedback about recommendations
+  // If it does, don't trigger recommendations even if it contains trigger words
+  const lowerMessage = userMessage.toLowerCase();
+  const hasNegativeFeedback = FEEDBACK_PATTERNS.negative.some(pattern => lowerMessage.includes(pattern));
+  
+  if (hasNegativeFeedback) {
+    console.log('Message contains negative feedback about recommendations - not showing services');
+    return false;
+  }
+  
   // Use the explicitAdvicePatterns imported from advice_patterns.js
   // Check for explicit advice requests ONLY
   for (const pattern of explicitAdvicePatterns) {
