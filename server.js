@@ -26,7 +26,8 @@ const userPreferences = {
     if (!this._prefStore[userId]) {
       this._prefStore[userId] = {
         recentlyShownServices: {},
-        showServiceRecommendations: true // デフォルトでサービス推奨を有効にする
+        showServiceRecommendations: true, // デフォルトでサービス推奨を有効にする
+        positiveFeedback: {} // 新規: ポジティブフィードバックの履歴を追跡
       };
     }
     return this._prefStore[userId];
@@ -38,9 +39,50 @@ const userPreferences = {
   },
   
   trackImplicitFeedback: function(userId, userMessage, recentServices) {
+    // Get user preferences
+    const prefs = this.getUserPreferences(userId);
+    
+    // フィードバックを判定するために小文字化と空白除去
+    const lowerMessage = userMessage.toLowerCase().trim();
+    
+    // 共通のフィードバックパターン定義
+    const FEEDBACK_PATTERNS = {
+      positive: [
+        'いいね', 'よかった', '良かった', '便利', 'ありがとう', '感謝', 
+        '助かる', '使いやすい', 'すごい', '素晴らしい', 'すばらしい', 
+        '役立つ', '参考になる', 'グッド'
+      ],
+      negative: [
+        '要らない', 'いらない', '不要', '邪魔', '見たくない', 
+        '表示しないで', '非表示', '消して', '表示するな', '出すな'
+      ]
+    };
+    
+    // 明確な肯定的フィードバックがあり、かつ明確な否定的フィードバックがない場合のみポジティブと判定
+    const hasPositiveFeedback = FEEDBACK_PATTERNS.positive.some(pattern => lowerMessage.includes(pattern));
+    const hasNegativeFeedback = FEEDBACK_PATTERNS.negative.some(pattern => lowerMessage.includes(pattern));
+    
+    const isPositiveFeedback = hasPositiveFeedback && !hasNegativeFeedback;
+    
+    if (isPositiveFeedback && recentServices && recentServices.length > 0) {
+      console.log(`Detected positive feedback from user ${userId}: "${userMessage}"`);
+      
+      // If user gave positive feedback, ensure service recommendations are turned on
+      if (!prefs.showServiceRecommendations) {
+        prefs.showServiceRecommendations = true;
+        console.log(`Enabled service recommendations for user ${userId} due to positive feedback`);
+        
+        // Store the updated preferences
+        this.updateUserPreferences(userId, prefs);
+        
+        // Return true to indicate preferences were updated
+        return true;
+      }
+    }
+    
     // Placeholder for tracking user feedback on services
     console.log(`Tracking feedback for user ${userId} on services:`, recentServices);
-    return true;
+    return false;
   },
   
   processPreferenceCommand: function(userId, command) {
@@ -49,7 +91,8 @@ const userPreferences = {
       '設定', 'せってい', 'setting', 'config', 
       'オプション', 'option', 'オン', 'オフ',
       'on', 'off', '表示', 'ひょうじ',
-      '非表示', 'ひひょうじ', '設定確認', '設定リセット'
+      '非表示', 'ひひょうじ', '設定確認', '設定リセット',
+      'サービスオン', 'サービスオフ', 'サービス表示'
     ];
     
     const isPreferenceCommand = preferenceCommandPatterns.some(pattern => 
@@ -63,24 +106,102 @@ const userPreferences = {
     // Log that we're processing a preference command
     console.log(`Processing preference command for user ${userId}: ${command}`);
     
+    // Get current preferences
+    const prefs = this.getUserPreferences(userId);
+    
+    // サービス表示に関するコマンドパターン定義
+    const serviceOnPatterns = ['サービス表示オン', 'サービスオン', 'サービス表示 オン', 'サービス オン'];
+    const serviceOffPatterns = ['サービス表示オフ', 'サービスオフ', 'サービス表示 オフ', 'サービス オフ'];
+    const serviceSettingsPatterns = ['サービス設定', 'サービス設定確認'];
+    
+    // サービス数設定
+    const serviceCountMatch = command.match(/サービス数(\d+)/);
+    
+    // 信頼度設定
+    const confidenceMatch = command.match(/信頼度(\d+)/);
+    
+    // 設定リセット
+    const resetPatterns = ['設定リセット', '設定を初期化', 'リセット'];
+    
     // Handle specific preference commands
-    if (command.includes('設定確認')) {
-      const prefs = this.getUserPreferences(userId);
+    if (command.includes('設定確認') || serviceSettingsPatterns.some(pattern => command.includes(pattern))) {
       prefs.settingsRequested = true;
+      return prefs;
+    }
+    
+    // サービス表示オン
+    if (serviceOnPatterns.some(pattern => command.includes(pattern))) {
+      prefs.showServiceRecommendations = true;
+      this.updateUserPreferences(userId, prefs);
+      return prefs;
+    }
+    
+    // サービス表示オフ
+    if (serviceOffPatterns.some(pattern => command.includes(pattern))) {
+      prefs.showServiceRecommendations = false;
+      this.updateUserPreferences(userId, prefs);
+      return prefs;
+    }
+    
+    // サービス数設定
+    if (serviceCountMatch) {
+      const count = parseInt(serviceCountMatch[1]);
+      if (!isNaN(count) && count >= 0 && count <= 5) {
+        prefs.maxRecommendations = count;
+        this.updateUserPreferences(userId, prefs);
+        return prefs;
+      }
+    }
+    
+    // 信頼度設定
+    if (confidenceMatch) {
+      const score = parseInt(confidenceMatch[1]);
+      if (!isNaN(score) && score >= 0 && score <= 100) {
+        prefs.minConfidenceScore = score / 100;
+        this.updateUserPreferences(userId, prefs);
+        return prefs;
+      }
+    }
+    
+    // 設定リセット
+    if (resetPatterns.some(pattern => command.includes(pattern))) {
+      // デフォルト設定に戻す
+      prefs.showServiceRecommendations = true;
+      prefs.maxRecommendations = 3;
+      prefs.minConfidenceScore = 0.7;
+      prefs.resetRequested = true;
+      this.updateUserPreferences(userId, prefs);
       return prefs;
     }
     
     // If no specific command matched but it was detected as a preference command
     // Just return the current preferences for now
-    return this.getUserPreferences(userId);
+    return prefs;
   },
   
   getHelpMessage: function() {
-    return "設定を変更するには以下のコマンドを使用できます：\n- 設定確認：現在の設定を表示\n- 設定リセット：設定をデフォルトに戻す";
+    return "設定を変更するには以下のコマンドを使用できます：\n"
+      + "- サービス表示オン：サービス推奨を有効にする\n"
+      + "- サービス表示オフ：サービス推奨を無効にする\n"
+      + "- サービス数[数字]：表示するサービスの数を設定（例：サービス数2）\n"
+      + "- 信頼度[数字]：サービス推奨の最低信頼度を設定（例：信頼度80）\n"
+      + "- 設定確認：現在の設定を表示\n"
+      + "- 設定リセット：設定をデフォルトに戻す";
   },
   
   getCurrentSettingsMessage: function(userId) {
-    return "現在の設定です。特別な設定はありません。";
+    const prefs = this.getUserPreferences(userId);
+    const serviceStatus = prefs.showServiceRecommendations ? "オン" : "オフ";
+    const maxRecs = prefs.maxRecommendations !== undefined ? prefs.maxRecommendations : 3;
+    const confidenceScore = prefs.minConfidenceScore !== undefined 
+      ? Math.round(prefs.minConfidenceScore * 100) 
+      : 70;
+    
+    return `現在の設定：\n`
+      + `- サービス推奨：${serviceStatus}\n`
+      + `- 最大サービス数：${maxRecs}\n`
+      + `- 最低信頼度：${confidenceScore}%\n\n`
+      + `設定を変更するには「サービス表示オン」「サービス表示オフ」「サービス数2」などと入力してください。`;
   },
   
   _getServiceCategory: function(service) {
@@ -783,10 +904,30 @@ ${pastAiReturns}
 
 function validateMessageLength(message) {
   const MAX_LENGTH = 4000;
-  if (message.length > MAX_LENGTH) {
-    return message.slice(0, MAX_LENGTH) + '...';
+  if (message.length <= MAX_LENGTH) {
+    return message;
   }
-  return message;
+  
+  // 文の区切りで切るように改善
+  let truncatedMessage = message.substring(0, MAX_LENGTH);
+  
+  // 文の区切り（。!?）で終わるように調整
+  const sentenceEndings = [
+    truncatedMessage.lastIndexOf('。'),
+    truncatedMessage.lastIndexOf('！'),
+    truncatedMessage.lastIndexOf('？'),
+    truncatedMessage.lastIndexOf('!'),
+    truncatedMessage.lastIndexOf('?'),
+    truncatedMessage.lastIndexOf('\n\n')
+  ].filter(pos => pos > MAX_LENGTH * 0.9); // 末尾から10%以内の位置にある区切りのみ
+  
+  // 区切りが見つかれば、そこで切る
+  if (sentenceEndings.length > 0) {
+    const cutPosition = Math.max(...sentenceEndings) + 1;
+    truncatedMessage = message.substring(0, cutPosition);
+  }
+  
+  return truncatedMessage + '\n\n...(一部省略されました)';
 }
 
 const SHARE_URL = 'https://twitter.com/intent/tweet?' + 
@@ -1012,30 +1153,61 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     // 2. User explicitly asked for advice (using patterns from advice_patterns.js via detectAdviceRequest)
     // This ensures we only show recommendations when users actually want them
     let serviceRecommendationsPromise = Promise.resolve([]);
-    if (userPrefs.showServiceRecommendations && detectAdviceRequest(userMessage, history)) {
-      if (conversationContext && userMessage) {
-        // Make sure recentMessages array exists
-        if (!conversationContext.recentMessages) {
-          conversationContext.recentMessages = [];
+    let serviceNotificationReason = null;
+
+    if (!userPrefs.showServiceRecommendations) {
+      serviceNotificationReason = 'disabled';
+      console.log('Skipping service recommendations: User preferences disabled');
+    } else if (!detectAdviceRequest(userMessage, history)) {
+      serviceNotificationReason = 'no_request';
+      console.log('Skipping service recommendations: No explicit advice request');
+    } else {
+      // Check timing constraints
+      const shouldShow = shouldShowServicesToday(userId, history, userMessage);
+      if (!shouldShow) {
+        // Check the reason
+        const now = Date.now();
+        const lastServiceTime = userPrefs.lastServiceTime || 0;
+        
+        // Count total service recommendations today
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        
+        let servicesToday = 0;
+        if (userPrefs.recentlyShownServices) {
+          for (const timestamp in userPrefs.recentlyShownServices) {
+            if (parseInt(timestamp) > todayStart.getTime()) {
+              servicesToday += userPrefs.recentlyShownServices[timestamp].length;
+            }
+          }
         }
         
-        // Add current message if not already included
-        if (!conversationContext.recentMessages.includes(userMessage)) {
+        if (servicesToday >= 9) {
+          serviceNotificationReason = 'daily_limit';
+        } else {
+          serviceNotificationReason = 'cooldown';
+        }
+        
+        console.log(`Skipping service recommendations: Timing constraints not met (reason: ${serviceNotificationReason})`);
+      } else {
+        console.log('User explicitly asked for advice and timing is appropriate. Getting service recommendations...');
+        // 最終的に表示が決まったら、表示時刻を記録
+        userPrefs.lastServiceTime = Date.now();
+        userPreferences.updateUserPreferences(userId, userPrefs);
+        
+        // Enhance conversationContext with the latest user message
+        if (conversationContext.recentMessages) {
           conversationContext.recentMessages.push(userMessage);
+          console.log(`Added message to conversationContext, now has ${conversationContext.recentMessages.length} messages`);
+          console.log(`Latest message: ${conversationContext.recentMessages[conversationContext.recentMessages.length - 1]}`);
         }
         
-        console.log('Enhanced conversation context for service matching:');
-        console.log(`Recent messages count: ${conversationContext.recentMessages.length}`);
-        if (conversationContext.recentMessages.length > 0) {
-          console.log(`Latest message: "${conversationContext.recentMessages[conversationContext.recentMessages.length - 1].substring(0, 50)}..."`);
-        }
+        serviceRecommendationsPromise = serviceRecommender.getFilteredRecommendations(
+          userId, 
+          userNeeds,
+          conversationContext
+        );
       }
-      
-      serviceRecommendationsPromise = serviceRecommender.getFilteredRecommendations(
-        userId, 
-        userNeeds,
-        conversationContext
-      );
     }
     
     // ─────────────────────────────────────────────────────────────────────
@@ -1739,7 +1911,16 @@ async function handleText(event) {
       // If there are recent services, track implicit feedback
       if (recentServices.length > 0) {
         console.log(`Tracking implicit feedback for ${recentServices.length} recently shown services`);
-        userPreferences.trackImplicitFeedback(userId, userMessage, recentServices);
+        const feedbackResult = userPreferences.trackImplicitFeedback(userId, userMessage, recentServices);
+        
+        // If positive feedback was detected and preferences were updated, respond accordingly
+        if (feedbackResult === true) {
+          // Respond with a friendly acknowledgement
+          return client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: 'ありがとうございます！今後も役立つサービスをご紹介します。'
+          });
+        }
         
         // Clean up old entries
         const newRecentlyShownServices = {};
@@ -1771,12 +1952,21 @@ async function handleText(event) {
         // Create a more conversational response based on what was changed
         if (updatedPreferences.showServiceRecommendations !== undefined) {
           if (updatedPreferences.showServiceRecommendations) {
-            responseMessage = `サービス表示をオンにしました。お役立ちそうなサービスがあれば、会話の中でご紹介します。`;
-    } else {
+            // Check if this was triggered by positive feedback
+            const lowerMessage = userMessage.toLowerCase();
+            const isPositiveFeedback = FEEDBACK_PATTERNS.positive.some(pattern => lowerMessage.includes(pattern)) && 
+                                      !FEEDBACK_PATTERNS.negative.some(pattern => lowerMessage.includes(pattern));
+            
+            if (isPositiveFeedback) {
+              // Friendly response for positive feedback
+              responseMessage = `ありがとうございます！今後も役立つサービスをご紹介します。`;
+            } else {
+              responseMessage = `サービス表示をオンにしました。お役立ちそうなサービスがあれば、会話の中でご紹介します。`;
+            }
+          } else {
             // Check if this was triggered by negative feedback
             const lowerMessage = userMessage.toLowerCase();
-            const negativePatterns = ['要らない', 'いらない', '不要', '邪魔', '見たくない', '表示しないで', '非表示', '消して'];
-            const isNegativeFeedback = negativePatterns.some(pattern => lowerMessage.includes(pattern));
+            const isNegativeFeedback = FEEDBACK_PATTERNS.negative.some(pattern => lowerMessage.includes(pattern));
             
             if (isNegativeFeedback) {
               // Minimal response for negative feedback
@@ -1915,7 +2105,6 @@ async function handleText(event) {
             serviceName = serviceInfo.name;
             serviceDescription = serviceInfo.description;
             serviceUrl = serviceInfo.url;
-            serviceUrl = serviceInfo.url;
           } else {
             serviceName = service;
           }
@@ -1934,7 +2123,6 @@ async function handleText(event) {
             serviceName = serviceInfo.name;
             serviceDescription = serviceInfo.description;
             serviceUrl = serviceInfo.url;
-            serviceUrl = serviceInfo.url;
           } else {
             serviceName = service.id;
           }
@@ -1946,9 +2134,21 @@ async function handleText(event) {
           serviceText += `\n   URL: ${serviceUrl}`;
         }
         if (serviceDescription) {
-          serviceText += `：${serviceDescription.substring(0, 80)}${serviceDescription.length > 80 ? '...' : ''}`;
+          // 説明文の切り捨て長さを80から150に拡大し、より自然な切り捨てを実現
+          const maxDescLength = 150;
+          let trimmedDesc = serviceDescription;
+          if (serviceDescription.length > maxDescLength) {
+            // 文の区切りで切る
+            const lastSentenceEnd = serviceDescription.substring(0, maxDescLength).lastIndexOf('。');
+            if (lastSentenceEnd > maxDescLength * 0.7) { // 70%以上の位置にある場合
+              trimmedDesc = serviceDescription.substring(0, lastSentenceEnd + 1) + '...';
+            } else {
+              trimmedDesc = serviceDescription.substring(0, maxDescLength) + '...';
+            }
+          }
+          serviceText += `\n   ${trimmedDesc}`;
         }
-        serviceText += '\n';
+        serviceText += '\n\n'; // サービス間の区切りを改善
       });
       
       // 最終的な応答を構築
@@ -1971,6 +2171,39 @@ async function handleText(event) {
         
         // ユーザー設定を更新
         userPreferences.updateUserPreferences(userId, preferences);
+      }
+    }
+    
+    // サービス推奨が表示されない理由をユーザーに通知するための関数
+    function getServiceNotificationMessage(userId, showServiceReason) {
+      // 通知メッセージ - 実際のUI表示には使用せず、内部的に記録のみ
+      if (!showServiceReason) {
+        return null; // 理由が指定されていない場合は何も表示しない
+      }
+
+      const userPrefs = userPreferences.getUserPreferences(userId);
+      
+      switch (showServiceReason) {
+        case 'disabled':
+          return '（現在サービス推奨は無効になっています。「サービス表示オン」と入力すると有効になります）';
+        case 'no_request':
+          return '（明示的なアドバイス要求がない場合、サービス推奨は表示されません。「アドバイスください」などと入力すると表示されます）';
+        case 'daily_limit':
+          return '（1日の推奨上限に達しました。明日以降に再度ご利用ください）';
+        case 'cooldown':
+          return '（最近サービスを推奨したため、しばらく表示を控えています。少し時間をおいてから再度お試しください）';
+        default:
+          return null;
+      }
+    }
+
+    // サービス推奨の通知メッセージを取得
+    const notificationMessage = getServiceNotificationMessage(userId, serviceNotificationReason);
+    if (notificationMessage && debugMode) {
+      console.log('Service notification message (debug only):', notificationMessage);
+      // デバッグモードの場合のみ、AIの応答に追記（本番環境では表示しない）
+      if (process.env.DEBUG_MODE === 'true') {
+        finalResponse += '\n\n' + notificationMessage;
       }
     }
     
@@ -2369,52 +2602,39 @@ function levenshteinDistance(a, b) {
 
 // Create a natural transition based on message content
 function createNaturalTransition(responseText, category, isMinimal) {
-  // Detect existing content and direction of conversation
-  const hasPositiveAdvice = 
-    responseText.includes('可能性') || 
-    responseText.includes('チャンス') || 
-    responseText.includes('機会') ||
-    responseText.includes('おすすめ') ||
-    responseText.includes('お勧め');
-    
-  const hasTechnicalAdvice = 
-    responseText.includes('スキル') || 
-    responseText.includes('技術') || 
-    responseText.includes('プログラミング') || 
-    responseText.includes('開発');
-    
-  const hasCareerAdvice = 
-    responseText.includes('キャリア') || 
-    responseText.includes('仕事') || 
-    responseText.includes('就職') || 
-    responseText.includes('転職');
-    
-  const hasMentalAdvice = 
-    responseText.includes('ストレス') || 
-    responseText.includes('不安') || 
-    responseText.includes('悩み') ||
-    responseText.includes('落ち込み');
-    
-  // If minimal presentation for users in distress
+  // より単純かつ一貫性のあるカテゴリ判定ロジック
   if (isMinimal) {
-    return '\n\n【サポート情報】\n必要な時にご覧いただければ幸いです：\n';
+    return '\n\n■ サポート情報 ■\n必要な時にご覧いただければ幸いです：\n';
   }
   
-  // Choose transition based on detected context
-  if (category === 'mental_health' || hasMentalAdvice) {
-    return '\n\n【メンタルヘルスサポート】\nこちらのサービスが心の健康をサポートするかもしれません：\n';
-  } else if (category === 'career' || hasCareerAdvice) {
-    return '\n\n【キャリア支援サービス】\nキャリアアップに役立つかもしれないサービスをご紹介します：\n';
-  } else if (category === 'social') {
-    return '\n\n【コミュニティサポート】\n以下のサービスが社会とのつながりをサポートします：\n';
-  } else if (category === 'financial') {
-    return '\n\n【生活支援サービス】\n経済的な支援に関する以下のサービスが参考になるかもしれません：\n';
-  } else if (hasTechnicalAdvice) {
-    return '\n\n【技術支援サービス】\nスキルアップに役立つかもしれないサービスをご紹介します：\n';
-  } else if (hasPositiveAdvice) {
-    return '\n\n【お役立ち情報】\nさらに参考になるかもしれないサービスをご紹介します：\n';
-  } else {
-    return '\n\n【参考情報】\n以下のサービスもお役に立つかもしれません：\n';
+  // カテゴリごとに適切な導入メッセージを表示
+  switch (category) {
+    case 'mental_health':
+      return '\n\n■ メンタルヘルスサポート ■\nこちらのサービスが心の健康をサポートするかもしれません：\n';
+    case 'career':
+      return '\n\n■ キャリア支援サービス ■\nキャリアアップに役立つかもしれないサービスをご紹介します：\n';
+    case 'social':
+      return '\n\n■ コミュニティサポート ■\n以下のサービスが社会とのつながりをサポートします：\n';
+    case 'financial':
+      return '\n\n■ 生活支援サービス ■\n経済的な支援に関する以下のサービスが参考になるかもしれません：\n';
+    case 'education':
+      return '\n\n■ 学習支援サービス ■\n以下の学習サポートサービスがお役に立つかもしれません：\n';
+    case 'daily_living':
+      return '\n\n■ 日常生活サポート ■\n日常生活をサポートする以下のサービスをご紹介します：\n';
+    default:
+      // レスポンスのコンテンツに基づいて判断（バックアップ）
+      if (responseText.includes('ストレス') || responseText.includes('不安') || 
+          responseText.includes('悩み') || responseText.includes('落ち込み')) {
+        return '\n\n■ メンタルヘルスサポート ■\nこちらのサービスが心の健康をサポートするかもしれません：\n';
+      } else if (responseText.includes('キャリア') || responseText.includes('仕事') || 
+                responseText.includes('就職') || responseText.includes('転職')) {
+        return '\n\n■ キャリア支援サービス ■\nキャリアアップに役立つかもしれないサービスをご紹介します：\n';
+      } else if (responseText.includes('スキル') || responseText.includes('技術') || 
+                responseText.includes('学習') || responseText.includes('勉強')) {
+        return '\n\n■ スキルアップ支援 ■\n以下のサービスがスキル向上に役立つかもしれません：\n';
+      }
+      // デフォルトの一般的なメッセージ
+      return '\n\n■ 関連サポートサービス ■\n以下のサービスが参考になるかもしれません：\n';
   }
 }
 
@@ -2459,8 +2679,8 @@ function isAppropriateTimeForServices(history, userMessage) {
     if (msg.role === 'assistant' && 
         msg.content && 
         (msg.content.includes('サービス') || 
-         msg.content.includes('【お役立ち情報】') || 
-         msg.content.includes('【サポート情報】'))) {
+         msg.content.includes('■ お役立ち情報 ■') || 
+         msg.content.includes('■ サポート情報 ■'))) {
       lastServiceTime = i;
       break;
     }
