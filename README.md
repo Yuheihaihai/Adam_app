@@ -68,4 +68,130 @@ See `scripts/readme.md` for more detailed instructions.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+# Service Recommendation System Improvements
+
+This document provides instructions for improving the service recommendation system to:
+
+1. Only show service recommendations for explicit advice requests
+2. Respect service-specific cooldown periods
+
+## Changes Required
+
+### 1. Update the `detectAdviceRequest` function in `server.js`
+
+Find the `detectAdviceRequest` function in `server.js` and replace it with the following:
+
+```javascript
+function detectAdviceRequest(userMessage, history) {
+  if (!userMessage) return false;
+  
+  // Explicit advice request patterns - ONLY these patterns should return true
+  const explicitAdvicePatterns = [
+    'アドバイスください', 'アドバイス下さい', 'アドバイスをください',
+    'アドバイスが欲しい', 'アドバイスをお願い', '助言ください',
+    'おすすめを教えて', 'サービスを教えて', 'サービスある'
+  ];
+  
+  // Check for explicit advice requests ONLY
+  for (const pattern of explicitAdvicePatterns) {
+    if (userMessage.includes(pattern)) {
+      console.log(`Explicit advice request detected: "${pattern}"`);
+      return true;
+    }
+  }
+  
+  // No explicit advice request found
+  console.log('No explicit advice request detected');
+  return false;
+}
+```
+
+### 2. Update the service recommendation trigger in `server.js`
+
+Find the following code in the `processWithAI` function:
+
+```javascript
+// Get service recommendations only if user preferences allow it
+let serviceRecommendationsPromise = Promise.resolve([]);
+if (userPrefs.showServiceRecommendations) {
+  // Enhance conversationContext with the latest user message
+```
+
+Replace it with:
+
+```javascript
+// Get service recommendations only if user preferences allow it AND user explicitly asked for advice
+let serviceRecommendationsPromise = Promise.resolve([]);
+if (userPrefs.showServiceRecommendations && detectAdviceRequest(userMessage, history)) {
+  // Enhance conversationContext with the latest user message
+```
+
+### 3. Update the `wasRecentlyRecommended` method in `serviceRecommender.js`
+
+Find the `wasRecentlyRecommended` method in `serviceRecommender.js` and replace it with:
+
+```javascript
+// Check if service was recently recommended to user
+async wasRecentlyRecommended(userId, serviceId) {
+  try {
+    // Get service-specific cooldown period
+    const serviceData = this.services.find(s => s.id === serviceId);
+    const serviceCooldownDays = serviceData && serviceData.cooldown_days 
+      ? serviceData.cooldown_days 
+      : DEFAULT_COOLDOWN_DAYS;
+    
+    console.log(`Checking if service ${serviceId} was recently recommended to user ${userId} (cooldown: ${serviceCooldownDays} days)`);
+    
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - serviceCooldownDays);
+    const cutoffDateString = cutoffDate.toISOString();
+    
+    // Check Airtable if available
+    if (this.tableExists) {
+      const records = await this.airtableBase(this.RECOMMENDATIONS_TABLE)
+        .select({
+          filterByFormula: `AND({UserID} = '${userId}', {ServiceID} = '${serviceId}', {Timestamp} > '${cutoffDateString}')`,
+          maxRecords: 1
+        })
+        .firstPage();
+      
+      const wasRecent = records.length > 0;
+      if (wasRecent) {
+        console.log(`Service ${serviceId} was recommended to user ${userId} within the cooldown period of ${serviceCooldownDays} days`);
+      }
+      return wasRecent;
+    } else {
+      // Use local storage as fallback
+      const wasRecent = this.localRecommendations.some(rec => 
+        rec.userId === userId && 
+        rec.serviceId === serviceId && 
+        rec.timestamp > cutoffDateString
+      );
+      
+      if (wasRecent) {
+        console.log(`Service ${serviceId} was recommended to user ${userId} within the cooldown period of ${serviceCooldownDays} days`);
+      }
+      return wasRecent;
+    }
+  } catch (error) {
+    console.error('Error checking recent recommendations:', error);
+    return false; // Assume not recently recommended if there's an error
+  }
+}
+```
+
+## After Making Changes
+
+After making these changes:
+
+1. Test the application to ensure it only shows service recommendations when a user explicitly asks for advice using one of the specified patterns.
+2. Verify that the service-specific cooldown periods are respected.
+3. Commit the changes and deploy to Heroku.
+
+## Benefits of These Changes
+
+1. **More Precise Advice Detection**: By only showing service recommendations for explicit advice requests, we avoid showing recommendations when the user is not actually seeking advice.
+2. **Improved User Experience**: Users will only see service recommendations when they explicitly ask for them, making the experience less intrusive.
+3. **Service-Specific Cooldowns**: Different services can have different cooldown periods, allowing for more fine-grained control over how often a service is recommended to a user. 
