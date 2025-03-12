@@ -2155,12 +2155,19 @@ async function handleText(event) {
       return;
     }
     
-    // We've removed the confusion request handling since images are now analyzed immediately
     // Handle confusion request
-    // if (isConfusionRequest(messageText)) {
-    //   await handleVisionExplanation(event);
-    //   return;
-    // }
+    if (isConfusionRequest(messageText)) {
+      console.log("Confusion detected, offering image explanation");
+      const lastAssistantMessage = await fetchPastAiMessages(userId, 1);
+      if (lastAssistantMessage && lastAssistantMessage.length > 0) {
+        pendingImageExplanations.set(userId, lastAssistantMessage[0].content);
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。"
+        });
+        return;
+      }
+    }
     
     const userMessage = event.message.text.trim();
     
@@ -2550,7 +2557,19 @@ function isConfusionRequest(text) {
     return true;
   }
   
-  // Return true if:
+  // Pure confusion expressions that should trigger image explanation without image terms
+  const pureConfusionExpressions = [
+    'よくわからない', 'よく分からない', 'わからない', '分からない', '理解できない',
+    '意味がわからない', '意味が分からない', 'どういう意味', 'どういうこと'
+  ];
+  
+  // Direct confusion detection without requiring image terms
+  if (pureConfusionExpressions.some(expr => text.includes(expr))) {
+    console.log(`Pure confusion expression detected: "${text}"`);
+    return true;
+  }
+  
+  // For other combinations, return true if:
   // 1. Contains a confusion pattern AND an image term, OR
   // 2. Contains a specific explanation request AND an image term
   const hasConfusionPattern = confusionPatterns.some(pattern => text.includes(pattern));
