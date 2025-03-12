@@ -2338,8 +2338,12 @@ async function handleText(event) {
     const historyForAI = await fetchUserHistory(userId, limit);
     const systemPrompt = getSystemPromptForMode(mode);
     
-    // TODO: ここに残りのコードを実装
-
+    // アドバイス要求の検出
+    const adviceRequested = detectAdviceRequest(userMessage, historyForAI);
+    
+    // サービス表示の判断
+    const showServices = shouldShowServicesToday(userId, historyForAI, userMessage);
+    
     // AIでの処理を実行
     const result = await processWithAI(systemPrompt, userMessage, historyForAI, mode, userId, client);
     
