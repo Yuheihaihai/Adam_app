@@ -1007,7 +1007,10 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     // Start service matching process
     console.log('\n📋 [2B] SERVICE MATCHING - Starting with confidence threshold');
     
-    // Get service recommendations only if user preferences allow it AND user explicitly asked for advice
+    // Service recommendations are shown ONLY when:
+    // 1. User preferences allow it (showServiceRecommendations = true)
+    // 2. User explicitly asked for advice (using patterns from advice_patterns.js via detectAdviceRequest)
+    // This ensures we only show recommendations when users actually want them
     let serviceRecommendationsPromise = Promise.resolve([]);
     if (userPrefs.showServiceRecommendations && detectAdviceRequest(userMessage, history)) {
       if (conversationContext && userMessage) {
@@ -2507,15 +2510,9 @@ function isAppropriateTimeForServices(history, userMessage) {
  * Check frequency and timing constraints for showing services
  */
 function shouldShowServicesToday(userId, history, userMessage) {
-  // Explicit advice request patterns
-  const explicitAdvicePatterns = [
-    'アドバイスください', 'アドバイス下さい', 'アドバイスをください',
-    'アドバイスが欲しい', 'アドバイスをお願い', '助言ください',
-    'おすすめを教えて', 'サービスを教えて', 'サービスある'
-  ];
-  
   // If user explicitly asks for advice/services, always show
-  if (userMessage && explicitAdvicePatterns.some(pattern => userMessage.includes(pattern))) {
+  if (detectAdviceRequest(userMessage, history)) {
+    console.log('Explicit advice request detected in shouldShowServicesToday - always showing services');
     return true;
   }
   
@@ -2542,19 +2539,17 @@ function shouldShowServicesToday(userId, history, userMessage) {
       
       // Limit to no more than 9 service recommendations per day
       if (servicesToday >= 9) {
+        console.log('Daily service recommendation limit reached (9 per day) - not showing services');
         return false;
       }
       
       // If fewer than 5 service recommendations today, require a longer minimum gap
       if (servicesToday < 5 && now - lastServiceTime < 45 * 60 * 1000) {
+        console.log('Time between service recommendations too short (< 45 minutes) - not showing services');
         return false; // Less than 45 minutes since last recommendation
       }
-      
-      // General rule: Don't recommend more than once per 30 minutes
-      return now - lastServiceTime >= 30 * 60 * 1000;
     }
-    
-    // If it's been more than 4 hours, allow recommendations
+
     return true;
   } catch (err) {
     console.error('Error in shouldShowServicesToday:', err);
