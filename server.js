@@ -9,6 +9,7 @@ const timeout = require('connect-timeout');
 const path = require('path');
 const fs = require('fs');
 const servicesData = require('./services');
+const { explicitAdvicePatterns } = require('./advice_patterns');
 
 // Import service hub components
 const UserNeedsAnalyzer = require('./userNeedsAnalyzer');
@@ -1006,10 +1007,9 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     // Start service matching process
     console.log('\n📋 [2B] SERVICE MATCHING - Starting with confidence threshold');
     
-    // Get service recommendations only if user preferences allow it
+    // Get service recommendations only if user preferences allow it AND user explicitly asked for advice
     let serviceRecommendationsPromise = Promise.resolve([]);
-    if (userPrefs.showServiceRecommendations) {
-      // Enhance conversationContext with the latest user message
+    if (userPrefs.showServiceRecommendations && detectAdviceRequest(userMessage, history)) {
       if (conversationContext && userMessage) {
         // Make sure recentMessages array exists
         if (!conversationContext.recentMessages) {
@@ -2421,80 +2421,17 @@ function createNaturalTransition(responseText, category, isMinimal) {
 function detectAdviceRequest(userMessage, history) {
   if (!userMessage) return false;
   
-  // Direct advice request patterns
-  const advicePatterns = [
-    'どうしたら', 'どうすれば', 'どうすれば良い', 'どうすればいい',
-    'どうしよう', '助けて', 'アドバイス', '教えて', 'どう思',
-    'サービス', 'オススメ', 'おすすめ', 'お勧め'
-  ];
-  
-  // Check for direct advice requests
-  for (const pattern of advicePatterns) {
+  // Use the explicitAdvicePatterns imported from advice_patterns.js
+  // Check for explicit advice requests ONLY
+  for (const pattern of explicitAdvicePatterns) {
     if (userMessage.includes(pattern)) {
+      console.log(`Explicit advice request detected: "${pattern}"`);
       return true;
     }
   }
   
-  // Check for question marks and question words
-  if (userMessage.includes('？') || userMessage.includes('?')) {
-    const questionWords = ['何', 'どの', 'どう', 'いつ', 'どこ', 'だれ', '誰', 'なぜ', 'なに'];
-    for (const word of questionWords) {
-      if (userMessage.includes(word)) {
-        return true;
-      }
-    }
-  }
-  
-  // Problem statement patterns that imply advice need
-  const problemPatterns = [
-    '悩んでいる', '困っている', '心配', '不安', 'ストレス', 
-    '難しい', '大変', 'つらい', '辛い', '苦しい'
-  ];
-  
-  // Count problem indicators
-  let problemCount = 0;
-  for (const pattern of problemPatterns) {
-    if (userMessage.includes(pattern)) {
-      problemCount++;
-    }
-  }
-  
-  // If multiple problem indicators, likely needs advice
-  if (problemCount >= 2) {
-    return true;
-  }
-  
-  // Check message length - longer messages often describe problems needing advice
-  if (userMessage.length > 100 && problemCount >= 1) {
-    return true;
-  }
-  
-  // If no other indicators, check context from recent history
-  if (history && history.length > 0) {
-    // Look at the most recent assistant message
-    const lastAssistantMessage = history.filter(msg => msg.role === 'assistant').pop();
-    
-    if (lastAssistantMessage && lastAssistantMessage.content) {
-      // If assistant asked a question and user is responding
-      if ((lastAssistantMessage.content.includes('でしょうか') || 
-           lastAssistantMessage.content.includes('ですか') ||
-           lastAssistantMessage.content.includes('いかがですか')) &&
-          userMessage.length < 50) {
-        // Short reply to assistant question - likely not asking for advice
-        return false;
-      }
-      
-      // If assistant previously asked about problems
-      if (lastAssistantMessage.content.includes('どのようなお悩み') || 
-          lastAssistantMessage.content.includes('どんな問題') ||
-          lastAssistantMessage.content.includes('何かお困り')) {
-        // User is likely describing a problem needing advice
-        return true;
-      }
-    }
-  }
-  
-  // Default - not enough indicators of advice request
+  // No explicit advice request found
+  console.log('No explicit advice request detected');
   return false;
 }
 

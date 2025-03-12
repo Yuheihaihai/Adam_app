@@ -872,8 +872,16 @@ class ServiceRecommender {
   // Check if service was recently recommended to user
   async wasRecentlyRecommended(userId, serviceId) {
     try {
+      // Get service-specific cooldown period
+      const serviceData = this.services.find(s => s.id === serviceId);
+      const serviceCooldownDays = serviceData && serviceData.cooldown_days 
+        ? serviceData.cooldown_days 
+        : DEFAULT_COOLDOWN_DAYS;
+      
+      console.log(`Checking if service ${serviceId} was recently recommended to user ${userId} (cooldown: ${serviceCooldownDays} days)`);
+      
       const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - DEFAULT_COOLDOWN_DAYS);
+      cutoffDate.setDate(cutoffDate.getDate() - serviceCooldownDays);
       const cutoffDateString = cutoffDate.toISOString();
       
       // Check Airtable if available
@@ -885,57 +893,27 @@ class ServiceRecommender {
           })
           .firstPage();
         
-        return records.length > 0;
+        const wasRecent = records.length > 0;
+        if (wasRecent) {
+          console.log(`Service ${serviceId} was recommended to user ${userId} within the cooldown period of ${serviceCooldownDays} days`);
+        }
+        return wasRecent;
       } else {
         // Use local storage as fallback
-        return this.localRecommendations.some(rec => 
+        const wasRecent = this.localRecommendations.some(rec => 
           rec.userId === userId && 
           rec.serviceId === serviceId && 
           rec.timestamp > cutoffDateString
         );
+        
+        if (wasRecent) {
+          console.log(`Service ${serviceId} was recommended to user ${userId} within the cooldown period of ${serviceCooldownDays} days`);
+        }
+        return wasRecent;
       }
     } catch (error) {
       console.error('Error checking recent recommendations:', error);
       return false; // Assume not recently recommended if there's an error
-    }
-  }
-  
-  // Store recommendation record
-  async recordRecommendation(userId, serviceId) {
-    const timestamp = new Date().toISOString();
-    
-    try {
-      // Try to record in Airtable if table exists
-      if (this.tableExists) {
-        try {
-          await this.airtableBase(this.RECOMMENDATIONS_TABLE).create([
-            {
-              fields: {
-                UserID: userId,
-                ServiceID: serviceId,
-                Timestamp: timestamp
-              }
-            }
-          ]);
-          console.log(`Successfully recorded recommendation in Airtable for user ${userId}, service ${serviceId}`);
-          return;
-        } catch (airtableError) {
-          console.error('Error recording recommendation in Airtable:', airtableError);
-          console.log('Falling back to local storage...');
-        }
-      }
-      
-      // Fallback to local storage
-      this.localRecommendations.push({
-        userId,
-        serviceId,
-        timestamp
-      });
-      
-      this._saveLocalRecommendations();
-      console.log(`Recorded recommendation in local storage for user ${userId}, service ${serviceId}`);
-    } catch (error) {
-      console.error('Error recording recommendation:', error);
     }
   }
 
