@@ -2576,11 +2576,18 @@ async function handleVisionExplanation(event, explanationText) {
     // explanationTextが提供されている場合、それを使用して画像説明を生成
     if (explanationText) {
       console.log(`[DALL-E] Starting image generation process for user ${userId}`);
-      console.log(`[DALL-E] Using explanation text: "${explanationText.substring(0, 100)}${explanationText.length > 100 ? '...' : ''}"`);
+      
+      // Clean explanationText by removing any existing [生成画像] prefix
+      let cleanExplanationText = explanationText;
+      if (cleanExplanationText.startsWith('[生成画像]')) {
+        cleanExplanationText = cleanExplanationText.substring(6).trim();
+      }
+      
+      console.log(`[DALL-E] Using explanation text: "${cleanExplanationText.substring(0, 100)}${cleanExplanationText.length > 100 ? '...' : ''}"`);
       
       await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: `「${explanationText}」に基づく画像を生成しています。少々お待ちください...`
+        text: `「${cleanExplanationText.substring(0, 50)}${cleanExplanationText.length > 50 ? '...' : ''}」に基づく画像を生成しています。少々お待ちください...`
       });
       
       // DALL-Eを使用して画像を生成
@@ -2591,7 +2598,7 @@ async function handleVisionExplanation(event, explanationText) {
         });
         
         // 画像生成のプロンプトを強化
-        const enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${explanationText}`;
+        const enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${cleanExplanationText}`;
         console.log(`[DALL-E] Enhanced prompt created (length: ${enhancedPrompt.length})`);
         console.log(`[DALL-E] Sending request to OpenAI API (model: dall-e-3, size: 1024x1024, quality: standard)`);
         
@@ -2622,13 +2629,13 @@ async function handleVisionExplanation(event, explanationText) {
           },
           {
             type: 'text',
-            text: `「${explanationText}」をもとに生成した画像です。この画像で内容の理解が深まりましたか？`
+            text: `「${cleanExplanationText.substring(0, 30)}${cleanExplanationText.length > 30 ? '...' : ''}」をもとに生成した画像です。この画像で内容の理解が深まりましたか？`
           }
         ]);
         
-        // 生成した画像情報を保存
+        // 生成した画像情報を保存 (single prefix)
         console.log(`[DALL-E] Storing interaction record for user ${userId}`);
-        await storeInteraction(userId, 'assistant', `[生成画像] ${explanationText}`);
+        await storeInteraction(userId, 'assistant', `[生成画像] ${cleanExplanationText}`);
         console.log(`[DALL-E] Image generation process completed successfully`);
         
       } catch (error) {
