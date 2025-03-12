@@ -8,7 +8,33 @@
  */
 
 const localML = require('./localML');
-const { PerplexitySearch, needsKnowledge } = require('./perplexitySearch');
+const PerplexitySearch = require('./perplexitySearch');
+// Helper function for knowledge needs detection
+function needsKnowledge(userMessage) {
+  // For career mode, we always want to run the knowledge enhancement
+  // unless the message is very short or not relevant
+  if (userMessage.length < 10) {
+    console.log('📊 [PERPLEXITY ML] Message too short for knowledge enhancement:', userMessage.length, 'characters');
+    return false;
+  }
+  
+  // Check for highly relevant career-related terms
+  const careerTerms = [
+    // Career-specific terms
+    '適職', '向いてる', 'キャリア', '仕事', '職業', '就職', '転職',
+    '業界', '職種', '会社', '働く', '就活', '求人', 'スキル',
+    
+    // Career challenges
+    '悩み', '課題', '不安', '迷っ', '選択', '決断', '将来',
+    
+    // Workplace environment
+    '職場', '環境', '人間関係', '上司', '同僚', '部下', 'チーム',
+    '社風', '企業', '組織', '会社', '給料', '年収', '報酬'
+  ];
+  
+  return careerTerms.some(term => userMessage.includes(term));
+}
+
 const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const fs = require('fs');
