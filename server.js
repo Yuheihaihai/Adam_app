@@ -99,26 +99,7 @@ const userPreferences = {
     // フィードバックを判定するために小文字化と空白除去
     const lowerMessage = userMessage.toLowerCase().trim();
     
-    // 共通のフィードバックパターン定義
-    const FEEDBACK_PATTERNS = {
-      positive: [
-        'いいね', 'よかった', '良かった', '便利', 'ありがとう', '感謝', 
-        '助かる', '使いやすい', 'すごい', '素晴らしい', 'すばらしい', 
-        '役立つ', '参考になる', 'グッド'
-      ],
-      negative: [
-        '要らない', 'いらない', '不要', '邪魔', '見たくない', '表示しないで', '非表示', '消して', '表示するな', '出すな',
-        'オススメ要らないです', 'おすすめ要らないです', 'お勧め要らないです', 'サービス要らない', 'サービスいらない',
-        'サービス不要', 'サービス邪魔', 'お勧め要らない', 'お勧めいらない', 'お勧め不要', 'お勧め邪魔',
-        'おすすめ要らない', 'おすすめいらない', 'おすすめ不要', 'おすすめ邪魔', 'オススメ要らない', 'オススメいらない',
-        'オススメ不要', 'オススメ邪魔', '推奨要らない', '推奨いらない', '推奨不要', '推奨邪魔', 'サービスは結構です',
-        'お勧めは結構です', 'おすすめは結構です', 'オススメは結構です', 'サービス要りません', 'お勧め要りません',
-        'おすすめ要りません', 'オススメ要りません', 'もういい', 'もういらない', 'もう十分', 'もう結構', 'やめて',
-        '止めて', '停止', 'やめてください', '止めてください', '停止してください', 'うざい', 'うるさい', 'しつこい',
-        'ノイズ', '迷惑', 'もう表示しないで', 'もう出さないで', 'もう見せないで', '要らないです', 'いらないです',
-        '不要です', '邪魔です', 'サービス表示オフ', 'お勧め表示オフ', 'おすすめ表示オフ', 'オススメ表示オフ'
-      ]
-    };
+    // グローバルのFEEDBACK_PATTERNSを使用
     
     // 明確な肯定的フィードバックがあり、かつ明確な否定的フィードバックがない場合のみポジティブと判定
     const hasPositiveFeedback = FEEDBACK_PATTERNS.positive.some(pattern => lowerMessage.includes(pattern));
@@ -3381,6 +3362,9 @@ function shouldShowServicesToday(userId, history, userMessage) {
       console.log('Explicit advice request detected in shouldShowServicesToday - always showing services');
       return true;
     }
+    
+    // デフォルトでは表示しない
+    return false;
   } catch (error) {
     console.error('Error in shouldShowServicesToday:', error);
     return false; // エラーの場合はサービス推奨を表示しない
