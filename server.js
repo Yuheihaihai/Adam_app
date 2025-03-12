@@ -2573,166 +2573,103 @@ async function handleVisionExplanation(event, explanationText) {
   const userId = event.source.userId;
   
   try {
-    // explanationTextが提供されている場合、それを使用して画像説明を生成
-    if (explanationText) {
-      console.log(`[DALL-E] Starting image generation process for user ${userId}`);
+    console.log(`[DALL-E] Starting image generation process for user ${userId}`);
+    
+    // explanationTextがない、または "説明がありません。" の場合は、過去のメッセージを取得し直す
+    if (!explanationText || explanationText === "説明がありません。") {
+      console.log("[DALL-E] No valid explanation text provided. Attempting to fetch last assistant message");
+      const history = await fetchUserHistory(userId, 10);
+      const assistantMessages = history.filter(item => item.role === 'assistant');
       
-      // Clean explanationText by removing any existing [生成画像] prefix
-      let cleanExplanationText = explanationText;
-      if (cleanExplanationText.startsWith('[生成画像]')) {
-        cleanExplanationText = cleanExplanationText.substring(6).trim();
+      if (assistantMessages.length > 0) {
+        const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+        console.log(`[DALL-E] Found last assistant message (length: ${lastAssistantMessage.content.length})`);
+        explanationText = lastAssistantMessage.content;
+      } else {
+        console.log("[DALL-E] No assistant messages found in history. Using fallback text");
+        // 安全な汎用的なプロンプトをフォールバックとして使用
+        explanationText = "知識を視覚的に説明する教育的な図表";
       }
-      
-      console.log(`[DALL-E] Using explanation text: "${cleanExplanationText.substring(0, 100)}${cleanExplanationText.length > 100 ? '...' : ''}"`);
-      
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: `「${cleanExplanationText.substring(0, 50)}${cleanExplanationText.length > 50 ? '...' : ''}」に基づく画像を生成しています。少々お待ちください...`
-      });
-      
-      // DALL-Eを使用して画像を生成
-      try {
-        console.log(`[DALL-E] Initializing OpenAI client with API key length: ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.length : 0}`);
-        const openai = new OpenAI({
-          apiKey: process.env.OPENAI_API_KEY
-        });
-        
-        // 画像生成のプロンプトを強化
-        const enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${cleanExplanationText}`;
-        console.log(`[DALL-E] Enhanced prompt created (length: ${enhancedPrompt.length})`);
-        console.log(`[DALL-E] Sending request to OpenAI API (model: dall-e-3, size: 1024x1024, quality: standard)`);
-        
-        const startTime = Date.now();
-        const response = await openai.images.generate({
-          model: "dall-e-3",
-          prompt: enhancedPrompt,
-          n: 1,
-          size: "1024x1024",
-          quality: "standard"
-        });
-        const requestDuration = Date.now() - startTime;
-        
-        console.log(`[DALL-E] Response received in ${requestDuration}ms`);
-        const imageUrl = response.data[0].url;
-        
-        // 生成された画像のURLを取得
-        console.log(`[DALL-E] Generated image URL: ${imageUrl}`);
-        console.log(`[DALL-E] Prompt used: "${response.data[0].revised_prompt ? response.data[0].revised_prompt.substring(0, 100) + '...' : 'No revised prompt'}"`)
-        
-        // 画像をLINEに送信
-        console.log(`[DALL-E] Sending image to user ${userId} via LINE`);
-        await client.pushMessage(userId, [
-          {
-            type: 'image',
-            originalContentUrl: imageUrl,
-            previewImageUrl: imageUrl
-          },
-          {
-            type: 'text',
-            text: `「${cleanExplanationText.substring(0, 30)}${cleanExplanationText.length > 30 ? '...' : ''}」をもとに生成した画像です。この画像で内容の理解が深まりましたか？`
-          }
-        ]);
-        
-        // 生成した画像情報を保存 (single prefix)
-        console.log(`[DALL-E] Storing interaction record for user ${userId}`);
-        await storeInteraction(userId, 'assistant', `[生成画像] ${cleanExplanationText}`);
-        console.log(`[DALL-E] Image generation process completed successfully`);
-        
-      } catch (error) {
-        console.error(`[DALL-E] Error during image generation: ${error.message}`);
-        console.error(`[DALL-E] Error details:`, error);
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: '申し訳ありません。画像の生成中にエラーが発生しました。別の表現で試してみてください。'
-        });
-      }
-      
-      return;
     }
     
-    // explanationTextがない場合は通常の画像履歴検索処理を行う
-    // Get user's recent history to find the last image
-    const history = await fetchUserHistory(userId, 10);
-    
-    // Find the most recent image message
-    const lastImageMessage = history
-      .filter(item => item.content && item.content.includes('画像が送信されました'))
-      .pop();
-    
-    if (!lastImageMessage) {
-      // No recent image found
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '最近の画像が見つかりませんでした。説明してほしい画像を送信してください。もし画像の説明を求めていない場合は、別の質問をお願いします。'
-      });
-      return;
+    // Clean explanationText by removing any existing [生成画像] prefix
+    let cleanExplanationText = explanationText;
+    if (cleanExplanationText.startsWith('[生成画像]')) {
+      cleanExplanationText = cleanExplanationText.substring(6).trim();
+      console.log(`[DALL-E] Removed [生成画像] prefix from explanation text`);
     }
-
-    // 処理中であることを通知
+    
+    // 極端に短い説明文の場合はデフォルトテキストを追加
+    if (cleanExplanationText.length < 10) {
+      console.log(`[DALL-E] Explanation text is too short (${cleanExplanationText.length} chars). Adding default context`);
+      cleanExplanationText = `わかりやすく視覚的に説明した${cleanExplanationText}についての図`;
+    }
+    
+    console.log(`[DALL-E] Using explanation text: "${cleanExplanationText.substring(0, 100)}${cleanExplanationText.length > 100 ? '...' : ''}"`);
+    
     await client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '画像を分析しています。少々お待ちください...'
-    });
-
-    // 画像メッセージIDを抽出
-    const messageIdMatch = lastImageMessage.content.match(/\(ID: ([^)]+)\)/);
-    const messageId = messageIdMatch ? messageIdMatch[1] : null;
-    
-    if (!messageId) {
-      throw new Error('画像メッセージIDが見つかりませんでした');
-    }
-    
-    console.log(`Using image message ID: ${messageId} for analysis`);
-
-    // LINE APIを使用して画像コンテンツを取得
-    const stream = await client.getMessageContent(messageId);
-    
-    // 画像データをバッファに変換
-    const chunks = [];
-    for await (const chunk of stream) {
-      chunks.push(chunk);
-    }
-    const imageBuffer = Buffer.concat(chunks);
-    
-    // Base64エンコード
-    const base64Image = imageBuffer.toString('base64');
-    
-    // OpenAI Vision APIに送信するリクエストを準備
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
+      text: `「${cleanExplanationText.substring(0, 50)}${cleanExplanationText.length > 50 ? '...' : ''}」に基づく画像を生成しています。少々お待ちください...`
     });
     
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
+    // DALL-Eを使用して画像を生成
+    try {
+      console.log(`[DALL-E] Initializing OpenAI client with API key length: ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.length : 0}`);
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+      });
+      
+      // 画像生成のプロンプトを強化（安全対策としてSafe promptingガイドラインに準拠）
+      const enhancedPrompt = `以下のテキストに基づいて教育的で明確な、わかりやすいイラストを作成してください: ${cleanExplanationText}`;
+      console.log(`[DALL-E] Enhanced prompt created (length: ${enhancedPrompt.length})`);
+      console.log(`[DALL-E] Sending request to OpenAI API (model: dall-e-3, size: 1024x1024, quality: standard)`);
+      
+      const startTime = Date.now();
+      const response = await openai.images.generate({
+        model: "dall-e-3",
+        prompt: enhancedPrompt,
+        n: 1,
+        size: "1024x1024",
+        quality: "standard"
+      });
+      const requestDuration = Date.now() - startTime;
+      
+      console.log(`[DALL-E] Response received in ${requestDuration}ms`);
+      const imageUrl = response.data[0].url;
+      
+      // 生成された画像のURLを取得
+      console.log(`[DALL-E] Generated image URL: ${imageUrl}`);
+      console.log(`[DALL-E] Prompt used: "${response.data[0].revised_prompt ? response.data[0].revised_prompt.substring(0, 100) + '...' : 'No revised prompt'}"`)
+      
+      // 画像をLINEに送信
+      console.log(`[DALL-E] Sending image to user ${userId} via LINE`);
+      await client.pushMessage(userId, [
         {
-          role: "user",
-          content: [
-            { type: "text", text: "この画像について詳しく説明してください。何が写っていて、どんな状況か、重要な詳細を教えてください。" },
-            { 
-              type: "image_url", 
-              image_url: {
-                url: `data:image/jpeg;base64,${base64Image}`
-              }
-            }
-          ]
+          type: 'image',
+          originalContentUrl: imageUrl,
+          previewImageUrl: imageUrl
+        },
+        {
+          type: 'text',
+          text: `「${cleanExplanationText.substring(0, 30)}${cleanExplanationText.length > 30 ? '...' : ''}」をもとに生成した画像です。この画像で内容の理解が深まりましたか？`
         }
-      ],
-      max_tokens: 500
-    });
+      ]);
+      
+      // 生成した画像情報を保存 (single prefix)
+      console.log(`[DALL-E] Storing interaction record for user ${userId}`);
+      await storeInteraction(userId, 'assistant', `[生成画像] ${cleanExplanationText}`);
+      console.log(`[DALL-E] Image generation process completed successfully`);
+      
+    } catch (error) {
+      console.error(`[DALL-E] Error during image generation: ${error.message}`);
+      console.error(`[DALL-E] Error details:`, error);
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '申し訳ありません。画像の生成中にエラーが発生しました。別の表現で試してみてください。'
+      });
+    }
     
-    const analysis = response.choices[0].message.content;
-    console.log(`Image analysis completed for user ${userId}`);
-    
-    // ユーザーに分析結果を送信
-    await client.pushMessage(userId, {
-      type: 'text',
-      text: analysis
-    });
-    
-    // 会話履歴に画像分析を記録
-    await storeInteraction(userId, 'assistant', `[画像分析] ${analysis}`);
-    
+    return;
   } catch (error) {
     console.error('Error in handleVisionExplanation:', error);
     
