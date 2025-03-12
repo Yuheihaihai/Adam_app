@@ -26,6 +26,8 @@ Users have complete control over what service recommendations they receive:
 |---------|-------------|---------|
 | サービス表示オフ | Turn off all service recommendations | "サービス表示オフ" |
 | サービス表示オン | Turn on service recommendations | "サービス表示オン" |
+| サービスオフ | Turn off all service recommendations (shorthand) | "サービスオフ" |
+| サービスオン | Turn on service recommendations (shorthand) | "サービスオン" |
 | サービス数[数字] | Set the number of services displayed | "サービス数2" (Show 2 services) |
 | 信頼度[数字] | Set minimum confidence level (0-100) | "信頼度80" (80% confidence) |
 | サービス設定確認 | Check current settings | "サービス設定確認" |

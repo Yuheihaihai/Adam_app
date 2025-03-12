@@ -26,8 +26,8 @@ class ServiceRecommender {
     this.localRecommendations = [];
     this.localStoragePath = path.join(__dirname, 'local_recommendations.json');
     this.services = services; // Use the imported services module
-    this.confidenceThreshold = 0.4;
-    console.log(`Initial confidenceThreshold set to: ${this.confidenceThreshold} (${this.confidenceThreshold * 100}%)`);
+    this.CONFIDENCE_THRESHOLD = DEFAULT_CONFIDENCE_THRESHOLD;
+    console.log(`Initial CONFIDENCE_THRESHOLD set to: ${this.CONFIDENCE_THRESHOLD} (${this.CONFIDENCE_THRESHOLD * 100}%)`);
     this.openaiApiKey = process.env.OPENAI_API_KEY;
     this.useAiMatching = true; // Always use AI matching
     this.aiModel = "gpt-4o-mini"; // Always use GPT-4o-mini
@@ -43,9 +43,6 @@ class ServiceRecommender {
     this.matchingCache = new Map();
     this.CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
     
-    // Set confidence threshold with validation
-    this._setConfidenceThreshold(DEFAULT_CONFIDENCE_THRESHOLD);
-    
     // Load local recommendations
     this._loadLocalRecommendations();
     
@@ -54,15 +51,8 @@ class ServiceRecommender {
     
     // Check if the recommendations table exists
     this._checkTableExists();
-    
-    // Freeze critical properties to prevent accidental modification
-    Object.defineProperty(this, 'CONFIDENCE_THRESHOLD', {
-      writable: false,
-      configurable: false
-    });
   }
   
-  // Private method to set confidence threshold with validation
   _setConfidenceThreshold(threshold) {
     // Validate threshold is a number between 0 and 1
     const validatedThreshold = typeof threshold === 'number' && 
@@ -428,13 +418,11 @@ class ServiceRecommender {
    */
   async findMatchingServices(userNeeds, conversationContext = null) {
     try {
-      // Ensure the confidence threshold hasn't been altered
+      // 閾値チェックを改善: 変更不可から一貫性確認に変更
       if (this.CONFIDENCE_THRESHOLD !== DEFAULT_CONFIDENCE_THRESHOLD) {
-        console.warn('Confidence threshold was altered, resetting to default');
-        this._setConfidenceThreshold(DEFAULT_CONFIDENCE_THRESHOLD);
+        console.log(`Note: Using custom confidence threshold: ${this.CONFIDENCE_THRESHOLD} (${this.CONFIDENCE_THRESHOLD * 100}%) instead of default: ${DEFAULT_CONFIDENCE_THRESHOLD} (${DEFAULT_CONFIDENCE_THRESHOLD * 100}%)`);
       }
 
-      console.log(`Current DEFAULT_CONFIDENCE_THRESHOLD: ${DEFAULT_CONFIDENCE_THRESHOLD} (${DEFAULT_CONFIDENCE_THRESHOLD * 100}%)`);
       console.log(`Current CONFIDENCE_THRESHOLD: ${this.CONFIDENCE_THRESHOLD} (${this.CONFIDENCE_THRESHOLD * 100}%)`);
 
       // Use the imported services from services.js instead of fetching from Airtable
@@ -500,33 +488,30 @@ class ServiceRecommender {
       
       // Calculate confidence score for each service
       for (const service of services) {
-        const serviceStartTime = Date.now();
+        // Calculate how confident we are that this service matches the user's needs
         service.confidenceScore = this._calculateConfidenceScore(service, userNeeds, conversationContext);
-        console.log(`Service ${service.name} confidence score: ${service.confidenceScore.toFixed(2)} (calculation took ${Date.now() - serviceStartTime}ms)`);
       }
-
-      const calculationTime = Date.now() - startTime;
-      console.log(`Confidence score calculation completed in ${calculationTime}ms`);
-
+      
       // Filter services by confidence threshold
-      const matchingServices = services.filter(service => service.confidenceScore >= this.CONFIDENCE_THRESHOLD);
-      console.log(`Found ${matchingServices.length} matching services with confidence >= ${this.CONFIDENCE_THRESHOLD}`);
+      const matchingServices = services
+        .filter(service => service.confidenceScore >= this.CONFIDENCE_THRESHOLD)
+        .sort((a, b) => b.confidenceScore - a.confidenceScore);
       
-      if (matchingServices.length === 0) {
-        console.log('DEBUG: No services matched. Confidence threshold may be too high or user needs may not match any services.');
-        
-        // Log the highest scoring services for debugging
-        const sortedServices = [...services].sort((a, b) => b.confidenceScore - a.confidenceScore);
-        const topServices = sortedServices.slice(0, 3);
-        console.log('Top scoring services (even though below threshold):');
-        topServices.forEach(service => {
-          console.log(`- ${service.name}: ${service.confidenceScore.toFixed(2)} | threshold: ${this.CONFIDENCE_THRESHOLD}`);
-          console.log(`  Criteria: ${JSON.stringify(service.criteria)}`);
+      // Log performance stats
+      const endTime = Date.now();
+      console.log(`Confidence score calculation completed in ${endTime - startTime}ms`);
+      console.log(`Found ${matchingServices.length} matching services (threshold: ${this.CONFIDENCE_THRESHOLD * 100}%)`);
+      
+      // Log top matching services
+      if (matchingServices.length > 0) {
+        const topServices = matchingServices.slice(0, 5);  // Show top 5 at most
+        console.log('Top matching services:');
+        topServices.forEach((service, i) => {
+          console.log(`${i+1}. ${service.name} (${service.id}) - Confidence: ${(service.confidenceScore * 100).toFixed(1)}%`);
         });
+      } else {
+        console.log('No matching services found above threshold');
       }
-      
-      // Sort by confidence score (highest first)
-      matchingServices.sort((a, b) => b.confidenceScore - a.confidenceScore);
       
       return matchingServices;
     } catch (error) {
@@ -1144,7 +1129,7 @@ class ServiceRecommender {
       }
       
       // Filter services that meet the confidence threshold
-      const filteredMatches = matches.filter(match => match.score >= this.confidenceThreshold);
+      const filteredMatches = matches.filter(match => match.score >= this.CONFIDENCE_THRESHOLD);
       
       // Sort by score in descending order
       filteredMatches.sort((a, b) => b.score - a.score);

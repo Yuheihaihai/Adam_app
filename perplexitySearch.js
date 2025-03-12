@@ -16,7 +16,7 @@ class PerplexitySearch {
   }
 
   async enhanceKnowledge(history, userMessage) {
-    if (!this.needsKnowledge(userMessage)) {
+    if (!needsKnowledge(userMessage)) {
       console.log('📊 [PERPLEXITY ML] Knowledge enhancement skipped - message does not match criteria');
       return null;
     }
@@ -101,46 +101,8 @@ ${analysisPrompt}`
 
       return resultContent;
     } catch (error) {
-      console.error('   ❌ [PERPLEXITY ML] Knowledge enhancement error:', error.message);
-      if (error.response) {
-        console.error('   ├─ Error status:', error.response.status);
-        console.error('   └─ Error data:', JSON.stringify(error.response.data));
-      }
+      console.error('   └─ ❌ ERROR in knowledge enhancement:', error.message);
       return null;
-    }
-  }
-
-  needsKnowledge(userMessage) {
-    // For career mode, we always want to run the knowledge enhancement
-    // unless the message is very short or not relevant
-    if (userMessage.length < 10) {
-      console.log('📊 [PERPLEXITY ML] Message too short for knowledge enhancement:', userMessage.length, 'characters');
-      return false;
-    }
-    
-    // Check for highly relevant career-related terms
-    const careerTerms = [
-      // Career-specific terms
-      '適職', '向いてる', 'キャリア', '仕事', '職業', '就職', '転職',
-      '業界', '職種', '会社', '働く', '就活', '求人', 'スキル',
-      
-      // Career challenges
-      '悩み', '課題', '不安', '迷っ', '選択', '決断', '将来',
-      
-      // Workplace environment
-      '職場', '環境', '人間関係', '上司', '同僚', '部下', 'チーム',
-      '社風', '企業', '組織', '会社', '給料', '年収', '報酬'
-    ];
-    
-    // Find all matching terms for logging
-    const matchedTerms = careerTerms.filter(term => userMessage.includes(term));
-    
-    if (matchedTerms.length > 0) {
-      console.log('📊 [PERPLEXITY ML] Career terms detected:', matchedTerms.join(', '));
-      return true;
-    } else {
-      console.log('📊 [PERPLEXITY ML] No career terms detected in message');
-      return false;
     }
   }
 
@@ -267,4 +229,43 @@ Indeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度�
   }
 }
 
-module.exports = PerplexitySearch; 
+// モジュール関数としてneedsKnowledgeを実装
+function needsKnowledge(userMessage) {
+  // For career mode, we always want to run the knowledge enhancement
+  // unless the message is very short or not relevant
+  if (userMessage.length < 10) {
+    console.log('📊 [PERPLEXITY ML] Message too short for knowledge enhancement:', userMessage.length, 'characters');
+    return false;
+  }
+  
+  // Check for highly relevant career-related terms
+  const careerTerms = [
+    // Career-specific terms
+    '適職', '向いてる', 'キャリア', '仕事', '職業', '就職', '転職',
+    '業界', '職種', '会社', '働く', '就活', '求人', 'スキル',
+    
+    // Career challenges
+    '悩み', '課題', '不安', '迷っ', '選択', '決断', '将来',
+    
+    // Workplace environment
+    '職場', '環境', '人間関係', '上司', '同僚', '部下', 'チーム',
+    '社風', '企業', '組織', '会社', '給料', '年収', '報酬'
+  ];
+  
+  // Find all matching terms for logging
+  const matchedTerms = careerTerms.filter(term => userMessage.includes(term));
+  
+  if (matchedTerms.length > 0) {
+    console.log('📊 [PERPLEXITY ML] Career terms detected:', matchedTerms.join(', '));
+    return true;
+  } else {
+    console.log('📊 [PERPLEXITY ML] No career terms detected in message');
+    return false;
+  }
+}
+
+// モジュールエクスポート
+module.exports = {
+  PerplexitySearch,
+  needsKnowledge
+}; 

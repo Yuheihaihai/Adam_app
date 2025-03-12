@@ -8,11 +8,15 @@
  */
 
 const localML = require('./localML');
-const { needsKnowledge, enhanceKnowledge, getJobTrends } = require('./perplexitySearch');
+const { PerplexitySearch, needsKnowledge } = require('./perplexitySearch');
 const Airtable = require('airtable');
 const { OpenAI } = require('openai');
 const fs = require('fs');
 const path = require('path');
+
+// Perplexityクライアントの初期化
+const perplexity = process.env.PERPLEXITY_API_KEY ? 
+  new PerplexitySearch(process.env.PERPLEXITY_API_KEY) : null;
 
 // 拡張: ユーザー特性統合設定
 const USER_TRAITS_INTEGRATION = {
@@ -82,10 +86,16 @@ async function getMLData(userId, userMessage, mode) {
       
       console.log('    ├─ Perplexity: データ取得開始');
       
-      // Perplexityからデータを取得
+      // Perplexityクライアントが初期化されているか確認
+      if (!perplexity) {
+        console.error('    ├─ ❌ Perplexity API key missing or initialization failed');
+        return null;
+      }
+      
+      // Perplexityからデータを取得 - perplexityクライアントのメソッドを使用
       const [knowledge, jobTrends] = await Promise.all([
-        enhanceKnowledge(userId, userMessage),
-        getJobTrends(userMessage)
+        perplexity.enhanceKnowledge([], userMessage), // 空の配列をhistoryとして渡す
+        perplexity.getJobTrends(userMessage)
       ]);
       
       return {

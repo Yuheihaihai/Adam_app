@@ -1,0 +1,127 @@
+
+/**
+ * Check if it's an appropriate time in the conversation to show service recommendations
+ */
+function isAppropriateTimeForServices(history, userMessage) {
+  if (!history || history.length < 1) return true;
+  
+  // Check if the conversation just started (fewer than 4 messages)
+  if (history.length < 4) {
+    return false; // Too early in conversation
+  }
+  
+  // Get the most recent messages
+  const recentMessages = history.slice(-5);
+  
+  // Check if services were already shown very recently
+  let lastServiceTime = -1;
+  for (let i = recentMessages.length - 1; i >= 0; i--) {
+    const msg = recentMessages[i];
+    if (msg.role === 'assistant' && 
+        msg.content && 
+        (msg.content.includes('サービス') || 
+         msg.content.includes('【お役立ち情報】') || 
+         msg.content.includes('【サポート情報】'))) {
+      lastServiceTime = i;
+      break;
+    }
+  }
+  
+  // If services were shown in the last message, don't show again
+  if (lastServiceTime === recentMessages.length - 1) {
+    return false;
+  }
+  
+  // If services were shown in the last 2 exchanges, check if user engaged
+  if (lastServiceTime >= 0 && lastServiceTime >= recentMessages.length - 3) {
+    // Check if user mentioned services or seemed interested
+    const userResponse = recentMessages[lastServiceTime + 1];
+    if (userResponse && userResponse.role === 'user' && userResponse.content) {
+      const interestWords = ['ありがとう', 'サービス', 'いいね', '助かる', '使ってみ'];
+      const showedInterest = interestWords.some(word => userResponse.content.includes(word));
+      
+      if (!showedInterest) {
+        // User didn't engage with previous recommendations
+        return false;
+      }
+    }
+  }
+  
+  // Check if user seems to be in a rapid back-and-forth informational exchange
+  let shortExchangeCount = 0;
+  for (let i = 0; i < recentMessages.length - 1; i++) {
+    if (recentMessages[i].role === 'user' && 
+        recentMessages[i + 1].role === 'assistant' && 
+        recentMessages[i].content && recentMessages[i + 1].content &&
+        recentMessages[i].content.length < 30 && 
+        recentMessages[i + 1].content.length < 200) {
+      shortExchangeCount++;
+    }
+  }
+  
+  // If in the middle of a rapid exchange, don't interrupt with services
+  if (shortExchangeCount >= 2 && userMessage && userMessage.length < 30) {
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Check frequency and timing constraints for showing services
+ */
+function shouldShowServicesToday(userId, history, userMessage) {
+  // Explicit advice request patterns
+  const explicitAdvicePatterns = [
+    'アドバイスください', 'アドバイス下さい', 'アドバイスをください',
+    'アドバイスが欲しい', 'アドバイスをお願い', '助言ください',
+    'おすすめを教えて', 'サービスを教えて', 'サービスある'
+  ];
+  
+  // If user explicitly asks for advice/services, always show
+  if (userMessage && explicitAdvicePatterns.some(pattern => userMessage.includes(pattern))) {
+    return true;
+  }
+  
+  try {
+    // Use a shared function to get/set last service time
+    const userPrefs = userPreferences.getUserPreferences(userId);
+    const lastServiceTime = userPrefs.lastServiceTime || 0;
+    const now = Date.now();
+    
+    // If user recently received service recommendations (within last 4 hours)
+    if (lastServiceTime > 0 && now - lastServiceTime < 4 * 60 * 60 * 1000) {
+      // Count total service recommendations today
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      
+      let servicesToday = 0;
+      if (userPrefs.recentlyShownServices) {
+        for (const timestamp in userPrefs.recentlyShownServices) {
+          if (parseInt(timestamp) > todayStart.getTime()) {
+            servicesToday += userPrefs.recentlyShownServices[timestamp].length;
+          }
+        }
+      }
+      
+      // Limit to no more than 9 service recommendations per day
+      if (servicesToday >= 9) {
+        return false;
+      }
+      
+      // If fewer than 5 service recommendations today, require a longer minimum gap
+      if (servicesToday < 5 && now - lastServiceTime < 45 * 60 * 1000) {
+        return false; // Less than 45 minutes since last recommendation
+      }
+      
+      // General rule: Don't recommend more than once per 30 minutes
+      return now - lastServiceTime >= 30 * 60 * 1000;
+    }
+    
+    // If it's been more than 4 hours, allow recommendations
+    return true;
+  } catch (err) {
+    console.error('Error in shouldShowServicesToday:', err);
+    return true; // Default to showing if there's an error
+  }
+}

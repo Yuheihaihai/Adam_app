@@ -9,6 +9,25 @@ A Node.js application for integrating LINE messaging with OpenAI's API.
 - Added TensorFlow.js optimization and fallback mechanism
 - Added Airtable ServiceRecommendations table creation script
 - Improved error handling and documentation
+- Fixed confidence threshold inconsistencies in ServiceRecommender
+- Corrected API parameter ordering in ML integration modules
+- Enhanced database connection error handling
+- Optimized user preference feedback patterns
+- Added comprehensive .gitignore for backup and temporary files
+- Enhanced security with input validation, rate limiting, and CSRF protection
+
+## Security Features
+
+This application includes the following security features:
+
+1. **Helmet Security Headers**: Strict CSP, HSTS, and XSS protection headers.
+2. **Input Validation**: All user inputs are validated and sanitized.
+3. **Rate Limiting**: API endpoints are protected against abuse with rate limiting.
+4. **CSRF Protection**: Authenticated routes are protected from CSRF attacks.
+5. **XSS Protection**: Input is cleaned and sanitized to prevent XSS attacks.
+6. **Environment Variable Validation**: Required environment variables are validated at startup.
+7. **JSON Payload Size Limiting**: Prevents large payload attacks.
+8. **Database Connection Security**: Secure handling of database credentials and connections.
 
 ## Installation
 
@@ -30,9 +49,28 @@ LINE_CHANNEL_ACCESS_TOKEN=your_access_token
 # OpenAI API
 OPENAI_API_KEY=your_openai_api_key
 
+# Anthropic API (optional)
+ANTHROPIC_API_KEY=your_anthropic_api_key
+
+# Perplexity API (optional, for career mode)
+PERPLEXITY_API_KEY=your_perplexity_api_key
+
+# Database (PostgreSQL)
+DATABASE_URL=your_database_url
+# Or individual connection parameters:
+DB_HOST=localhost
+DB_USER=username
+DB_PASSWORD=password
+DB_DATABASE=database_name
+DB_PORT=5432
+DB_SSL=false
+
 # Airtable (optional)
 AIRTABLE_API_KEY=your_airtable_api_key
 AIRTABLE_BASE_ID=your_airtable_base_id
+
+# Debug mode (optional)
+DEBUG_MODE=false
 ```
 
 ## Scripts
