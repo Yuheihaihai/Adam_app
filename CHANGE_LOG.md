@@ -2,6 +2,23 @@
 
 ## 2024-05-13
 
+### 会話履歴のAirtable保存機能追加
+
+#### Changes Made:
+1. **conversationHistory.js**:
+   - Airtableを使用した会話履歴の永続化機能を追加
+   - UserAnalysisテーブルとの互換性を保ちつつ、ConversationHistoryテーブルを優先的に使用
+   - メモリ内の会話履歴をAirtableに自動的に保存・ロードする機能を実装
+
+2. **scripts/create-conversation-history-table.js**:
+   - ConversationHistoryテーブルを作成するための新しいセットアップスクリプトを追加
+   - テーブルの存在確認と必要なフィールドの説明を含む
+
+#### Reason for Change:
+これまでの会話履歴はサーバーメモリ内にのみ保存されており、サーバー再起動時に失われていましたが、この変更により会話データが永続化され、学習データとして蓄積されるようになります。UserAnalysisテーブルとの互換性を保ちつつ、より効率的な専用テーブル（ConversationHistory）による保存も可能にしました。
+
+## 2024-05-13
+
 ### Fixed Additional Reference Error in Text Message Handling 
 
 #### Changes Made:
