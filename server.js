@@ -714,12 +714,17 @@ function determineModeAndLimit(userMessage) {
   ) {
     return { mode: 'humanRelationship', limit: 200 };
   }
+  
+  // シェアモードの簡易検出（詳細な判断はLLMで行う）
+  // 明らかなポジティブフィードバックとパーソナルレファレンスの組み合わせのみを抽出
   if (
     PERSONAL_REFERENCES.some(ref => lcMsg.includes(ref)) && 
     POSITIVE_KEYWORDS.some(keyword => lcMsg.includes(keyword))
   ) {
+    console.log('Potential share mode detected, will confirm with LLM');
     return { mode: 'share', limit: 10 };
   }
+  
   return { mode: 'general', limit: 10 };
 }
 
@@ -1101,19 +1106,15 @@ function checkHighEngagement(userMessage, history) {
   // デバッグログを追加
   console.log('Checking engagement:', {
     message: userMessage,
-    hasPersonalRef: PERSONAL_REFERENCES.some(ref => userMessage.toLowerCase().includes(ref)),
-    hasPositive: POSITIVE_KEYWORDS.some(keyword => userMessage.includes(keyword))
   });
 
-  // 人称への言及をチェック（必須）
-  const hasPersonalReference = PERSONAL_REFERENCES.some(ref => 
-    userMessage.toLowerCase().includes(ref)
-  );
-
-  // ポジティブキーワードを含む（必須）
-  const hasPositiveKeyword = POSITIVE_KEYWORDS.some(keyword => 
-    userMessage.includes(keyword)
-  );
+  // キーワードベースの簡易チェック（速度優先の場合）
+  const lcMsg = userMessage.toLowerCase();
+  // 明らかに該当しないメッセージは早期リターンで処理負荷軽減
+  if (!PERSONAL_REFERENCES.some(ref => lcMsg.includes(ref)) || 
+      !POSITIVE_KEYWORDS.some(keyword => lcMsg.includes(keyword))) {
+    return false;
+  }
   
   // 単なる「ありがとう」系の短文は除外
   const simpleThankYous = ['ありがとう', 'ありがとうございます', 'thanks', 'thank you'];
@@ -1121,8 +1122,58 @@ function checkHighEngagement(userMessage, history) {
     return false;
   }
 
-  // 両方の条件を満たす場合のみtrueを返す
-  return hasPersonalReference && hasPositiveKeyword;
+  // LLMを使用した高度な文脈理解による判定
+  return checkEngagementWithLLM(userMessage, history);
+}
+
+// LLMを使用して文脈からシェア意図を判定する新しい関数
+async function checkEngagementWithLLM(userMessage, history) {
+  try {
+    console.log('Using LLM to check sharing intent in message:', userMessage);
+    
+    const prompt = `
+ユーザーの次のメッセージから、サービスを他者に共有したい意図や高い満足度を示しているかを判断してください:
+
+"${userMessage}"
+
+判断基準:
+1. ユーザーがAIアシスタント「Adam」またはサービスに対して明確な満足や感謝を示している
+2. 単なる簡易な感謝（「ありがとう」だけ）ではなく、具体的な言及がある
+3. サービスを友人や知人に共有したいという意図や、推薦したい気持ちがある
+4. アプリやサービスに対して高い評価をしている
+
+応答は「yes」または「no」のみで答えてください。
+`;
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        { role: "system", content: "あなたはユーザーの意図を正確に判断するAIです。yes/noのみで回答してください。" },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.1,
+      max_tokens: 10
+    });
+    
+    const result = response.choices[0].message.content.trim().toLowerCase();
+    console.log(`LLM engagement check result: ${result}`);
+    
+    return result === 'yes';
+  } catch (error) {
+    console.error('Error in LLM engagement check:', error);
+    // エラー時はキーワードベースの判定にフォールバック
+    const hasPersonalReference = PERSONAL_REFERENCES.some(ref => 
+      userMessage.toLowerCase().includes(ref)
+    );
+    const hasPositiveKeyword = POSITIVE_KEYWORDS.some(keyword => 
+      userMessage.includes(keyword)
+    );
+    return hasPersonalReference && hasPositiveKeyword;
+  }
 }
 
 async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
@@ -2168,7 +2219,39 @@ async function handleText(event) {
     // Get user preferences to check for recently shown services
     const preferences = userPreferences.getUserPreferences(userId);
     
-    // Track implicit feedback for recently shown services
+    // Check if this is a share mode message
+    const { mode, limit } = determineModeAndLimit(userMessage);
+    
+    // シェアモードが判定された場合のLLM確認処理
+    if (mode === 'share') {
+      console.log(`Share mode triggered by determineModeAndLimit, confirming with LLM...`);
+      const history = await fetchUserHistory(userId, 10);
+      const isHighEngagement = await checkHighEngagement(userMessage, history);
+      
+      if (isHighEngagement) {
+        console.log(`High engagement confirmed by LLM, sending sharing URL to user ${userId}`);
+        // Send sharing message with Twitter URL
+        await storeInteraction(userId, 'user', userMessage);
+        const shareMessage = `お褒めの言葉をいただき、ありがとうございます！😊
+
+Adamをお役立ていただけているようで、開発チーム一同とても嬉しく思います。もしよろしければ、下記のリンクからX(Twitter)でシェアしていただけると、より多くの方にAIカウンセラー「Adam」を知っていただけます。
+
+${SHARE_URL}
+
+通常の会話に戻る場合は、そのまま質問や相談を続けていただければと思います。`;
+
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: shareMessage
+        });
+        await storeInteraction(userId, 'assistant', shareMessage);
+        return;
+      } else {
+        console.log(`LLM did not confirm high engagement despite keywords, processing as normal message`);
+      }
+    }
+    
+    // Track implicit feedback for recently shown services (continue with original handleText implementation)
     if (preferences && preferences.recentlyShownServices) {
       // Get services shown in the last hour
       const oneHourAgo = Date.now() - 3600000;
@@ -2385,9 +2468,6 @@ async function handleText(event) {
 
     // 通常のテキスト処理へ進む
     await storeInteraction(userId, 'user', userMessage);
-
-    const { mode, limit } = determineModeAndLimit(userMessage);
-    console.log(`mode=${mode}, limit=${limit}`);
 
     const historyForAI = await fetchUserHistory(userId, limit);
     const systemPrompt = getSystemPromptForMode(mode);

@@ -1,0 +1,26 @@
+# Change Log
+
+## 2024-05-30
+
+### Updated X Sharing Feature to use GPT-4o-mini model
+
+#### Changes Made:
+1. **server.js**: 
+   - Changed the model used in `checkEngagementWithLLM` function from "gpt-3.5-turbo" to "gpt-4o-mini"
+   - This change improves the contextual understanding for the X sharing feature
+
+2. **README.md**:
+   - Updated the May 2024 Updates section to reflect the use of GPT-4o-mini model instead of GPT-3.5-turbo
+
+3. **ENHANCED_FEATURES_DOCUMENTATION.md**:
+   - Updated the LLM-Powered X Sharing Feature section to reference GPT-4o-mini model
+   - Changed all mentions of GPT-3.5-turbo to GPT-4o-mini in the technical details section
+
+4. **USER_MANUAL.md**:
+   - Updated the Technical Improvements section to specify that the X sharing feature uses GPT-4o-mini model
+
+5. **USER_MANUAL_JA.md**:
+   - Updated the Technical Improvements section (技術的改良点) to specify that the X sharing feature uses GPT-4o-mini model
+
+#### Reason for Change:
+The GPT-4o-mini model provides better performance and more accurate contextual understanding for the X sharing feature, while still maintaining good efficiency. This change ensures that the system uses the most appropriate model for detecting user engagement and sharing intent. 

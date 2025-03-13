@@ -4,6 +4,13 @@ A Node.js application for integrating LINE messaging with OpenAI's API.
 
 ## Recent Updates
 
+### May 2024 Updates
+- Added LLM-powered X sharing feature with contextual understanding for improved user engagement
+- Enhanced trigger detection for social sharing with two-phase verification (simple keyword detection + LLM analysis)
+- Improved sharing message UX with clearer guidance and personalized emoji support
+- Added robust fallback mechanism for API failures in sharing functionality
+- Optimized performance with lightweight GPT-4o-mini model and smart caching
+
 ### Mar 2024 Updates
 - Fixed conversation context extraction and preference command handling
 - Added TensorFlow.js optimization and fallback mechanism

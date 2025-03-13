@@ -86,6 +86,33 @@ The app understands various ways users might express preferences:
 - Personal information is protected according to applicable privacy laws
 - Service recommendations are based on conversation analysis, not personal profiles
 
+### X (Former Twitter) Sharing Feature
+
+When you provide positive feedback about Adam, you can use the app's sharing feature.
+
+**Feature Characteristics:**
+- Automatically displays X sharing link when users show high satisfaction with Adam or the service
+- Detects specific positive feedback beyond simple "thank you" messages
+- AI understands context and suggests sharing only at appropriate moments
+- Enhanced with LLM technology for more accurate context understanding
+- Two-step verification process ensures sharing suggestions are relevant and timely
+
+**How to Use:**
+1. Send specific positive feedback during your conversation with Adam (e.g., "Adam, you've been really helpful!")
+2. When the sharing link appears, click it to share on X (formerly Twitter)
+3. If you don't wish to share, simply continue the conversation as normal and the sharing feature will automatically hide
+
+**Examples:**
+- "Adam, your advice has been very helpful"
+- "This AI counselor is really convenient"
+- "Thanks to Adam's advice, my problem was solved"
+
+**Technical Improvements:**
+- Advanced natural language understanding powered by Large Language Models (GPT-4o-mini)
+- Contextual analysis of conversation meaning, not just keywords
+- Improved reliability with automatic fallback mechanisms if API services are unavailable
+- Optimized performance with lightweight models and smart caching
+
 ### Support
 
 For additional help or questions about the service recommendation system, contact the system administrator. 

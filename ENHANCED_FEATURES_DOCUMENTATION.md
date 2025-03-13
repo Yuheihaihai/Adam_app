@@ -58,6 +58,96 @@ if (shouldGenerateImage) {
 }
 ```
 
+### 3. LLMを活用したX共有機能 (LLM-Powered X Sharing Feature)
+
+**ファイル:** `server.js`
+
+ユーザーがアプリに対してポジティブなフィードバックを表現した際のX（旧Twitter）への共有機能を強化しました。キーワードベースの単純なマッチングから、LLMを活用した高度な文脈理解による共有意図の検出に進化させました。
+
+**主な機能:**
+- LLMによるユーザーの共有意図の高精度検出
+- 簡易検出とLLM分析を組み合わせた2段階判定プロセス
+- 自然でパーソナライズされた共有メッセージ
+- OpenAI API障害時のフォールバックメカニズム（元のキーワードベース検出にフォールバック）
+- パフォーマンスを考慮した軽量モデル（GPT-4o-mini）の使用
+
+**改善点:**
+- ユーザーの感情と意図をより正確に理解し、適切なタイミングでのみ共有を促進
+- 単なるキーワードマッチではなく、文脈や言外の意味も考慮した判定
+- より自然で説得力のあるシェアメッセージでユーザーエクスペリエンスを向上
+- システム障害に強い冗長設計
+
+**技術的詳細:**
+- `checkEngagementWithLLM` 関数で OpenAI の GPT-4o-mini モデルを使用して会話文脈を分析
+- prompt エンジニアリングによる正確な共有意図検出 (感謝表現と機能評価の区別)
+- JSON フォーマットでの応答解析により、LLM からの明確な判断結果を取得
+- エラーハンドリングとタイムアウト管理を実装し、パフォーマンスへの影響を最小化
+- キャッシュメカニズムによるAPIコール数の最適化
+
+**使用例:**
+```javascript
+// 潜在的な共有意図の検出（第一段階）
+const { mode, limit } = determineModeAndLimit(userMessage);
+
+// シェアモードが検出された場合のLLM検証（第二段階）
+if (mode === 'share') {
+  const history = await fetchUserHistory(userId, 10);
+  const isHighEngagement = await checkHighEngagement(userMessage, history);
+  
+  if (isHighEngagement) {
+    // X共有URLを含むメッセージを送信
+    const shareMessage = `お褒めの言葉をいただき、ありがとうございます！😊
+    
+    Adamをお役立ていただけているようで、開発チーム一同とても嬉しく思います。もしよろしければ、下記のリンクからX(Twitter)でシェアしていただけると、より多くの方にAIカウンセラー「Adam」を知っていただけます。
+    
+    ${SHARE_URL}
+    
+    通常の会話に戻る場合は、そのまま質問や相談を続けていただければと思います。`;
+    
+    // メッセージを送信
+  }
+}
+```
+
+**実装の詳細:**
+```javascript
+async function checkEngagementWithLLM(userMessage, conversationHistory) {
+  try {
+    // LLMに送信するプロンプト
+    const prompt = {
+      messages: [
+        {
+          role: 'system',
+          content: `あなたはユーザーのメッセージからポジティブなエンゲージメントを検出する専門家です。
+            メッセージが単なる感謝ではなく、以下の条件を満たす場合にのみtrueを返してください：
+            1. ユーザーが「Adam」やサービスについて具体的に言及している
+            2. 明確なポジティブな評価や満足度を表現している
+            JSON形式で{"isHighEngagement": true/false, "reason": "判断理由"}を返してください。`
+        },
+        { role: 'user', content: userMessage }
+      ]
+    };
+
+    // LLM呼び出し
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: prompt.messages,
+      temperature: 0.1,
+      max_tokens: 150,
+      response_format: { type: 'json_object' }
+    });
+
+    // 応答解析
+    const content = response.choices[0].message.content;
+    const parsedResponse = JSON.parse(content);
+    return parsedResponse.isHighEngagement;
+  } catch (error) {
+    console.error('LLMによる高エンゲージメントチェック中にエラー:', error);
+    return false; // エラー時はfalseを返す
+  }
+}
+```
+
 ### セキュリティと性能の強化 (Security and Performance Improvements)
 
 最新の改善では、以下のセキュリティと性能の向上が実装されています：
