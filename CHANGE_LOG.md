@@ -63,4 +63,22 @@ The GPT-4o-mini model provides better performance and more accurate contextual u
    - Made `shouldShowServicesToday` an async function
 
 #### Reason for Change:
-Removed explicit trigger word detection in favor of more intelligent contextual understanding using LLM. This allows the system to recommend services when the user is implicitly asking for help or advice, not just when they use specific trigger words. The GPT-4o-mini model can better understand user intent and provide more relevant service recommendations. 
+Removed explicit trigger word detection in favor of more intelligent contextual understanding using LLM. This allows the system to recommend services when the user is implicitly asking for help or advice, not just when they use specific trigger words. The GPT-4o-mini model can better understand user intent and provide more relevant service recommendations.
+
+## 2024-05-13
+### タイムアウト回避のためのWebhook処理の改善
+- **変更内容**: Webhookエンドポイントの処理方法を改善し、即座に応答を返すようにしました。タイムアウト設定も120秒に拡張しました。
+- **変更ファイル**: `server.js`
+- **理由**: Herokuの30秒タイムアウト制限により、ユーザーからのメッセージに対するAIの応答が届かないケースがありました。Webhookがメッセージを受け取ったらすぐに200 OKを返し、バックグラウンドで処理を継続するように変更することで、タイムアウト問題を解消しました。
+
+## 2024-05-13
+### serviceNotificationのuserPrefs参照エラーの修正
+- **変更内容**: `server.js`の`serviceNotificationReason`関連コードの中で、条件分岐の前に`userPrefs`変数を初期化するように修正
+- **変更ファイル**: `server.js` 2604行目付近
+- **理由**: アプリケーションが`ReferenceError: userPrefs is not defined`エラーを出していたため、変数が参照される前に確実に定義されるように改善
+
+## 2024-05-13
+### テキストメッセージ処理におけるFEEDBACK_PATTERNS参照エラーの修正
+- **変更内容**: `handleText`関数内でFEEDBACK_PATTERNSを定義
+- **変更ファイル**: `server.js` 2329行目付近
+- **理由**: `ReferenceError: FEEDBACK_PATTERNS is not defined`エラーが発生していたため 
