@@ -1363,55 +1363,59 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     if (!userPrefs.showServiceRecommendations) {
       serviceNotificationReason = 'disabled';
       console.log('Skipping service recommendations: User preferences disabled');
-    } else if (!detectAdviceRequest(userMessage, history)) {
-      serviceNotificationReason = 'no_request';
-      console.log('Skipping service recommendations: No explicit advice request');
     } else {
-      // Check timing constraints
-      const shouldShow = shouldShowServicesToday(userId, history, userMessage);
-      if (!shouldShow) {
-        // Check the reason
-        const now = Date.now();
-        const lastServiceTime = userPrefs.lastServiceTime || 0;
-        
-        // Count total service recommendations today
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        
-        let servicesToday = 0;
-        if (userPrefs.recentlyShownServices) {
-          for (const timestamp in userPrefs.recentlyShownServices) {
-            if (parseInt(timestamp) > todayStart.getTime()) {
-              servicesToday += userPrefs.recentlyShownServices[timestamp].length;
+      // detectAdviceRequestが非同期関数になったため、awaitで結果を取得
+      const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
+      if (!isAdviceRequest) {
+        serviceNotificationReason = 'no_request';
+        console.log('Skipping service recommendations: No advice request detected by LLM');
+      } else {
+        // Check timing constraints
+        const shouldShow = await shouldShowServicesToday(userId, history, userMessage);
+        if (!shouldShow) {
+          // Check the reason
+          const now = Date.now();
+          const lastServiceTime = userPrefs.lastServiceTime || 0;
+          
+          // Count total service recommendations today
+          const todayStart = new Date();
+          todayStart.setHours(0, 0, 0, 0);
+          
+          let servicesToday = 0;
+          if (userPrefs.recentlyShownServices) {
+            for (const timestamp in userPrefs.recentlyShownServices) {
+              if (parseInt(timestamp) > todayStart.getTime()) {
+                servicesToday += userPrefs.recentlyShownServices[timestamp].length;
+              }
             }
           }
-        }
-        
-        if (servicesToday >= 9) {
-          serviceNotificationReason = 'daily_limit';
+          
+          if (servicesToday >= 9) {
+            serviceNotificationReason = 'daily_limit';
+          } else {
+            serviceNotificationReason = 'cooldown';
+          }
+          
+          console.log(`Skipping service recommendations: Timing constraints not met (reason: ${serviceNotificationReason})`);
         } else {
-          serviceNotificationReason = 'cooldown';
+          console.log('User explicitly asked for advice and timing is appropriate. Getting service recommendations...');
+          // 最終的に表示が決まったら、表示時刻を記録
+          userPrefs.lastServiceTime = Date.now();
+          userPreferences.updateUserPreferences(userId, userPrefs);
+          
+          // Enhance conversationContext with the latest user message
+          if (conversationContext.recentMessages) {
+            conversationContext.recentMessages.push(userMessage);
+            console.log(`Added message to conversationContext, now has ${conversationContext.recentMessages.length} messages`);
+            console.log(`Latest message: ${conversationContext.recentMessages[conversationContext.recentMessages.length - 1]}`);
+          }
+          
+          serviceRecommendationsPromise = serviceRecommender.getFilteredRecommendations(
+            userId, 
+            userNeeds,
+            conversationContext
+          );
         }
-        
-        console.log(`Skipping service recommendations: Timing constraints not met (reason: ${serviceNotificationReason})`);
-      } else {
-        console.log('User explicitly asked for advice and timing is appropriate. Getting service recommendations...');
-        // 最終的に表示が決まったら、表示時刻を記録
-        userPrefs.lastServiceTime = Date.now();
-        userPreferences.updateUserPreferences(userId, userPrefs);
-        
-        // Enhance conversationContext with the latest user message
-        if (conversationContext.recentMessages) {
-          conversationContext.recentMessages.push(userMessage);
-          console.log(`Added message to conversationContext, now has ${conversationContext.recentMessages.length} messages`);
-          console.log(`Latest message: ${conversationContext.recentMessages[conversationContext.recentMessages.length - 1]}`);
-        }
-        
-        serviceRecommendationsPromise = serviceRecommender.getFilteredRecommendations(
-          userId, 
-          userNeeds,
-          conversationContext
-        );
       }
     }
     
@@ -2472,11 +2476,11 @@ ${SHARE_URL}
     const historyForAI = await fetchUserHistory(userId, limit);
     const systemPrompt = getSystemPromptForMode(mode);
     
-    // アドバイス要求の検出
-    const adviceRequested = detectAdviceRequest(userMessage, historyForAI);
+    // アドバイス要求の検出（非同期処理に対応）
+    const adviceRequested = await detectAdviceRequestWithLLM(userMessage, historyForAI);
     
     // サービス表示の判断
-    const showServices = shouldShowServicesToday(userId, historyForAI, userMessage);
+    const showServices = await shouldShowServicesToday(userId, historyForAI, userMessage);
     
     // AIでの処理を実行
     const result = await processWithAI(systemPrompt, userMessage, historyForAI, mode, userId, client);
@@ -3256,23 +3260,59 @@ function createNaturalTransition(responseText, category, isMinimal) {
 }
 
 /**
- * Detect if the user is asking for advice or recommendations
+ * Detect if the user is asking for advice or recommendations using LLM context understanding
  */
 function detectAdviceRequest(userMessage, history) {
   if (!userMessage) return false;
   
-  // Use the explicitAdvicePatterns imported from advice_patterns.js
-  // Check for explicit advice requests ONLY
-  for (const pattern of explicitAdvicePatterns) {
-    if (userMessage.includes(pattern)) {
-      console.log(`Explicit advice request detected: "${pattern}"`);
-      return true;
-    }
+  // Use LLM to detect if user needs advice based on context
+  return detectAdviceRequestWithLLM(userMessage, history);
+}
+
+/**
+ * Use GPT-4o-mini to determine if user is asking for advice or in need of service recommendations
+ */
+async function detectAdviceRequestWithLLM(userMessage, history) {
+  try {
+    console.log('Using LLM to analyze if user needs service recommendations');
+    
+    const prompt = `
+ユーザーの次のメッセージから、アドバイスやサービスの推薦を求めているか、または困った状況にあるかを判断してください:
+
+"${userMessage}"
+
+判断基準:
+1. ユーザーが明示的にアドバイスやサービスの推薦を求めている
+2. ユーザーが困った状況や問題を抱えており、サービス推薦が役立つ可能性がある
+3. 単なる雑談やお礼の場合は推薦不要
+4. ユーザーが推薦を拒否している場合は推薦不要
+
+応答は「yes」または「no」のみで答えてください。
+`;
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "あなたはユーザーの意図を正確に判断するAIです。yes/noのみで回答してください。" },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.1,
+      max_tokens: 10
+    });
+    
+    const result = response.choices[0].message.content.trim().toLowerCase();
+    console.log(`LLM advice request detection result: ${result}`);
+    
+    return result === 'yes';
+  } catch (error) {
+    console.error('Error in LLM advice request detection:', error);
+    // Fall back to simpler heuristic in case of error
+    return false;
   }
-  
-  // No explicit advice request found
-  console.log('No explicit advice request detected');
-  return false;
 }
 
 /**
@@ -3346,10 +3386,11 @@ function isAppropriateTimeForServices(history, userMessage) {
 /**
  * Check frequency and timing constraints for showing services
  */
-function shouldShowServicesToday(userId, history, userMessage) {
+async function shouldShowServicesToday(userId, history, userMessage) {
   // If user explicitly asks for advice/services, always show
-  if (detectAdviceRequest(userMessage, history)) {
-    console.log('Explicit advice request detected in shouldShowServicesToday - always showing services');
+  const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
+  if (isAdviceRequest) {
+    console.log('Advice request detected by LLM in shouldShowServicesToday - always showing services');
     return true;
   }
   

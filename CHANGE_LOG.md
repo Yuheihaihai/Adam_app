@@ -23,4 +23,18 @@
    - Updated the Technical Improvements section (技術的改良点) to specify that the X sharing feature uses GPT-4o-mini model
 
 #### Reason for Change:
-The GPT-4o-mini model provides better performance and more accurate contextual understanding for the X sharing feature, while still maintaining good efficiency. This change ensures that the system uses the most appropriate model for detecting user engagement and sharing intent. 
+The GPT-4o-mini model provides better performance and more accurate contextual understanding for the X sharing feature, while still maintaining good efficiency. This change ensures that the system uses the most appropriate model for detecting user engagement and sharing intent.
+
+## 2024-05-31
+
+### Enhanced Service Recommendation Trigger System with LLM Context Understanding
+
+#### Changes Made:
+1. **server.js**:
+   - Modified `detectAdviceRequest` function to use LLM context understanding instead of trigger words
+   - Added new `detectAdviceRequestWithLLM` function using GPT-4o-mini model
+   - Updated related functions to work with async/await for the LLM-based detection
+   - Made `shouldShowServicesToday` an async function
+
+#### Reason for Change:
+Removed explicit trigger word detection in favor of more intelligent contextual understanding using LLM. This allows the system to recommend services when the user is implicitly asking for help or advice, not just when they use specific trigger words. The GPT-4o-mini model can better understand user intent and provide more relevant service recommendations. 

@@ -36,6 +36,8 @@ Users have complete control over what service recommendations they receive:
 
 The system intelligently responds to user feedback about services:
 
+- **[NEW]** Advanced LLM-powered context understanding detects when users implicitly need help, without requiring specific trigger words
+- **[NEW]** The system recognizes distress and difficulties in user messages and provides relevant services automatically
 - If a user says "お仕事関係ない" (not related to work), the system will avoid showing employment services
 - When mentioning "メンタル" (mental), the system prioritizes mental health services
 - For users in distress, a minimal service display format is used
@@ -43,8 +45,10 @@ The system intelligently responds to user feedback about services:
 
 #### 4. Natural Language Interaction
 
-The app understands various ways users might express preferences:
+The app understands various ways users might express needs:
 
+- **[NEW]** Indirect requests: "I'm struggling with..." or "This is so difficult for me..."
+- **[NEW]** Emotional expressions: Detecting frustration, worry, or confusion
 - Direct statements: "仕事関係ない" (not related to work)
 - Inquiries: "メンタルについて知りたい" (want to know about mental health)
 - Feedback: "就職サービスはいらない" (don't need employment services)
