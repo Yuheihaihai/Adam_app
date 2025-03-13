@@ -2640,25 +2640,42 @@ async function handleVisionExplanation(event, explanationText) {
   try {
     // explanationTextが提供されている場合、それを使用して画像説明を生成
     if (explanationText) {
-      // Clean and possibly summarize the explanationText if it's too long
-      let cleanExplanationText = explanationText;
+      // Check if this is a long text like the ASD guide and summarize if needed
       let displayText = explanationText;
+      let enhancedPrompt = "";
+      let isASDGuide = false;
       
-      // If text is very long (>100 chars), create a summary version for display
-      if (cleanExplanationText.length > 100) {
-        console.log(`[DEBUG] Long explanation text detected (${cleanExplanationText.length} chars). Creating summary for display.`);
-        displayText = cleanExplanationText.substring(0, 50) + "..." + cleanExplanationText.substring(cleanExplanationText.length - 20);
+      // If text is very long (like the ASD guide), create a summary version
+      if (explanationText.length > 300) {
+        console.log(`[DEBUG] Long text detected (${explanationText.length} chars), creating summary version`);
         
-        // If it contains specific markers of the ASD guide, use a more friendly summary
-        if (cleanExplanationText.includes("ASD支援機能") && cleanExplanationText.includes("対応可能な質問例")) {
-          displayText = "ASD支援機能の使い方ガイド";
-          console.log(`[DEBUG] ASD guide detected, using simplified display text: "${displayText}"`);
+        // Check if it's the ASD guide
+        if (explanationText.includes("ASD支援機能の使い方ガイド") || explanationText.includes("自閉症スペクトラム障害")) {
+          isASDGuide = true;
+          displayText = "ASD支援機能の活用方法";
+          enhancedPrompt = "ASD（自閉症スペクトラム障害）支援の主要なポイントを簡潔に示した視覚的な図解。質問例（コミュニケーション、感覚過敏、社会場面などの対応）、基本的な使い方、注意点を含む。シンプルで分かりやすいインフォグラフィック形式。";
+          console.log(`[DEBUG] ASD guide detected, using specialized summary and prompt`);
+        } else {
+          // For other long texts, extract the first sentence or first 100 chars
+          displayText = explanationText.split('。')[0] + "。";
+          if (displayText.length > 100) {
+            displayText = displayText.substring(0, 97) + "...";
+          }
+          enhancedPrompt = `以下の内容の要点を視覚的に説明するイラスト: ${explanationText.substring(0, 500)}`;
         }
+      } else {
+        // For normal length text, use as is
+        enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${explanationText}`;
       }
+      
+      // Use a simple message for generation notification
+      let generationMessage = isASDGuide 
+        ? "ASD支援機能の主なポイントを視覚化しています。少々お待ちください..."
+        : `「${displayText}」に基づく視覚的な説明を生成しています。少々お待ちください...`;
       
       await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: `「${displayText}」に基づく画像を生成しています。少々お待ちください...`
+        text: generationMessage
       });
       
       // DALL-Eを使用して画像を生成
@@ -2667,8 +2684,7 @@ async function handleVisionExplanation(event, explanationText) {
           apiKey: process.env.OPENAI_API_KEY
         });
         
-        // 画像生成のプロンプトを強化
-        const enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${cleanExplanationText}`;
+        console.log(`[DEBUG] Using enhanced prompt: ${enhancedPrompt.substring(0, 100)}...`);
         
         const response = await openai.images.generate({
           model: "dall-e-3",
@@ -2683,7 +2699,15 @@ async function handleVisionExplanation(event, explanationText) {
         // 生成された画像のURLを取得
         console.log(`Generated image URL: ${imageUrl}`);
         
-        // 画像をLINEに送信 - use the same displayText for consistency
+        // Create a concise response message
+        let responseMessage = "";
+        if (isASDGuide) {
+          responseMessage = "ASD支援機能の主なポイントをまとめた画像です。この視覚的な説明は理解の助けになりましたか？";
+        } else {
+          responseMessage = `「${displayText}」の要点を視覚化しました。この画像は参考になりましたか？`;
+        }
+        
+        // 画像をLINEに送信
         await client.pushMessage(userId, [
           {
             type: 'image',
@@ -2692,12 +2716,13 @@ async function handleVisionExplanation(event, explanationText) {
           },
           {
             type: 'text',
-            text: `「${displayText}」をもとに生成した画像です。この画像で内容の理解が深まりましたか？`
+            text: responseMessage
           }
         ]);
         
-        // 生成した画像情報を保存 - Store only image reference with no additional text
-        await storeInteraction(userId, 'assistant', `[生成画像のみ]`);
+        // 生成した画像情報を保存 - Store only image reference with concise text
+        let storageText = isASDGuide ? "ASD支援機能の視覚的ガイド" : displayText;
+        await storeInteraction(userId, 'assistant', `[生成画像] ${storageText}`);
         
         // Add user to recent image generation tracking with timestamp to prevent ASD guide
         recentImageGenerationUsers.set(userId, Date.now());
