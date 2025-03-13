@@ -2621,6 +2621,9 @@ ${SHARE_URL}
     // (serviceNotificationReasonの初期化が不足していたため、ここで適切に設定)
     let serviceNotificationReason = null;
     
+    // ユーザー設定を取得
+    const userPrefs = userPreferences.getUserPreferences(userId);
+    
     // サービス表示がオフの場合に理由を設定
     if (!showServices && userPrefs && !userPrefs.showServiceRecommendations) {
       serviceNotificationReason = 'disabled';

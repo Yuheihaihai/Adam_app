@@ -2,6 +2,19 @@
 
 ## 2024-05-13
 
+### Fixed Additional Reference Error in Text Message Handling 
+
+#### Changes Made:
+1. **server.js**:
+   - Fixed `ReferenceError: userPrefs is not defined` error in service notification code
+   - Moved the userPrefs declaration earlier in the function to ensure it's always defined
+   - This ensures proper handling of service notification messages
+
+#### Reason for Change:
+The application was throwing a reference error when processing service notification messages. The variable `userPrefs` was being referenced before it was defined in some code paths. Moving the declaration earlier ensures it's always available when needed.
+
+## 2024-05-13
+
 ### Fixed Reference Error in Feedback Processing
 
 #### Changes Made:
