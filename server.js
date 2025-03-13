@@ -2276,6 +2276,14 @@ async function handleText(event) {
     
     // 特定の問い合わせ（ASD支援の質問例や使い方の案内）を検出
     if (userMessage.includes("ASD症支援であなたが対応できる具体的な質問例") && userMessage.includes("使い方")) {
+      // Check if this user recently received an image generation - if so, skip ASD guide
+      const recentImageTimestamp = recentImageGenerationUsers.get(userId);
+      if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 30000)) { // 30 seconds protection
+        console.log(`User ${userId} recently received image generation, skipping ASD guide`);
+        recentImageGenerationUsers.delete(userId); // Clean up after use
+        return;
+      }
+      
       return handleASDUsageInquiry(event);
     }
     
@@ -2336,7 +2344,7 @@ async function handleText(event) {
       } else {
         pendingImageExplanations.set(userId, "説明がありません。");
       }
-      const suggestionMessage = "画像で説明しましょうか？「はい」または「いいえ」でお答えください。";
+      const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
       console.log("画像による説明の提案をユーザーに送信:", suggestionMessage);
       return client.replyMessage(event.replyToken, {
         type: 'text',
@@ -2644,6 +2652,9 @@ async function handleVisionExplanation(event, explanationText) {
         // 生成した画像情報を保存 - Store only image reference with no additional text
         await storeInteraction(userId, 'assistant', `[生成画像のみ]`);
         
+        // Add user to recent image generation tracking with timestamp to prevent ASD guide
+        recentImageGenerationUsers.set(userId, Date.now());
+        
         // Clear the image generation flag after a delay (5 seconds should be enough)
         setTimeout(() => {
           imageGenerationInProgress.delete(userId);
@@ -2867,6 +2878,12 @@ async function processUserMessage(userId, userMessage, history, initialMode = nu
 async function handleASDUsageInquiry(event) {
   const userId = event.source.userId;
   const messageText = event.message.text;
+  
+  // Check if image generation is in progress - if so, skip sending ASD guide
+  if (imageGenerationInProgress.has(userId)) {
+    console.log(`Image generation in progress for ${userId}, skipping ASD guide`);
+    return;
+  }
   
   // Create a comprehensive response about ASD support features
   const response = `
