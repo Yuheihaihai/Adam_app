@@ -11,6 +11,8 @@ A Node.js application for integrating LINE messaging with OpenAI's API.
 - Added robust fallback mechanism for API failures in sharing functionality
 - Optimized performance with lightweight GPT-4o-mini model and smart caching
 - Enhanced service recommendation system with pure LLM-based context understanding (without trigger words)
+- Optimized webhook processing to avoid Heroku timeout issues by implementing immediate response and background processing
+- Extended timeout settings to 120 seconds for handling long-running tasks without interruption
 
 ### Mar 2024 Updates
 - Fixed conversation context extraction and preference command handling

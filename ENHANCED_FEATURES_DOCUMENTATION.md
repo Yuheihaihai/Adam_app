@@ -331,4 +331,44 @@ node testEnhancedFeatures.js
 1. 専門家ペルソナを設定
 2. 具体的な例を提示
 3. 明確な判断基準を指定
-4. 出力形式を限定（「RECOMMENDATION_REQUESTED」や「CONFUSED」のみ） 
+4. 出力形式を限定（「RECOMMENDATION_REQUESTED」や「CONFUSED」のみ）
+
+### パフォーマンス最適化とWebhook処理
+
+リクエスト処理のパフォーマンスを最適化するため、以下の改善を実装しています：
+
+- **即時レスポンス戦略**: Webhookエンドポイントがメッセージを受信後、即座に200 OKレスポンスを返し、実際の処理はバックグラウンドで行います
+- **非同期イベント処理**: `Promise.all`と`async/await`を使用して複数のイベントを並行処理し、全体のレスポンスタイムを短縮
+- **拡張タイムアウト設定**: 内部タイムアウト設定を120秒に延長し、AIモデルによる応答生成などの時間のかかる処理を確実に完了
+- **エラー隔離**: 個別イベントの処理エラーが他のイベント処理に影響しないように隔離
+
+**コード例:**
+```javascript
+// Webhook処理の最適化例
+app.post('/webhook', rawBodyParser, line.middleware(config), (req, res) => {
+  // 即座に200 OKを返す
+  res.status(200).json({
+    message: 'Webhook received, processing in background'
+  });
+  
+  // 処理をバックグラウンドで継続
+  (async () => {
+    try {
+      // 各イベントを非同期で処理
+      const results = await Promise.all(req.body.events.map(event => {
+        return Promise.resolve().then(() => handleEvent(event))
+          .catch(err => {
+            console.error(`Error handling event:`, err);
+            return null; // エラーを隔離して処理を継続
+          });
+      }));
+      
+      console.log(`Webhook processing completed for ${results.filter(r => r !== null).length} events`);
+    } catch (err) {
+      console.error('Webhook background processing error:', err);
+    }
+  })();
+});
+```
+
+この実装により、Herokuの30秒タイムアウト制限に関係なく、すべてのユーザーメッセージが確実に処理されるようになりました。 

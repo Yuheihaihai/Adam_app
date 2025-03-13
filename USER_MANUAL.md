@@ -116,6 +116,8 @@ When you provide positive feedback about Adam, you can use the app's sharing fea
 - Contextual analysis of conversation meaning, not just keywords
 - Improved reliability with automatic fallback mechanisms if API services are unavailable
 - Optimized performance with lightweight models and smart caching
+- Enhanced webhook processing with immediate response and background execution to prevent timeout issues
+- Extended timeout settings (120s) to ensure reliable processing of complex requests
 
 ### Support
 
