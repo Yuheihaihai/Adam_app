@@ -145,7 +145,7 @@ class LocalML {
         UserID: userId,
         Mode: mode,
         AnalysisData: analysisDataString,
-        LastUpdated: new Date().toISOString()
+        LastUpdated: new Date()  // ISO文字列ではなく Date オブジェクトを直接使用
       };
       
       // 更新または新規作成
