@@ -2345,18 +2345,38 @@ async function handleText(event) {
     // 画像説明の提案トリガーチェック：isConfusionRequest のみを使用
     let triggerImageExplanation = false;
     if (isConfusionRequest(userMessage)) {
+      console.log(`[DEBUG] Confusion detected in message: "${userMessage}"`);
       triggerImageExplanation = true;
     }
 
-    // トリガーされた場合、pending 状態として前回の回答を保存し、yes/no で質問
     if (triggerImageExplanation) {
+      console.log(`[DEBUG] Image explanation triggered for user ${userId}`);
+      
+      // Check if this user recently received an image generation - if so, skip image generation prompt
+      const recentImageTimestamp = recentImageGenerationUsers.get(userId);
+      if (recentImageTimestamp) {
+        console.log(`[DEBUG] User ${userId} has recent image timestamp: ${recentImageTimestamp}, now: ${Date.now()}, diff: ${Date.now() - recentImageTimestamp}ms`);
+      }
+      
+      if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 30000)) { // 30 seconds protection
+        console.log(`[DEBUG] User ${userId} recently received image generation, skipping image explanation offer`);
+        recentImageGenerationUsers.delete(userId); // Clean up after use
+        return;
+      }
+      
       if (lastAssistantMessage) {
+        console.log(`[DEBUG] Setting pendingImageExplanations for user ${userId} with content: "${lastAssistantMessage.content.substring(0, 30)}..."`);
         pendingImageExplanations.set(userId, lastAssistantMessage.content);
       } else {
+        console.log(`[DEBUG] No last assistant message found for user ${userId}, using default message`);
         pendingImageExplanations.set(userId, "説明がありません。");
       }
+      
       const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
-      console.log("画像による説明の提案をユーザーに送信:", suggestionMessage);
+      console.log(`[DEBUG] Image explanation suggestion sent to user ${userId}`);
+      await storeInteraction(userId, 'user', userMessage);
+      await storeInteraction(userId, 'assistant', suggestionMessage);
+      
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: suggestionMessage
