@@ -1209,7 +1209,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     // ─────────────────────────────────────────────────────────────────────
     
     // Run user needs analysis, conversation context extraction, and service matching in parallel
-    const [userNeedsPromise, conversationContextPromise, perplexityDataPromise] = await Promise.all([
+    const [userNeedsPromise, conversationContextPromise, mlDataPromise] = await Promise.all([
       // Analyze user needs from conversation history
       (async () => {
         console.log('\n📊 [1A] USER NEEDS ANALYSIS - Starting');
@@ -1228,106 +1228,60 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
         return conversationContext;
       })(),
       
-      // Fetch Perplexity data if in career mode
+      // Fetch ML data using the enhanced integration with Airtable
       (async () => {
-        if (mode === 'career') {
-          try {
-            console.log('\n🤖 [1C] ML AUGMENTATION: PERPLEXITY DATA - Starting');
-            const perplexityStartTime = Date.now();
-            
-            console.log('    ├─ [1C.1] Initiating parallel API calls to Perplexity');
-            // Run both knowledge enhancement and job trends in parallel
-            const [knowledgeData, jobTrendsData] = await Promise.all([
-              perplexity.enhanceKnowledge(history, userMessage).catch(err => {
-                console.error('    │  ❌ Knowledge enhancement failed:', err.message);
-                return null;
-              }),
-              perplexity.getJobTrends().catch(err => {
-                console.error('    │  ❌ Job trends failed:', err.message);
-                return null;
-              })
-            ]);
-            
-            const perplexityTime = Date.now() - perplexityStartTime;
-            console.log(`    ├─ [1C.2] ML data retrieved in ${perplexityTime}ms`);
-            
-            // Log what we got with more details
-            console.log('    ├─ [1C.3] ML DATA RESULTS:');
-            console.log(`    │  ${knowledgeData ? '✅' : '❌'} User characteristics analysis: ${knowledgeData ? 'Retrieved' : 'Failed'}`);
-            if (knowledgeData) {
-                console.log('    │    └─ Length: ' + knowledgeData.length + ' characters');
-                console.log('    │    └─ Sample: ' + knowledgeData.substring(0, 50) + '...');
-            }
-            
-            console.log(`    │  ${jobTrendsData ? '✅' : '❌'} Job market trends: ${jobTrendsData ? 'Retrieved' : 'Failed'}`);
-            if (jobTrendsData && jobTrendsData.analysis) {
-                console.log('    │    └─ Analysis length: ' + jobTrendsData.analysis.length + ' characters');
-                console.log('    │    └─ Sample: ' + jobTrendsData.analysis.substring(0, 50) + '...');
-                console.log('    │    └─ URLs provided: ' + (jobTrendsData.urls ? 'Yes' : 'No'));
-            }
-            
-            console.log('    └─ [1C.4] ML AUGMENTATION: PERPLEXITY DATA - Completed');
-            
-            return {
-              knowledge: knowledgeData,
-              jobTrends: jobTrendsData
-            };
-          } catch (error) {
-            console.error('\n❌ Error fetching ML data:', error.message);
-            console.log('   └─ Proceeding without ML augmentation');
-            return null;
+        console.log('\n🤖 [1C] ML DATA AUGMENTATION - Starting');
+        const mlStartTime = Date.now();
+        
+        // 新しい関数を使用: Airtableデータを含む拡張ML処理
+        const mlData = await mlIntegration.getUserMlData(userId, userMessage, mode, history);
+        
+        const mlTime = Date.now() - mlStartTime;
+        console.log(`    ├─ [1C.2] ML data processed in ${mlTime}ms`);
+        
+        if (mlData) {
+          console.log('    ├─ [1C.3] ML DATA RESULTS:');
+          console.log(`    │  ✅ User ${mode} analysis with Airtable enhancement: Retrieved`);
+          console.log(`    │    └─ Data size: ${JSON.stringify(mlData).length} bytes`);
+          
+          // Airtableデータが含まれているかどうかをログ
+          if (mlData.airtable_data && mlData.airtable_data.available) {
+            console.log(`    │    └─ Including Airtable data (last updated: ${mlData.airtable_data.last_updated})`);
           }
-        }
-        // LocalML processing for other modes (general, mental_health, analysis)
-        else if (['general', 'mental_health', 'analysis'].includes(mode)) {
-          try {
-            console.log('\n🤖 [1C] ML AUGMENTATION: LOCALML DATA - Starting');
-            const localMlStartTime = Date.now();
-            
-            // Process ML data through mlHook
-            const { mlData } = await processMlData(userId, userMessage, mode);
-            
-            const localMlTime = Date.now() - localMlStartTime;
-            console.log(`    ├─ [1C.2] ML data processed in ${localMlTime}ms`);
-            
-            // Log ML data status
-            if (mlData) {
-              console.log('    ├─ [1C.3] ML DATA RESULTS:');
-              console.log(`    │  ✅ User ${mode} analysis: Retrieved`);
-              console.log(`    │    └─ Data size: ${JSON.stringify(mlData).length} bytes`);
-              
-              // Log detected traits or features based on mode
-              if (mode === 'general' && mlData.traits) {
-                console.log('    │    └─ Detected traits:');
-                Object.entries(mlData.traits).forEach(([trait, value]) => {
-                  console.log(`    │       - ${trait}: ${value}`);
-                });
-              } else if (mode === 'mental_health' && mlData.indicators) {
-                console.log('    │    └─ Detected indicators:');
-                Object.entries(mlData.indicators).forEach(([indicator, value]) => {
-                  console.log(`    │       - ${indicator}: ${value}`);
-                });
-              } else if (mode === 'analysis' && mlData.complexity) {
-                console.log('    │    └─ Detected complexity factors:');
-                Object.entries(mlData.complexity).forEach(([factor, value]) => {
-                  console.log(`    │       - ${factor}: ${value}`);
-                });
-              }
-            } else {
-              console.log('    ├─ [1C.3] ML DATA RESULTS:');
-              console.log('    │  ❌ No ML data available for this conversation');
+          
+          // Log detected traits or features based on mode
+          if (mode === 'general' && mlData.traits) {
+            console.log('    │    └─ Detected traits:');
+            Object.entries(mlData.traits).forEach(([trait, value]) => {
+              console.log(`    │       - ${trait}: ${value}`);
+            });
+          } else if (mode === 'mental_health' && mlData.indicators) {
+            console.log('    │    └─ Detected indicators:');
+            Object.entries(mlData.indicators).forEach(([indicator, value]) => {
+              console.log(`    │       - ${indicator}: ${value}`);
+            });
+          } else if (mode === 'analysis' && mlData.complexity) {
+            console.log('    │    └─ Detected complexity factors:');
+            Object.entries(mlData.complexity).forEach(([factor, value]) => {
+              console.log(`    │       - ${factor}: ${value}`);
+            });
+          } else if (mode === 'career') {
+            console.log('    │    └─ Career mode ML data available');
+            if (mlData.knowledge) {
+              console.log('    │       - Knowledge data length: ' + mlData.knowledge.length + ' characters');
             }
-            
-            console.log('    └─ [1C.4] ML AUGMENTATION: LOCALML DATA - Completed');
-            
-            return mlData;
-          } catch (error) {
-            console.error('\n❌ Error processing LocalML data:', error.message);
-            console.log('   └─ Proceeding without ML augmentation');
-            return null;
+            if (mlData.jobTrends) {
+              console.log('    │       - Job trends data available');
+            }
           }
+        } else {
+          console.log('    ├─ [1C.3] ML DATA RESULTS:');
+          console.log('    │  ❌ No ML data available for this conversation');
         }
-        return null;
+        
+        console.log('    └─ [1C.4] ML AUGMENTATION - Completed');
+        
+        return mlData;
       })()
     ]);
     
@@ -1340,7 +1294,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     // Wait for all promises to resolve
     const userNeeds = await userNeedsPromise;
     const conversationContext = await conversationContextPromise;
-    const perplexityData = await perplexityDataPromise;
+    const mlData = await mlDataPromise; // 変数名を変更
     
     console.log('\n🧩 [2A] USER NEEDS RESULT:');
     Object.keys(userNeeds).forEach(category => {
@@ -1445,7 +1399,7 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
     ];
     
     // Add Perplexity data if available for career mode
-    if (mode === 'career' && perplexityData) {
+    if (mode === 'career' && mlData) {
       console.log('\n🔄 [3B] INTEGRATING ML DATA INTO PROMPT');
       
       // Record baseline prompt size before adding ML data
@@ -1456,13 +1410,13 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
       const systemInstructions = messages.find(m => m.role === 'system')?.content || '';
       console.log(`    ├─ Base system instructions: ${systemInstructions.substring(0, 100)}...`);
       
-      if (perplexityData.jobTrends) {
+      if (mlData.jobTrends) {
         console.log('    ├─ Adding job market trends:');
-        console.log(`    │  └─ Market analysis: ${perplexityData.jobTrends.analysis ? perplexityData.jobTrends.analysis.length : 0} characters`);
-        console.log(`    │  └─ Job URLs: ${perplexityData.jobTrends.urls ? 'Included' : 'Not available'}`);
+        console.log(`    │  └─ Market analysis: ${mlData.jobTrends.analysis ? mlData.jobTrends.analysis.length : 0} characters`);
+        console.log(`    │  └─ Job URLs: ${mlData.jobTrends.urls ? 'Included' : 'Not available'}`);
         
         // Extract key market insights for logging
-        const marketInsights = extractKeyInsights(perplexityData.jobTrends.analysis, 3);
+        const marketInsights = extractKeyInsights(mlData.jobTrends.analysis, 3);
         console.log('    │  └─ Key market insights:');
         marketInsights.forEach((insight, i) => {
           console.log(`    │     ${i+1}. ${insight.substring(0, 40)}...`);
@@ -1474,22 +1428,22 @@ async function processWithAI(systemPrompt, userMessage, history, mode, userId, c
 # 最新の市場データ (Perplexityから取得)
 
 [市場分析]
-${perplexityData.jobTrends.analysis || '情報を取得できませんでした。'}
+${mlData.jobTrends.analysis || '情報を取得できませんでした。'}
 
 [求人情報]
-${perplexityData.jobTrends.urls || '情報を取得できませんでした。'}
+${mlData.jobTrends.urls || '情報を取得できませんでした。'}
 
 このデータを活用してユーザーに適切なキャリアアドバイスを提供してください。
 `
         });
       }
       
-      if (perplexityData.knowledge) {
+      if (mlData.knowledge) {
         console.log('    └─ Adding user characteristics analysis:');
-        console.log(`       └─ Analysis: ${perplexityData.knowledge.length} characters`);
+        console.log(`       └─ Analysis: ${mlData.knowledge.length} characters`);
         
         // Extract key characteristics for logging
-        const userCharacteristics = extractKeyInsights(perplexityData.knowledge, 3);
+        const userCharacteristics = extractKeyInsights(mlData.knowledge, 3);
         console.log('       └─ Key user characteristics:');
         userCharacteristics.forEach((characteristic, i) => {
           console.log(`          ${i+1}. ${characteristic.substring(0, 40)}...`);
@@ -1500,7 +1454,7 @@ ${perplexityData.jobTrends.urls || '情報を取得できませんでした。'}
           content: `
 # ユーザー特性の追加分析 (Perplexityから取得)
 
-${perplexityData.knowledge}
+${mlData.knowledge}
 
 この特性を考慮してアドバイスを提供してください。
 `
@@ -1582,12 +1536,12 @@ ${perplexityData.knowledge}
           console.log(`    ├─ Total prompt components: ${messages.length}`);
           
           // Pre-response analysis: Show what information we expect the ML data to provide
-          if (mode === 'career' && perplexityData) {
+          if (mode === 'career' && mlData) {
             console.log('    ├─ Expected ML influence on response:');
             
-            if (perplexityData.jobTrends && perplexityData.jobTrends.analysis) {
+            if (mlData.jobTrends && mlData.jobTrends.analysis) {
               // Extract key job sectors from the market data
-              const jobSectors = extractJobSectors(perplexityData.jobTrends.analysis);
+              const jobSectors = extractJobSectors(mlData.jobTrends.analysis);
               console.log('    │  └─ Expected job sectors in response:');
               jobSectors.forEach((sector, i) => {
                 if (i < 3) {
@@ -1598,27 +1552,27 @@ ${perplexityData.knowledge}
               // Add more detailed analysis of job trends data
               console.log('    │  └─ Market data influence details:');
               // Check for salary information
-              const hasSalary = perplexityData.jobTrends.analysis.includes('年収') || 
-                               perplexityData.jobTrends.analysis.includes('給与') ||
-                               perplexityData.jobTrends.analysis.includes('賃金');
+              const hasSalary = mlData.jobTrends.analysis.includes('年収') || 
+                               mlData.jobTrends.analysis.includes('給与') ||
+                               mlData.jobTrends.analysis.includes('賃金');
               console.log(`    │     - Salary information: ${hasSalary ? '含まれる✅' : '含まれない❌'}`);
               
               // Check for skill requirements
-              const hasSkills = perplexityData.jobTrends.analysis.includes('スキル') || 
-                               perplexityData.jobTrends.analysis.includes('能力') ||
-                               perplexityData.jobTrends.analysis.includes('資格');
+              const hasSkills = mlData.jobTrends.analysis.includes('スキル') || 
+                               mlData.jobTrends.analysis.includes('能力') ||
+                               mlData.jobTrends.analysis.includes('資格');
               console.log(`    │     - Skill requirements: ${hasSkills ? '含まれる✅' : '含まれない❌'}`);
               
               // Check for future trends
-              const hasFutureTrends = perplexityData.jobTrends.analysis.includes('将来') || 
-                                     perplexityData.jobTrends.analysis.includes('今後') ||
-                                     perplexityData.jobTrends.analysis.includes('予測');
+              const hasFutureTrends = mlData.jobTrends.analysis.includes('将来') || 
+                                     mlData.jobTrends.analysis.includes('今後') ||
+                                     mlData.jobTrends.analysis.includes('予測');
               console.log(`    │     - Future predictions: ${hasFutureTrends ? '含まれる✅' : '含まれない❌'}`);
             }
             
-            if (perplexityData.knowledge) {
+            if (mlData.knowledge) {
               // Extract personality traits from user characteristics
-              const personalityTraits = extractPersonalityTraits(perplexityData.knowledge);
+              const personalityTraits = extractPersonalityTraits(mlData.knowledge);
               console.log('    │  └─ Expected personality traits addressed:');
               personalityTraits.forEach((trait, i) => {
                 if (i < 3) {
@@ -1630,21 +1584,21 @@ ${perplexityData.knowledge}
               console.log('    │  └─ User characteristics influence details:');
               
               // Check for communication style
-              const hasCommunication = perplexityData.knowledge.includes('コミュニケーション') || 
-                                      perplexityData.knowledge.includes('対話') ||
-                                      perplexityData.knowledge.includes('会話');
+              const hasCommunication = mlData.knowledge.includes('コミュニケーション') || 
+                                      mlData.knowledge.includes('対話') ||
+                                      mlData.knowledge.includes('会話');
               console.log(`    │     - Communication style: ${hasCommunication ? '分析済み✅' : '未分析❌'}`);
               
               // Check for decision-making patterns
-              const hasDecisionMaking = perplexityData.knowledge.includes('決断') || 
-                                       perplexityData.knowledge.includes('判断') ||
-                                       perplexityData.knowledge.includes('選択');
+              const hasDecisionMaking = mlData.knowledge.includes('決断') || 
+                                       mlData.knowledge.includes('判断') ||
+                                       mlData.knowledge.includes('選択');
               console.log(`    │     - Decision patterns: ${hasDecisionMaking ? '分析済み✅' : '未分析❌'}`);
               
               // Check for values and priorities
-              const hasValues = perplexityData.knowledge.includes('価値観') || 
-                               perplexityData.knowledge.includes('大切') ||
-                               perplexityData.knowledge.includes('重視');
+              const hasValues = mlData.knowledge.includes('価値観') || 
+                               mlData.knowledge.includes('大切') ||
+                               mlData.knowledge.includes('重視');
               console.log(`    │     - Values/priorities: ${hasValues ? '分析済み✅' : '未分析❌'}`);
             }
           }
@@ -1740,15 +1694,15 @@ ${perplexityData.knowledge}
     console.log('\n=== WORKFLOW VISUALIZATION: COMPLETE ===\n');
     
     // New logging: Analyze how ML data influenced the AI response
-    if (mode === 'career' && perplexityData) {
+    if (mode === 'career' && mlData) {
       console.log('\n=== ML DATA INFLUENCE ANALYSIS ===');
       
       // Analyze job market influence
-      if (perplexityData.jobTrends && perplexityData.jobTrends.analysis) {
+      if (mlData.jobTrends && mlData.jobTrends.analysis) {
         console.log('\n📊 ML INFLUENCE: JOB MARKET DATA');
         
         // Extract key phrases from job trends analysis
-        const jobTrendsText = perplexityData.jobTrends.analysis;
+        const jobTrendsText = mlData.jobTrends.analysis;
         const keyPhrases = extractSignificantPhrases(jobTrendsText);
         console.log('   ├─ Key market insights from Perplexity:');
         keyPhrases.forEach((phrase, index) => {
@@ -1777,7 +1731,7 @@ ${perplexityData.knowledge}
         }
         
         // Check for job URLs influence
-        if (perplexityData.jobTrends.urls) {
+        if (mlData.jobTrends.urls) {
           const urlsIncluded = aiResponse.includes('http') || aiResponse.includes('www') || 
                               aiResponse.includes('求人') || aiResponse.includes('サイト');
           console.log(`   │  ${urlsIncluded ? '✅' : '❌'} Job URLs influence: ${urlsIncluded ? 'Detected' : 'Not detected'}`);
@@ -1785,11 +1739,11 @@ ${perplexityData.knowledge}
       }
       
       // Analyze user characteristics influence
-      if (perplexityData.knowledge) {
+      if (mlData.knowledge) {
         console.log('\n👤 ML INFLUENCE: USER CHARACTERISTICS');
         
         // Extract key insights from user analysis
-        const userInsightsText = perplexityData.knowledge;
+        const userInsightsText = mlData.knowledge;
         const userInsights = extractSignificantPhrases(userInsightsText);
         console.log('   ├─ Key user insights from Perplexity:');
         userInsights.forEach((insight, index) => {
@@ -1849,12 +1803,12 @@ ${perplexityData.knowledge}
       console.log('   ├─ ML データが回答に与えた具体的な影響:');
       
       // 1. Check if the response mentions specific jobs/roles that were in the ML data
-      if (perplexityData.jobTrends && perplexityData.jobTrends.analysis) {
+      if (mlData.jobTrends && mlData.jobTrends.analysis) {
         // Extract job roles from ML data
         const jobRoleRegex = /([\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}A-Za-z]+?)(エンジニア|デザイナー|マネージャー|ディレクター|コンサルタント|スペシャリスト|アナリスト)/gu;
         const jobRolesInData = [];
         let match;
-        const dataText = perplexityData.jobTrends.analysis;
+        const dataText = mlData.jobTrends.analysis;
         while ((match = jobRoleRegex.exec(dataText)) !== null) {
           jobRolesInData.push(match[0]);
         }
@@ -1868,7 +1822,7 @@ ${perplexityData.knowledge}
       }
       
       // 2. Check if skill recommendations in response match skills mentioned in ML data
-      if (perplexityData.jobTrends && perplexityData.jobTrends.analysis) {
+      if (mlData.jobTrends && mlData.jobTrends.analysis) {
         // Common skills that might be mentioned
         const skillsToCheck = [
           "プログラミング", "コミュニケーション", "英語", "マネジメント", 
@@ -1876,7 +1830,7 @@ ${perplexityData.knowledge}
         ];
         
         // Filter skills that appear in both ML data and response
-        const dataText = perplexityData.jobTrends.analysis;
+        const dataText = mlData.jobTrends.analysis;
         const skillsInData = skillsToCheck.filter(skill => dataText.includes(skill));
         const skillsInResponse = skillsInData.filter(skill => aiResponse.includes(skill));
         
@@ -1887,7 +1841,7 @@ ${perplexityData.knowledge}
       }
       
       // 3. Check if user traits from ML data are reflected in career recommendations
-      if (perplexityData.knowledge) {
+      if (mlData.knowledge) {
         const userTraits = {
           "論理的思考": ["論理的", "分析的", "体系的"],
           "コミュニケーション能力": ["コミュニケーション", "対話", "会話"], 
@@ -1904,7 +1858,7 @@ ${perplexityData.knowledge}
         
         Object.entries(userTraits).forEach(([trait, keywords]) => {
           // Check if trait is in ML data
-          const traitInData = keywords.some(keyword => perplexityData.knowledge.includes(keyword));
+          const traitInData = keywords.some(keyword => mlData.knowledge.includes(keyword));
           if (traitInData) {
             traitsInData++;
             // Check if trait is also in response
@@ -1935,7 +1889,7 @@ ${perplexityData.knowledge}
     // LocalML influence analysis for other modes
     else if (['general', 'mental_health', 'analysis'].includes(mode)) {
       // Use mlHook to analyze the response
-      const mlInfluence = analyzeResponseWithMl(aiResponse, perplexityData, mode);
+      const mlInfluence = analyzeResponseWithMl(aiResponse, mlData, mode);
       
       if (mlInfluence) {
         console.log('\n=== LOCAL ML DATA INFLUENCE ANALYSIS ===');

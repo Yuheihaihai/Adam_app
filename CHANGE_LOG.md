@@ -2,6 +2,25 @@
 
 ## 2024-05-13
 
+### AIレスポンス生成にAirtableデータを活用する機能を追加
+
+#### Changes Made:
+1. **mlIntegration.js**:
+   - Airtableからユーザー特性データを取得する`getUserTraitsFromAirtable`関数を追加
+   - ユーザーニーズデータをAirtableデータで拡張する`enhanceUserNeedsWithAirtable`関数を追加
+   - 会話モードに応じたMLデータ取得を統合する`getUserMlData`関数を追加
+   - キャリアモードでもAirtableのデータを優先的に使用するよう改善
+
+2. **server.js**:
+   - `processWithAI`関数を修正し、新しいユーザーデータ処理関数を使用
+   - 複数のデータソース（LocalML、Perplexity、Airtable）を統合する処理を実装
+   - ログ出力を改善し、Airtableデータの使用状況を表示
+
+#### Reason for Change:
+以前の実装では会話履歴をAirtableに保存する機能を追加しましたが、保存したデータがAIの回答生成に活用されていませんでした。今回の変更により、Airtableに蓄積された学習データや会話履歴を、AIの回答生成時に自動的に取得して活用する機能を実装しました。ユーザーについての学習が継続的に行われ、回答の質が向上します。
+
+## 2024-05-13
+
 ### 会話履歴のAirtable保存機能追加
 
 #### Changes Made:
