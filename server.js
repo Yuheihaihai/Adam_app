@@ -656,6 +656,12 @@ const messageRateLimit = new Map();
 // グローバル変数: 各ユーザーの保留中の画像説明情報を管理するためのMap
 const pendingImageExplanations = new Map();
 
+// Add a new map to track users who just received image generation
+const recentImageGenerationUsers = new Map();
+
+// Add a tracking variable to prevent double responses
+const imageGenerationInProgress = new Map();
+
 function checkRateLimit(userId) {
   const now = Date.now();
   const cooldown = 1000;
@@ -2273,6 +2279,12 @@ async function handleText(event) {
       return handleASDUsageInquiry(event);
     }
     
+    // Check if image generation is in progress for this user - if so, skip further processing
+    if (imageGenerationInProgress.has(userId)) {
+      console.log(`Image generation in progress for ${userId}, skipping additional message handling`);
+      return;
+    }
+    
     // pendingImageExplanations のチェック（はい/いいえ 判定）
     if (pendingImageExplanations.has(userId)) {
       if (userMessage === "はい") {
@@ -2288,6 +2300,14 @@ async function handleText(event) {
           text: "承知しました。引き続きテキストでの回答を行います。"
         });
       }
+    }
+
+    // Add prevention check for users who just received image generation (prevents ASD guide sending)
+    const recentImageTimestamp = recentImageGenerationUsers.get(userId);
+    if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 10000)) {
+      console.log("画像生成直後のため、重複応答を防止します。");
+      recentImageGenerationUsers.delete(userId);
+      return;
     }
 
     // セキュリティチェック
@@ -2574,6 +2594,10 @@ function isConfusionRequest(text) {
 async function handleVisionExplanation(event, explanationText) {
   const userId = event.source.userId;
   
+  // Mark this user as having image generation in progress
+  imageGenerationInProgress.set(userId, true);
+  console.log(`Starting image generation for user ${userId} - setting protection flag`);
+  
   try {
     // explanationTextが提供されている場合、それを使用して画像説明を生成
     if (explanationText) {
@@ -2617,8 +2641,14 @@ async function handleVisionExplanation(event, explanationText) {
           }
         ]);
         
-        // 生成した画像情報を保存
-        await storeInteraction(userId, 'assistant', `[生成画像] ${explanationText}`);
+        // 生成した画像情報を保存 - Store only image reference with no additional text
+        await storeInteraction(userId, 'assistant', `[生成画像のみ]`);
+        
+        // Clear the image generation flag after a delay (5 seconds should be enough)
+        setTimeout(() => {
+          imageGenerationInProgress.delete(userId);
+          console.log(`Cleared image generation flag for user ${userId} after successful generation`);
+        }, 5000);
         
       } catch (error) {
         console.error('DALL-E画像生成エラー:', error);
@@ -2626,6 +2656,10 @@ async function handleVisionExplanation(event, explanationText) {
           type: 'text',
           text: '申し訳ありません。画像の生成中にエラーが発生しました。別の表現で試してみてください。'
         });
+        
+        // Also clear the flag in case of error
+        imageGenerationInProgress.delete(userId);
+        console.log(`Cleared image generation flag for user ${userId} due to error`);
       }
       
       return;
@@ -3287,3 +3321,15 @@ function validateUserId(userId) {
   
   return userId;
 }
+
+// Add cleanup for the tracking map every hour
+// Setup a cleanup interval for recentImageGenerationUsers
+setInterval(() => {
+  const now = Date.now();
+  recentImageGenerationUsers.forEach((timestamp, userId) => {
+    // Remove entries older than 1 hour
+    if (now - timestamp > 3600000) {
+      recentImageGenerationUsers.delete(userId);
+    }
+  });
+}, 3600000); // Clean up every hour
