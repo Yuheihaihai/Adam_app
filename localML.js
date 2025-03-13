@@ -145,7 +145,7 @@ class LocalML {
         UserID: userId,
         Mode: mode,
         AnalysisData: analysisDataString,
-        LastUpdated: new Date()  // ISO文字列ではなく Date オブジェクトを直接使用
+        LastUpdated: this._formatDateForAirtable(new Date()) // ローカル形式に変換
       };
       
       // 更新または新規作成
@@ -932,6 +932,18 @@ class LocalML {
       concise: '簡潔・要点のみ'
     };
     return translations[detail] || detail;
+  }
+
+  /**
+   * 日付をAirtable互換のフォーマットに変換
+   * Airtableが期待するLocal形式(3/13/2025)に変換
+   */
+  _formatDateForAirtable(date) {
+    // 月/日/年 形式に変換
+    const month = date.getMonth() + 1; // getMonthは0から始まるので+1
+    const day = date.getDate();
+    const year = date.getFullYear();
+    return `${month}/${day}/${year}`;
   }
 }
 
