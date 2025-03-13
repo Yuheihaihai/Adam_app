@@ -112,28 +112,27 @@ class LocalML {
   }
 
   /**
-   * 分析結果をAirtableに保存
+   * ユーザー分析データをAirtableに保存
    */
   async _saveUserAnalysis(userId, mode, analysisData) {
-    if (!this.base) return;
-    
     try {
-      // データの存在確認
+      // 必要なデータがあるか確認
       if (!userId || !mode || !analysisData) {
-        console.log('Cannot save analysis: missing required data');
+        console.log('    ├─ 保存データ不足: 分析データの保存をスキップ');
         return;
       }
       
-      // JSON文字列化の検証
-      let analysisDataString;
-      try {
-        analysisDataString = JSON.stringify(analysisData);
-      } catch (jsonError) {
-        console.error('Cannot convert analysis data to JSON:', jsonError);
-        return;
-      }
+      // パターン検出の詳細情報を追加
+      const enhancedAnalysisData = {
+        ...analysisData,
+        pattern_details: this._getPatternDetails(mode),
+        timestamp: new Date().toISOString()
+      };
       
-      // 既存レコードを検索
+      // 分析データをJSON文字列に変換
+      const analysisDataString = JSON.stringify(enhancedAnalysisData);
+      
+      // 既存レコードを検索（履歴確認用）
       const records = await this.base('UserAnalysis')
         .select({
           filterByFormula: `AND({UserID} = "${userId}", {Mode} = "${mode}")`,
@@ -141,6 +140,7 @@ class LocalML {
         })
         .all();
         
+      // 常に新しいレコードとして保存（履歴化）
       const data = {
         UserID: userId,
         Mode: mode,
@@ -148,31 +148,36 @@ class LocalML {
         LastUpdated: this._formatDateForAirtable(new Date()) // ローカル形式に変換
       };
       
-      // 更新または新規作成
-      if (records.length > 0) {
-        await this.base('UserAnalysis').update([{
-          id: records[0].id,
-          fields: data
-        }]);
-        console.log(`Updated analysis data for user ${userId}, mode ${mode}`);
-      } else {
-        try {
-          await this.base('UserAnalysis').create([{
-            fields: data
-          }]);
-          console.log(`Created new analysis data for user ${userId}, mode ${mode}`);
-        } catch (error) {
-          // テーブルが存在しない場合の処理
-          if (error.statusCode === 404 || error.error === 'NOT_FOUND' || 
-              (error.message && error.message.includes('could not be found'))) {
-            console.log('Failed to save analysis: UserAnalysis table does not exist.');
-          } else {
-            throw error;
-          }
+      // 新規作成
+      try {
+        await this.base('UserAnalysis').create([{ fields: data }]);
+        console.log(`    └─ 新しい分析データを作成しました: ユーザー ${userId}, モード ${mode}`);
+      } catch (error) {
+        // テーブルがない場合
+        if (error.statusCode === 404 || error.message.includes('NOT_FOUND')) {
+          console.log(`    └─ UserAnalysis テーブルが見つかりません: 分析データの保存をスキップ`);
+        } else {
+          throw error;
         }
       }
-    } catch (err) {
-      console.error(`Error saving user analysis for ${userId}, mode ${mode}:`, err);
+    } catch (error) {
+      console.error(`    └─ 分析データ保存エラー: ${error.message}`);
+    }
+  }
+  
+  /**
+   * 現在のモードに関連するパターン詳細情報を取得
+   */
+  _getPatternDetails(mode) {
+    switch (mode) {
+      case 'general':
+        return this.trainingData.general;
+      case 'mental_health':
+        return this.trainingData.mental_health;
+      case 'analysis':
+        return this.trainingData.analysis;
+      default:
+        return {};
     }
   }
 
@@ -188,7 +193,7 @@ class LocalML {
     
     try {
       // ユーザーの会話履歴を取得
-      const conversationHistory = await getUserConversationHistory(userId, 20);
+      const conversationHistory = await getUserConversationHistory(userId, 200);
       
       // 会話履歴がなければ分析結果を返せない
       if (!conversationHistory || conversationHistory.length === 0) {

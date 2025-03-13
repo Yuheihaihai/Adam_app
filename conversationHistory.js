@@ -155,15 +155,15 @@ async function saveMessageToAirtable(userId, message) {
 }
 
 /**
- * Get a user's conversation history
- * @param {string} userId - The user's unique identifier
+ * ユーザーの会話履歴を取得
+ * @param {string} userId - ユーザーID
  * @param {number} limit - Maximum number of messages to retrieve (default: 20)
  * @returns {Array} - Array of conversation messages
  */
 async function getUserConversationHistory(userId, limit = 20) {
   if (!conversationStore[userId]) {
     // メモリにない場合はAirtableから取得を試みる
-    await loadConversationHistoryFromAirtable(userId);
+    await loadConversationHistoryFromAirtable(userId, limit);
   }
   
   if (!conversationStore[userId]) {
@@ -177,8 +177,9 @@ async function getUserConversationHistory(userId, limit = 20) {
 /**
  * Airtableから会話履歴を読み込む
  * @param {string} userId - ユーザーID
+ * @param {number} limit - 取得する最大メッセージ数
  */
-async function loadConversationHistoryFromAirtable(userId) {
+async function loadConversationHistoryFromAirtable(userId, limit = 20) {
   if (!airtableBase) return;
   
   try {
@@ -187,7 +188,8 @@ async function loadConversationHistoryFromAirtable(userId) {
       const records = await airtableBase('ConversationHistory')
         .select({
           filterByFormula: `{UserID} = "${userId}"`,
-          sort: [{ field: 'Timestamp', direction: 'asc' }]
+          sort: [{ field: 'Timestamp', direction: 'desc' }],
+          maxRecords: limit
         })
         .all();
       
@@ -196,7 +198,8 @@ async function loadConversationHistoryFromAirtable(userId) {
           conversationStore[userId] = [];
         }
         
-        records.forEach(record => {
+        // 降順で取得したレコードを昇順に変換
+        records.reverse().forEach(record => {
           const message = {
             role: record.get('Role'),
             content: record.get('Content'),
