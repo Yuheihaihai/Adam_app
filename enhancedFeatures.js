@@ -15,16 +15,38 @@ const enhancedConfusionDetector = require('./enhancedConfusionDetector');
  * Enhanced check for service recommendation triggers
  * 
  * @param {string} userMessage - The user message
+ * @param {Array<Object>} conversationHistory - Optional conversation history
  * @returns {Promise<boolean>} - True if service recommendations should be shown
  */
-async function shouldShowServiceRecommendations(userMessage) {
+async function shouldShowServiceRecommendations(userMessage, conversationHistory = []) {
   try {
     // Use the enhanced recommendation trigger system
-    return await enhancedRecommendationTrigger.shouldShowRecommendations(userMessage);
+    const analysis = await enhancedRecommendationTrigger.analyzeServiceNeed(userMessage, conversationHistory);
+    
+    // If the analysis returns a trigger recommendation with sufficient confidence
+    return analysis.trigger === true;
   } catch (error) {
     console.error('Error in enhanced recommendation detection:', error);
     // In case of error, don't interfere with the existing system
     return false;
+  }
+}
+
+/**
+ * Enhanced service need analysis that returns detailed information
+ * 
+ * @param {string} userMessage - The user message
+ * @param {Array<Object>} conversationHistory - Optional conversation history
+ * @returns {Promise<Object>} - Service analysis result {trigger, service, confidence}
+ */
+async function analyzeServiceNeed(userMessage, conversationHistory = []) {
+  try {
+    // Use the enhanced recommendation trigger system's full analysis
+    return await enhancedRecommendationTrigger.analyzeServiceNeed(userMessage, conversationHistory);
+  } catch (error) {
+    console.error('Error in enhanced service need analysis:', error);
+    // In case of error, return default result
+    return { trigger: false, service: null, confidence: 0 };
   }
 }
 
@@ -82,6 +104,7 @@ function hasConfusionKeywords(userMessage) {
 
 module.exports = {
   shouldShowServiceRecommendations,
+  analyzeServiceNeed,
   shouldGenerateImage,
   hasRecommendationTriggerKeywords,
   hasConfusionKeywords

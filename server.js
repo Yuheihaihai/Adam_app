@@ -425,6 +425,8 @@ const INTERACTIONS_TABLE = 'ConversationHistory';
 // Initialize service hub components
 const userNeedsAnalyzer = new UserNeedsAnalyzer(process.env.OPENAI_API_KEY);
 const serviceRecommender = new ServiceRecommender(base);
+// Load enhanced features
+require('./loadEnhancements')(serviceRecommender);
 
 const SYSTEM_PROMPT_GENERAL = `
 あなたは「Adam」というアシスタントです。
