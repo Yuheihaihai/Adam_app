@@ -2278,6 +2278,12 @@ async function handleText(event) {
     if (userMessage.includes("ASD症支援であなたが対応できる具体的な質問例") && userMessage.includes("使い方")) {
       // Check if this user recently received an image generation - if so, skip ASD guide
       const recentImageTimestamp = recentImageGenerationUsers.get(userId);
+      console.log(`[DEBUG] ASD Guide check - User ${userId} has recentImageTimestamp: ${recentImageTimestamp ? 'YES' : 'NO'}`);
+      if (recentImageTimestamp) {
+        const timeSinceImage = Date.now() - recentImageTimestamp;
+        console.log(`[DEBUG] ASD Guide check - Time since image generation: ${timeSinceImage}ms, Protection threshold: 30000ms`);
+      }
+      
       if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 30000)) { // 30 seconds protection
         console.log(`User ${userId} recently received image generation, skipping ASD guide`);
         recentImageGenerationUsers.delete(userId); // Clean up after use
@@ -2312,6 +2318,11 @@ async function handleText(event) {
 
     // Add prevention check for users who just received image generation (prevents ASD guide sending)
     const recentImageTimestamp = recentImageGenerationUsers.get(userId);
+    if (recentImageTimestamp) {
+      const timeSinceImage = Date.now() - recentImageTimestamp;
+      console.log(`[DEBUG] Recent image check - User ${userId}, time since image: ${timeSinceImage}ms, threshold: 10000ms`);
+    }
+
     if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 10000)) {
       console.log("画像生成直後のため、重複応答を防止します。");
       recentImageGenerationUsers.delete(userId);
@@ -2654,11 +2665,13 @@ async function handleVisionExplanation(event, explanationText) {
         
         // Add user to recent image generation tracking with timestamp to prevent ASD guide
         recentImageGenerationUsers.set(userId, Date.now());
+        console.log(`[DEBUG] Setting recentImageGenerationUsers timestamp for user ${userId}: ${Date.now()}`);
         
         // Clear the image generation flag after a delay (5 seconds should be enough)
         setTimeout(() => {
           imageGenerationInProgress.delete(userId);
           console.log(`Cleared image generation flag for user ${userId} after successful generation`);
+          console.log(`[DEBUG] Image generation protection status - imageGenerationInProgress: ${imageGenerationInProgress.has(userId) ? 'YES' : 'NO'}, recentImageGenerationUsers timestamp: ${recentImageGenerationUsers.get(userId)}`);
         }, 5000);
         
       } catch (error) {
@@ -2878,6 +2891,9 @@ async function processUserMessage(userId, userMessage, history, initialMode = nu
 async function handleASDUsageInquiry(event) {
   const userId = event.source.userId;
   const messageText = event.message.text;
+  
+  console.log(`[DEBUG] handleASDUsageInquiry called for user ${userId}`);
+  console.log(`[DEBUG] Protection check - imageGenerationInProgress: ${imageGenerationInProgress.has(userId) ? 'YES' : 'NO'}, recentImageTimestamp: ${recentImageGenerationUsers.has(userId) ? recentImageGenerationUsers.get(userId) : 'NONE'}`);
   
   // Check if image generation is in progress - if so, skip sending ASD guide
   if (imageGenerationInProgress.has(userId)) {
