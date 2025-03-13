@@ -2640,9 +2640,25 @@ async function handleVisionExplanation(event, explanationText) {
   try {
     // explanationTextが提供されている場合、それを使用して画像説明を生成
     if (explanationText) {
+      // Clean and possibly summarize the explanationText if it's too long
+      let cleanExplanationText = explanationText;
+      let displayText = explanationText;
+      
+      // If text is very long (>100 chars), create a summary version for display
+      if (cleanExplanationText.length > 100) {
+        console.log(`[DEBUG] Long explanation text detected (${cleanExplanationText.length} chars). Creating summary for display.`);
+        displayText = cleanExplanationText.substring(0, 50) + "..." + cleanExplanationText.substring(cleanExplanationText.length - 20);
+        
+        // If it contains specific markers of the ASD guide, use a more friendly summary
+        if (cleanExplanationText.includes("ASD支援機能") && cleanExplanationText.includes("対応可能な質問例")) {
+          displayText = "ASD支援機能の使い方ガイド";
+          console.log(`[DEBUG] ASD guide detected, using simplified display text: "${displayText}"`);
+        }
+      }
+      
       await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: `「${explanationText}」に基づく画像を生成しています。少々お待ちください...`
+        text: `「${displayText}」に基づく画像を生成しています。少々お待ちください...`
       });
       
       // DALL-Eを使用して画像を生成
@@ -2652,7 +2668,7 @@ async function handleVisionExplanation(event, explanationText) {
         });
         
         // 画像生成のプロンプトを強化
-        const enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${explanationText}`;
+        const enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${cleanExplanationText}`;
         
         const response = await openai.images.generate({
           model: "dall-e-3",
@@ -2667,7 +2683,7 @@ async function handleVisionExplanation(event, explanationText) {
         // 生成された画像のURLを取得
         console.log(`Generated image URL: ${imageUrl}`);
         
-        // 画像をLINEに送信
+        // 画像をLINEに送信 - use the same displayText for consistency
         await client.pushMessage(userId, [
           {
             type: 'image',
@@ -2676,7 +2692,7 @@ async function handleVisionExplanation(event, explanationText) {
           },
           {
             type: 'text',
-            text: `「${explanationText}」をもとに生成した画像です。この画像で内容の理解が深まりましたか？`
+            text: `「${displayText}」をもとに生成した画像です。この画像で内容の理解が深まりましたか？`
           }
         ]);
         
