@@ -120,7 +120,7 @@ async function handleTextExample(event) {
       } else {
         pendingImageExplanations.set(userId, "説明がありません。");
       }
-      const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
+      const suggestionMessage = "画像で説明しましょうか？「はい」または「いいえ」でお答えください。";
       console.log("画像による説明の提案をユーザーに送信:", suggestionMessage);
       return client.replyMessage(event.replyToken, {
         type: 'text',
