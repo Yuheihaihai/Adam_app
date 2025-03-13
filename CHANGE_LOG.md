@@ -1,5 +1,18 @@
 # Change Log
 
+## 2024-05-13
+
+### Fixed Reference Error in Feedback Processing
+
+#### Changes Made:
+1. **server.js**:
+   - Fixed `ReferenceError: FEEDBACK_PATTERNS is not defined` error in `handleText` function
+   - Added local declaration of `FEEDBACK_PATTERNS` variable with positive and negative feedback patterns
+   - This ensures the sentiment detection for user feedback works properly
+
+#### Reason for Change:
+The application was throwing a reference error when processing text messages containing feedback. The variable `FEEDBACK_PATTERNS` was being used in the `handleText` function but wasn't defined in its scope. Adding the definition resolves the error and ensures proper feedback processing.
+
 ## 2024-05-30
 
 ### Updated X Sharing Feature to use GPT-4o-mini model

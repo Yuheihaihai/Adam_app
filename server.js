@@ -2206,6 +2206,12 @@ async function handleText(event) {
     const userId = event.source.userId;
     const messageText = event.message.text;
     
+    // Define feedback patterns for sentiment detection
+    const FEEDBACK_PATTERNS = {
+      positive: ['ありがとう', 'thank', 'thanks', 'good', 'helpful', 'useful', 'great', 'excellent', '助かる', '役に立つ', 'いいね', 'すごい', '素晴らしい'],
+      negative: ['違う', 'wrong', 'bad', 'not helpful', 'useless', 'poor', 'terrible', '役に立たない', '違います', 'だめ', 'ダメ', '違いますよ', '違うよ']
+    };
+    
     // Check for general help request
     if (messageText.toLowerCase() === 'ヘルプ' || 
         messageText.toLowerCase() === 'help' || 
