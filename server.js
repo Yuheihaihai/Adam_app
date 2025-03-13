@@ -275,7 +275,7 @@ app.use(helmet({
   xssFilter: true,
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
 }));
-app.use(timeout('60s'));
+app.use(timeout('120s'));
 // app.use(express.json()); // JSONボディの解析を有効化 - LINE webhookに影響するため削除
 
 // APIルート用のJSONパーサーを追加
@@ -342,23 +342,29 @@ app.post('/webhook', rawBodyParser, line.middleware(config), (req, res) => {
     });
   }
   
-  // 各イベントを非同期で処理し、常に200 OKを返す
-  Promise.all(req.body.events.map(event => {
-    // handleEventが例外をスローする可能性があるため、Promise.resolveでラップする
-    return Promise.resolve().then(() => handleEvent(event))
-      .catch(err => {
-        console.error(`Error handling event: ${JSON.stringify(event)}`, err);
-        return null; // エラーを飲み込んで処理を続行
-      });
-  }))
-  .then(results => {
-    // 結果に関係なく、常に200 OKを返す
-    res.status(200).json(results.filter(result => result !== null));
-  })
-  .catch(err => {
-    console.error('Webhook error:', err);
-    res.status(200).json({});
+  // 重要な変更: すぐに200 OKを返して、Herokuのタイムアウトを防ぐ
+  res.status(200).json({
+    message: 'Webhook received, processing in background'
   });
+  
+  // 処理をバックグラウンドで継続（レスポンス後に処理を続行）
+  (async () => {
+    try {
+      // 各イベントを非同期で処理
+      const results = await Promise.all(req.body.events.map(event => {
+        // handleEventが例外をスローする可能性があるため、Promise.resolveでラップする
+        return Promise.resolve().then(() => handleEvent(event))
+          .catch(err => {
+            console.error(`Error handling event: ${JSON.stringify(event)}`, err);
+            return null; // エラーを飲み込んで処理を続行
+          });
+      }));
+      
+      console.log(`Webhook processing completed for ${results.filter(r => r !== null).length} events`);
+    } catch (err) {
+      console.error('Webhook background processing error:', err);
+    }
+  })();
 });
 
 // テスト用エンドポイントを追加
