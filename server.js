@@ -2803,6 +2803,19 @@ app.listen(PORT, () => {
 function isConfusionRequest(text) {
   if (!text || typeof text !== 'string') return false;
   
+  // センシティブトピックのチェック - これらのトピックでは画像生成を提案しない
+  const sensitiveTopics = [
+    '性的', 'セクシャル', '依存症', 'アディクション', '自殺', '自傷',
+    'セックス', 'トラウマ', '虐待', '性癖', 'カウンセリング', '医者',
+    '専門家', '診断', '治療', '妄想', '性欲', '死にたい', '死'
+  ];
+  
+  // センシティブなトピックが検出された場合は混乱検出をスキップ
+  if (sensitiveTopics.some(topic => text.includes(topic))) {
+    console.log(`Sensitive topic detected in message: "${text}". Skipping confusion detection.`);
+    return false;
+  }
+  
   // First check if the message contains image-related terms
   const imageTerms = ['画像', '写真', 'イメージ', '図', 'がぞう', 'しゃしん', 'ピクチャ', '絵', 'この'];
   const hasImageTerm = imageTerms.some(term => text.includes(term));
@@ -2843,8 +2856,13 @@ function isConfusionRequest(text) {
     '意味がわからない', '意味が分からない', 'どういう意味', 'どういうこと'
   ];
   
-  // Direct confusion detection without requiring image terms
+  // Direct confusion detection without requiring image terms - 短すぎるメッセージは除外
   if (pureConfusionExpressions.some(expr => text.includes(expr))) {
+    // 短い表現や「億劫」などのネガティブな表現だけの場合はfalseを返す
+    if (text.length < 15 || text.includes('億劫') || text.includes('妥協')) {
+      console.log(`Confusion expression detected but message too short or contains negative expression: "${text}"`);
+      return false;
+    }
     console.log(`Pure confusion expression detected: "${text}"`);
     return true;
   }
