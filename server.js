@@ -2137,16 +2137,16 @@ async function fetchAndAnalyzeHistory(userId) {
         // Airtableからの取得を試みる
         const records = await base('ConversationHistory')
           .select({
-            filterByFormula: `{userId} = '${userId}'`,
-            sort: [{ field: 'timestamp', direction: 'desc' }],
+            filterByFormula: `{UserID} = '${userId}'`,
+            sort: [{ field: 'Timestamp', direction: 'desc' }],
             maxRecords: 100
           })
           .all();
         
         airtableHistory = records.map(record => ({
-          role: record.get('role') || 'user',
-          content: record.get('content') || '',
-          timestamp: record.get('timestamp') || new Date().toISOString()
+          role: record.get('Role') || 'user',
+          content: record.get('Content') || '',
+          timestamp: record.get('Timestamp') || new Date().toISOString()
         }));
         
         console.log(`📝 Found additional ${airtableHistory.length} records from Airtable`);
@@ -2604,8 +2604,7 @@ ${SHARE_URL}
 あなたの任務は、「ユーザーがAIの直前の回答を理解していないかどうか」を判断することです。
 ユーザーの発言から、AIの回答に対する混乱や理解困難が示されていると判断できる場合は、その確度（0〜100%）を評価してください。
 
-確度が95%以上の場合のみ「CONFUSED:95」のように数値付きで回答し、それ以外は「NOT_CONFUSED」と回答してください。
-例えば、確度が97%なら「CONFUSED:97」と回答します。
+確度が95%以上の場合のみ「CONFUSED:95」と回答し、それ以外は「NOT_CONFUSED」と回答してください。
 
 判断の際は、以下のポイントに注意してください：
 1. ユーザーの発言がAIの回答内容に関連しているか
@@ -2616,7 +2615,7 @@ ${SHARE_URL}
 「億劫」などの表現は通常、混乱ではなく単に気が進まないという意味なので混乱とは判断しないでください。
 純粋に会話を継続する意図の発言は混乱とみなさないでください。
 
-回答は「CONFUSED:数値」（確度が95%以上の場合の具体的な数値）または「NOT_CONFUSED」の形式のみで返してください。`;
+回答は「CONFUSED:95」または「NOT_CONFUSED」の形式のみで返してください。`;
 
           // メッセージ配列を作成
           const messages = [

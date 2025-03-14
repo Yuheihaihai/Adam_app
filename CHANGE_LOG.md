@@ -274,3 +274,9 @@ Removed explicit trigger word detection in favor of more intelligent contextual 
   - 直前のAI回答を必ず考慮して判断を行う
   - 95%以上の確度でユーザーが理解していないと判断された場合のみ画像生成を提案
   - 判断基準にメッセージ長さを使用せず、内容のみで判断 
+
+## 2023-11-15
+- Airtableからの会話履歴取得の修正
+  - `fetchAndAnalyzeHistory`関数でフィールド名の不一致を修正
+  - `ConversationHistory`テーブルの`UserID`、`Timestamp`、`Role`、`Content`フィールドの大文字小文字を正しく参照
+  - 特性分析・適職診断時の「過去の記録がない」というエラーの解消 
