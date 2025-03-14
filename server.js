@@ -1929,9 +1929,12 @@ ${perplexityData.knowledge}
               console.log(`→ ユーザーメッセージ: ${userMessage}`);
               console.log(`→ 使用モデル: ${model}`);
               
+              // システムプロンプト（messages配列の最初の要素）を使用
+              const systemPromptContent = messages[0].content;
+              
               // 重要な部分の処理確認
               console.log(`→ プロンプトに「過去の記録がないなどとは言わず」の指示: ${
-                finalPrompt.includes('過去の記録がない」などとは言わず')
+                systemPromptContent.includes('過去の記録がない」などとは言わず')
               }`);
             }
             console.log(`======= 特性分析関連レスポンスデバッグ終了 =======\n`);
