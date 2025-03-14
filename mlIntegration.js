@@ -4,10 +4,10 @@
  * 既存のシステムと機械学習モジュールを統合するアダプター
  * 各モード（general, mental_health, analysis, career）に応じた機械学習機能を提供
  * 
- * キャリアモードはPerplexity APIを、他のモードはLocalMLを使用
+ * キャリアモードはPerplexity APIを、他のモードは新機械学習ベータを使用
  */
 
-const localML = require('./localML');
+const localML = require('./ml-enhance');
 const PerplexitySearch = require('./perplexitySearch');
 // Helper function for knowledge needs detection
 function needsKnowledge(userMessage) {

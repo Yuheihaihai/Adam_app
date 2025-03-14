@@ -1,0 +1,26 @@
+{
+  "name": "ml-enhance",
+  "version": "0.1.0",
+  "description": "TensorFlow.jsベースの機械学習拡張モジュール（既存コードを変更せずに導入可能）",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "machine-learning",
+    "tensorflow",
+    "line-bot",
+    "sentiment-analysis"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@tensorflow/tfjs": "^4.14.0"
+  },
+  "optionalDependencies": {
+    "@tensorflow/tfjs-node": "^4.14.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+} 

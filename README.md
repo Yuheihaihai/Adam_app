@@ -4,6 +4,15 @@ A Node.js application for integrating LINE messaging with OpenAI's API.
 
 ## Recent Updates
 
+### March 2025 Updates
+- Implemented new "ML Beta" system powered by TensorFlow.js for advanced pattern analysis
+- Enhanced machine learning data storage with historical tracking (no overwriting, preserving user trait evolution)
+- Added detailed pattern information to analysis data for improved transparency and debugging
+- Increased conversation history analysis from 20 to 200 messages for more accurate user profiling
+- Optimized date formatting for Airtable compatibility (MM/DD/YYYY format)
+- Improved conversation history retrieval logic for better context understanding
+- Added comprehensive logging system for machine learning operations and diagnostics
+
 ### May 2024 Updates
 - Added LLM-powered X sharing feature with contextual understanding for improved user engagement
 - Enhanced trigger detection for social sharing with two-phase verification (simple keyword detection + LLM analysis)
