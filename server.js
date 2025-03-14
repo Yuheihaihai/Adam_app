@@ -3996,7 +3996,11 @@ async function generateHistoryResponse(history) {
       msg.includes('翻訳') || 
       msg.includes('英語') || 
       msg.includes('英文') || 
-      (msg.match(/[a-zA-Z]{10,}/) && !msg.match(/[ぁ-んァ-ン]{5,}/))
+      // 明確な翻訳依頼パターンのみを検出するよう修正
+      // 「10文字以上の英字」かつ「5文字以上の日本語なし」だけでなく、
+      // 「翻訳して」「訳して」なども含まれる場合のみ翻訳とみなす
+      (msg.match(/[a-zA-Z]{10,}/) && !msg.match(/[ぁ-んァ-ン]{5,}/) && 
+       (msg.includes('翻訳して') || msg.includes('訳して') || msg.includes('英訳') || msg.includes('和訳')))
     );
     
     const shortMessages = userMessages.filter(msg => msg.length < 20);
