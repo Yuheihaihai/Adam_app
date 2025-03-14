@@ -53,6 +53,39 @@ async function checkDatabaseConnection() {
         console.log('\nCould not count user_messages records:', err.message);
       }
       
+      // テストデータの挿入（コマンドライン引数で指定された場合のみ）
+      if (process.argv.includes('--insert-test-data')) {
+        console.log('\nInserting test data into database...');
+        
+        try {
+          // テスト用のユーザーメッセージを挿入
+          const testUserId = 'TEST_USER_' + Date.now();
+          const testMessage = 'TEST_MESSAGE_' + Date.now() + ': This is a test message for database verification';
+          
+          await client.query(`
+            INSERT INTO user_messages (user_id, content, role, timestamp)
+            VALUES ($1, $2, $3, NOW())
+          `, [testUserId, testMessage, 'user']);
+          
+          console.log('Test user message inserted successfully:');
+          console.log(`- User ID: ${testUserId}`);
+          console.log(`- Message: ${testMessage}`);
+          
+          // 挿入したデータを確認
+          const verifyResult = await client.query(`
+            SELECT * FROM user_messages WHERE user_id = $1
+          `, [testUserId]);
+          
+          if (verifyResult.rows.length > 0) {
+            console.log('Verification successful - data was properly stored in database');
+          } else {
+            console.log('Verification failed - data was not found in database');
+          }
+        } catch (insertErr) {
+          console.error('Error inserting test data:', insertErr.message);
+        }
+      }
+      
       return true;
     } finally {
       client.release();
