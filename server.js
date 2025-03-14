@@ -890,8 +890,6 @@ async function fetchUserHistory(userId, limit) {
     // 履歴が少ない場合の理由を設定
     if (history.length < 3) {
       historyMetadata.insufficientReason = 'few_records';
-    } else if (!historyMetadata.hasCareerRelatedContent && historyMetadata.recordsByType.translation > 0) {
-      historyMetadata.insufficientReason = 'mostly_translation';
     }
     
     return { history, metadata: historyMetadata };
@@ -912,12 +910,8 @@ function analyzeHistoryContent(history, metadata) {
   // キャリア関連のキーワード
   const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職'];
   
-  // 翻訳関連のキーワード
-  const translationKeywords = ['翻訳', '訳して', '英語', '日本語', 'translate'];
-  
   // カウンター初期化
   let careerContentCount = 0;
-  let translationContentCount = 0;
   let userMessageCount = 0;
   
   // 各メッセージを分析
@@ -932,38 +926,17 @@ function analyzeHistoryContent(history, metadata) {
         metadata.hasCareerRelatedContent = true;
         careerContentCount++;
       }
-      
-      // 翻訳関連の内容かチェック
-      if (translationKeywords.some(keyword => content.includes(keyword))) {
-        metadata.recordsByType.translation = (metadata.recordsByType.translation || 0) + 1;
-        translationContentCount++;
-      }
     }
   });
-  
-  // 翻訳に関する割合を計算
-  const translationPercentage = userMessageCount > 0 ? Math.round((translationContentCount / userMessageCount) * 100) : 0;
   
   // 分析結果ログ
   console.log(`→ ユーザーメッセージ: ${userMessageCount}件`);
   console.log(`→ キャリア関連: ${careerContentCount}件 (${Math.round(careerContentCount/userMessageCount*100)}%)`);
-  console.log(`→ 翻訳関連: ${translationContentCount}件 (${translationPercentage}%)`);
-  
-  // 翻訳の割合が高いかチェック (元のロジック)
-  const storedTranslationCount = metadata.recordsByType.translation || 0;
-  if (storedTranslationCount > 0 && storedTranslationCount / history.length > 0.7) {
-    metadata.mostlyTranslation = true;
-    console.log(`→ 元のロジックによる判定: 翻訳割合が高い (70%超)`);
-  }
   
   // メタデータの設定
   if (history.length < 3) {
     metadata.insufficientReason = 'few_records';
     console.log(`→ 結論: 履歴が少ない (${history.length}件)`);
-  } else if (translationPercentage > 50) {
-    metadata.insufficientReason = 'translation_heavy';
-    metadata.translationPercentage = translationPercentage;
-    console.log(`→ 結論: 翻訳依頼が多い (${translationPercentage}%)`);
   } else {
     console.log(`→ 結論: 分析に十分な履歴あり`);
   }
@@ -3991,28 +3964,8 @@ async function generateHistoryResponse(history) {
     const userMessages = history.filter(msg => msg.role === 'user').map(msg => msg.content);
     console.log(`→ ユーザーメッセージ抽出: ${userMessages.length}件`);
     
-    // 会話履歴の内容分析
-    const translationMessages = userMessages.filter(msg => 
-      msg.includes('翻訳') || 
-      msg.includes('英語') || 
-      msg.includes('英文') || 
-      // 明確な翻訳依頼パターンのみを検出するよう修正
-      // 「10文字以上の英字」かつ「5文字以上の日本語なし」だけでなく、
-      // 「翻訳して」「訳して」なども含まれる場合のみ翻訳とみなす
-      (msg.match(/[a-zA-Z]{10,}/) && !msg.match(/[ぁ-んァ-ン]{5,}/) && 
-       (msg.includes('翻訳して') || msg.includes('訳して') || msg.includes('英訳') || msg.includes('和訳')))
-    );
-    
+    // 短いメッセージを分類（20文字未満）
     const shortMessages = userMessages.filter(msg => msg.length < 20);
-    const potentiallyUsefulMessages = userMessages.filter(msg => 
-      !translationMessages.includes(msg) && 
-      !shortMessages.includes(msg)
-    );
-    
-    console.log(`→ メッセージ分類:`);
-    console.log(`   - 翻訳関連: ${translationMessages.length}件`);
-    console.log(`   - 短いメッセージ: ${shortMessages.length}件`);
-    console.log(`   - 分析に利用可能: ${potentiallyUsefulMessages.length}件`);
     
     // 分析に十分なデータがあるかどうかを確認（最低1件あれば分析を試みる）
     if (userMessages.length > 0) {
