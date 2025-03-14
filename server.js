@@ -1667,12 +1667,15 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     if (mode === 'characteristics' || mode === 'career') {
       console.log(`→ 特性/キャリア分析モードが有効`);
       
-      if (metadata && metadata.insufficientReason) {
-        console.log(`→ 履歴不足理由: ${metadata.insufficientReason}`);
-        if (metadata.insufficientReason === 'few_records') {
+      // historyDataオブジェクトからメタデータを安全に取得
+      const historyMetadata = historyData && historyData.metadata ? historyData.metadata : {};
+      
+      if (historyMetadata.insufficientReason) {
+        console.log(`→ 履歴不足理由: ${historyMetadata.insufficientReason}`);
+        if (historyMetadata.insufficientReason === 'few_records') {
           console.log(`→ 履歴が少ない警告をプロンプトに追加: ${history.length}件`);
-        } else if (metadata.insufficientReason === 'translation_heavy') {
-          console.log(`→ 翻訳依頼が多い警告をプロンプトに追加: 翻訳率=${metadata.translationPercentage}%`);
+        } else if (historyMetadata.insufficientReason === 'translation_heavy') {
+          console.log(`→ 翻訳依頼が多い警告をプロンプトに追加: 翻訳率=${historyMetadata.translationPercentage}%`);
         }
       } else if (history.length < 3) {
         console.log(`→ 履歴が3件未満の警告をプロンプトに追加: ${history.length}件`);
