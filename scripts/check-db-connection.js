@@ -1,6 +1,7 @@
 // check-db-connection.js
 require('dotenv').config();
 const { Pool } = require('pg');
+const Airtable = require('airtable');
 
 async function checkDatabaseConnection() {
   console.log('Checking database connection...');
@@ -86,6 +87,49 @@ async function checkDatabaseConnection() {
         }
       }
       
+      // storeInteraction関数のテスト（コマンドライン引数で指定された場合のみ）
+      if (process.argv.includes('--test-store-interaction')) {
+        console.log('\nTesting storeInteraction function...');
+        
+        try {
+          // Airtableの設定を確認
+          if (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID) {
+            console.log('Airtable credentials not found. Cannot test storeInteraction function.');
+          } else {
+            // Airtableの接続を設定
+            const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
+              .base(process.env.AIRTABLE_BASE_ID);
+            
+            // テスト用のデータ
+            const testUserId = 'TEST_USER_STORE_' + Date.now();
+            const testContent = 'TEST_STORE_INTERACTION_' + Date.now() + ': Testing storeInteraction function';
+            const testRole = 'user';
+            
+            // storeInteraction関数の実装
+            console.log('Calling storeInteraction with test data...');
+            await storeInteraction(testUserId, testRole, testContent);
+            
+            // Airtableからデータを確認
+            console.log('Verifying data in Airtable...');
+            const records = await base(process.env.INTERACTIONS_TABLE || 'Interactions')
+              .select({
+                filterByFormula: `AND({UserID} = "${testUserId}", {Content} = "${testContent}")`,
+                maxRecords: 1
+              })
+              .all();
+            
+            if (records && records.length > 0) {
+              console.log('storeInteraction verification successful - data was properly stored in Airtable');
+              console.log('Record ID:', records[0].id);
+            } else {
+              console.log('storeInteraction verification failed - data was not found in Airtable');
+            }
+          }
+        } catch (storeErr) {
+          console.error('Error testing storeInteraction:', storeErr.message);
+        }
+      }
+      
       return true;
     } finally {
       client.release();
@@ -93,6 +137,43 @@ async function checkDatabaseConnection() {
   } catch (error) {
     console.error('Database connection failed:', error.message);
     return false;
+  }
+}
+
+// storeInteraction関数の実装（server.jsからコピー）
+async function storeInteraction(userId, role, content) {
+  try {
+    console.log(
+      `Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`
+    );
+    
+    // Airtableの設定を確認
+    if (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID) {
+      console.log('Airtable credentials not found. Cannot store interaction.');
+      return;
+    }
+    
+    // Airtableの接続を設定
+    const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
+      .base(process.env.AIRTABLE_BASE_ID);
+    
+    // テーブル名を環境変数から取得、またはデフォルト値を使用
+    const tableName = process.env.INTERACTIONS_TABLE || 'Interactions';
+    
+    await base(tableName).create([
+      {
+        fields: {
+          UserID: userId,
+          Role: role,
+          Content: content,
+          Timestamp: new Date().toISOString(),
+        },
+      },
+    ]);
+    
+    console.log('Interaction stored successfully in Airtable');
+  } catch (err) {
+    console.error('Error storing interaction:', err);
   }
 }
 
