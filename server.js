@@ -2318,12 +2318,12 @@ async function fetchAndAnalyzeHistory(userId) {
         const airtable = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY });
         const base = airtable.base(process.env.AIRTABLE_BASE_ID);
         
-        // Airtableからの取得を試みる
+        // Airtableからの取得を試みる（200件に増加）
         const records = await base('ConversationHistory')
           .select({
             filterByFormula: `{userId} = '${userId}'`,
             sort: [{ field: 'timestamp', direction: 'desc' }],
-            maxRecords: 100
+            maxRecords: 200
           })
           .all();
         
@@ -2361,6 +2361,7 @@ async function fetchAndAnalyzeHistory(userId) {
     });
     
     console.log(`📊 Total combined records for analysis: ${combinedHistory.length}`);
+    console.log(`→ すべてのメッセージを分析に使用します`);
     
     // 結合したデータを使用して分析を実行
     const response = await generateHistoryResponse(combinedHistory);
@@ -3963,9 +3964,7 @@ async function generateHistoryResponse(history) {
     // 会話履歴からユーザーのメッセージのみを抽出
     const userMessages = history.filter(msg => msg.role === 'user').map(msg => msg.content);
     console.log(`→ ユーザーメッセージ抽出: ${userMessages.length}件`);
-    
-    // 短いメッセージを分類（20文字未満）
-    const shortMessages = userMessages.filter(msg => msg.length < 20);
+    console.log(`→ すべてのメッセージを分析に使用します（短いメッセージも含む）`);
     
     // 分析に十分なデータがあるかどうかを確認（最低1件あれば分析を試みる）
     if (userMessages.length > 0) {
@@ -4011,7 +4010,9 @@ async function generateHistoryResponse(history) {
 - 「データが不足している」「分析できない」「記録が少ない」などの否定的な表現は避け、限られたデータからでも何らかの洞察を提供する
 - 専門家への相談を推奨する
 
-重要: たとえデータが少なくても、「過去の記録がない」「データが少ない」「これまでの記録が少ない」などの表現は絶対に使わず、利用可能なデータから最大限の具体的な分析を行ってください。データ量についての言及は一切避け、直接分析内容を伝えてください。`
+重要: たとえデータが少なくても、「過去の記録がない」「データが少ない」「これまでの記録が少ない」などの表現は絶対に使わず、利用可能なデータから最大限の具体的な分析を行ってください。データ量についての言及は一切避け、直接分析内容を伝えてください。
+
+すべてのメッセージを分析に使用し、短いメッセージや翻訳関連のメッセージも含めて総合的に分析してください。`
           },
           {
             role: "user",
