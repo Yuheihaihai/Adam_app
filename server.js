@@ -2123,11 +2123,63 @@ async function fetchAndAnalyzeHistory(userId) {
   console.log(`📚 Fetching chat history for user ${userId}`);
   
   try {
-    const history = await fetchUserHistory(userId, 200);
-    console.log(`📝 Found ${history.length} records in ${Date.now() - startTime}ms`);
+    // PostgreSQLから最大200件のメッセージを取得
+    const pgHistory = await fetchUserHistory(userId, 200);
+    console.log(`📝 Found ${pgHistory.length} records from PostgreSQL in ${Date.now() - startTime}ms`);
     
-    // Process the history and generate response
-    const response = await generateHistoryResponse(history);
+    // Airtableからも追加でデータを取得（可能な場合）
+    let airtableHistory = [];
+    try {
+      if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
+        const airtable = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY });
+        const base = airtable.base(process.env.AIRTABLE_BASE_ID);
+        
+        // Airtableからの取得を試みる
+        const records = await base('ConversationHistory')
+          .select({
+            filterByFormula: `{userId} = '${userId}'`,
+            sort: [{ field: 'timestamp', direction: 'desc' }],
+            maxRecords: 100
+          })
+          .all();
+        
+        airtableHistory = records.map(record => ({
+          role: record.get('role') || 'user',
+          content: record.get('content') || '',
+          timestamp: record.get('timestamp') || new Date().toISOString()
+        }));
+        
+        console.log(`📝 Found additional ${airtableHistory.length} records from Airtable`);
+      }
+    } catch (airtableError) {
+      console.error(`⚠️ Error fetching from Airtable: ${airtableError.message}`);
+      // Airtableからの取得に失敗しても処理を続行
+    }
+    
+    // 両方のソースからのデータを結合
+    const combinedHistory = [...pgHistory];
+    
+    // 重複を避けるために、既にPGに存在しないAirtableのデータのみを追加
+    const pgContentSet = new Set(pgHistory.map(msg => `${msg.role}:${msg.content}`));
+    
+    for (const airtableMsg of airtableHistory) {
+      const key = `${airtableMsg.role}:${airtableMsg.content}`;
+      if (!pgContentSet.has(key)) {
+        combinedHistory.push(airtableMsg);
+      }
+    }
+    
+    // タイムスタンプでソート（新しい順）
+    combinedHistory.sort((a, b) => {
+      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return timeB - timeA;
+    });
+    
+    console.log(`📊 Total combined records for analysis: ${combinedHistory.length}`);
+    
+    // 結合したデータを使用して分析を実行
+    const response = await generateHistoryResponse(combinedHistory);
     
     console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
     return {
@@ -2137,7 +2189,11 @@ async function fetchAndAnalyzeHistory(userId) {
     
   } catch (error) {
     console.error(`❌ Error in fetchAndAnalyzeHistory: ${error.message}`);
-    throw error;
+    // エラーが発生した場合でも、ユーザーフレンドリーなメッセージを返す
+    return {
+      type: 'text',
+      text: "申し訳ありません。会話履歴の分析中にエラーが発生しました。もう一度お試しいただくか、別の質問をしていただけますか？"
+    };
   }
 }
 
@@ -3646,3 +3702,89 @@ setInterval(() => {
 module.exports = {
   fetchUserHistory
 };
+
+/**
+ * 会話履歴から特性分析を行い、レスポンスを生成する関数
+ * @param {Array} history - 会話履歴の配列
+ * @returns {Promise<string>} - 分析結果のテキスト
+ */
+async function generateHistoryResponse(history) {
+  try {
+    // 会話履歴が空の場合
+    if (!history || history.length === 0) {
+      return "会話履歴がありません。もう少し会話を続けると、あなたの特性について分析できるようになります。";
+    }
+
+    console.log(`Analyzing ${history.length} conversation records for characteristics...`);
+    
+    // 会話履歴からユーザーのメッセージのみを抽出
+    const userMessages = history.filter(msg => msg.role === 'user').map(msg => msg.content);
+    
+    // 会話履歴の内容を確認
+    console.log(`Found ${userMessages.length} user messages for analysis`);
+    
+    // 分析に十分なデータがあるかどうかを確認（最低1件あれば分析を試みる）
+    if (userMessages.length > 0) {
+      // OpenAI APIを使用して特性分析を実行
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `あなたは「Adam」という発達障害専門のカウンセラーです。ユーザーの過去ログを分析し、以下の観点から深い洞察を提供してください。
+
+[分析の観点]
+1. コミュニケーションパターン
+   - 言葉遣いの特徴
+   - 表現の一貫性
+   - 感情表現の方法
+
+2. 思考プロセス
+   - 論理的思考の特徴
+   - 問題解決アプローチ
+   - 興味・関心の対象
+
+3. 社会的相互作用
+   - 対人関係での傾向
+   - ストレス対処方法
+   - コミュニケーション上の強み/課題
+
+4. 感情と自己認識
+   - 感情表現の特徴
+   - 自己理解の程度
+   - モチベーションの源泉
+
+[出力形式]
+- 日本語で簡潔に（200文字以内）
+- 肯定的な側面を含める
+- 改善提案あれば添える
+- 断定的な診断は避ける（専門医に相談を推奨する）
+- 「データが不足している」「分析できない」などの否定的な表現は避け、限られたデータからでも何らかの洞察を提供する
+- 専門家への相談を推奨する
+
+重要: たとえデータが少なくても、「過去の記録がない」などとは言わず、利用可能なデータから最大限の分析を行ってください。`
+          },
+          {
+            role: "user",
+            content: `以下はユーザーの過去の会話履歴です。この情報を基に、ユーザーの特性について分析してください。
+            
+会話履歴:
+${userMessages.join('\n\n')}`
+          }
+        ],
+        max_tokens: 500
+      });
+      
+      return response.choices[0].message.content;
+    } else {
+      // 会話履歴が不足している場合でも、否定的な表現は避ける
+      return "会話履歴を分析しました。より詳細な特性分析のためには、もう少し会話を続けることをお勧めします。現時点では、あなたの興味や関心に合わせたサポートを提供できるよう努めています。何か具体的な質問や話題があれば、お気軽にお聞かせください。";
+    }
+  } catch (error) {
+    console.error('Error in generateHistoryResponse:', error);
+    // エラーが発生した場合でも、ユーザーフレンドリーなメッセージを返す
+    return "申し訳ありません。特性分析の処理中にエラーが発生しました。もう一度お試しいただくか、別の質問をしていただけますか？";
+  }
+}
