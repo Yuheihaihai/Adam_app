@@ -2602,7 +2602,7 @@ ${SHARE_URL}
         pendingImageExplanations.set(userId, lastAssistantMessage.content);
       } else {
         console.log(`[DEBUG] No last assistant message found for user ${userId}, using default message`);
-        pendingImageExplanations.set(userId, "説明がありません。");
+        pendingImageExplanations.set(userId, "日常会話の基本とコミュニケーションのポイント");
       }
       
       const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
@@ -2896,6 +2896,11 @@ async function handleVisionExplanation(event, explanationText) {
           }
           enhancedPrompt = `以下の内容の要点を視覚的に説明するイラスト: ${explanationText.substring(0, 500)}`;
         }
+      } else if (explanationText.length <= 20) {
+        // 短いテキストの場合は教育的なコンテキストを追加
+        console.log(`[DEBUG] Short text detected (${explanationText.length} chars), adding educational context`);
+        displayText = explanationText;
+        enhancedPrompt = `「${explanationText}」についての教育的で分かりやすい図解。日常生活での応用例や基本概念を含む、明るく親しみやすいイラスト。`;
       } else {
         // For normal length text, use as is
         enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${explanationText}`;
@@ -2970,9 +2975,21 @@ async function handleVisionExplanation(event, explanationText) {
         
       } catch (error) {
         console.error('DALL-E画像生成エラー:', error);
+        
+        // エラーの種類に応じたメッセージを提供
+        let errorMessage = '申し訳ありません。画像の生成中にエラーが発生しました。';
+        
+        // 安全システムによる拒否の場合
+        if (error.code === 'content_policy_violation' || 
+            (error.message && error.message.includes('safety system'))) {
+          errorMessage = '申し訳ありません。このテキストから安全な画像を生成できませんでした。「日常会話のポイント」「コミュニケーションの基本」などの具体的なテーマで試してみてください。';
+        } else {
+          errorMessage += '別の表現で試してみてください。';
+        }
+        
         await client.pushMessage(userId, {
           type: 'text',
-          text: '申し訳ありません。画像の生成中にエラーが発生しました。別の表現で試してみてください。'
+          text: errorMessage
         });
         
         // Also clear the flag in case of error
