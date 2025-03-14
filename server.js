@@ -2577,9 +2577,79 @@ ${SHARE_URL}
 
     // 画像説明の提案トリガーチェック：isConfusionRequest のみを使用
     let triggerImageExplanation = false;
+    
+    // 直接的な画像分析リクエストの場合は即座にトリガー
     if (isConfusionRequest(userMessage)) {
-      console.log(`[DEBUG] Confusion detected in message: "${userMessage}"`);
+      console.log(`[DEBUG] Direct image request detected in message: "${userMessage}"`);
       triggerImageExplanation = true;
+    } 
+    // それ以外のすべてのメッセージはLLMで分析
+    else {
+      // LLMを使用して「AIの発言を理解していないか」を判定
+      try {
+        console.log(`[DEBUG] Analyzing if user understands AI response: "${userMessage}"`);
+        
+        // 直前のAI回答を取得する
+        const previousAIResponse = lastAssistantMessage ? lastAssistantMessage.content : null;
+        
+        // 直前のAI回答がない場合はスキップ
+        if (!previousAIResponse) {
+          console.log(`[DEBUG] No previous AI response to analyze against, skipping confusion detection`);
+        } else {
+          // OpenAI APIを使用して混乱度を判定
+          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+          
+          const systemPrompt = `あなたはユーザーとAIの会話を分析し、ユーザーがAIの発言を理解できているかどうかを判断する専門家です。
+
+あなたの任務は、「ユーザーがAIの直前の回答を理解していないかどうか」を判断することです。
+ユーザーの発言から、AIの回答に対する混乱や理解困難が示されていると判断できる場合は、その確度（0〜100%）を評価してください。
+
+確度が95%以上の場合のみ「CONFUSED:確度」と回答し、それ以外は「NOT_CONFUSED」と回答してください。
+
+判断の際は、以下のポイントに注意してください：
+1. ユーザーの発言がAIの回答内容に関連しているか
+2. ユーザーが「わからない」「理解できない」などの表現を使っているか
+3. ユーザーが説明の簡略化や別の言い方を求めているか
+4. ユーザーの質問がAIの回答内容を正しく理解していないことを示しているか
+
+「億劫」などの表現は通常、混乱ではなく単に気が進まないという意味なので混乱とは判断しないでください。
+純粋に会話を継続する意図の発言は混乱とみなさないでください。
+
+回答は「CONFUSED:95」または「NOT_CONFUSED」の形式のみで返してください。`;
+
+          // メッセージ配列を作成
+          const messages = [
+            { role: "system", content: systemPrompt },
+            { role: "system", content: `直前のAIの回答: "${previousAIResponse.substring(0, 500)}${previousAIResponse.length > 500 ? '...' : ''}"` },
+            { role: "user", content: userMessage }
+          ];
+          
+          const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: messages,
+            max_tokens: 10,
+            temperature: 0.0
+          });
+          
+          const content = response.choices[0].message.content.trim();
+          console.log(`[DEBUG] LLM understanding analysis result: ${content}`);
+          
+          if (content.startsWith('CONFUSED:')) {
+            const confidenceParts = content.split(':');
+            if (confidenceParts.length > 1) {
+              const confidence = parseFloat(confidenceParts[1]);
+              if (confidence >= 95) {
+                console.log(`[DEBUG] LLM determined user doesn't understand AI response with high confidence (${confidence}%)`);
+                triggerImageExplanation = true;
+              } else {
+                console.log(`[DEBUG] LLM detected some confusion but confidence too low (${confidence}%)`);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`[DEBUG] Error in LLM understanding analysis: ${error.message}`);
+      }
     }
 
     if (triggerImageExplanation) {
@@ -2797,83 +2867,14 @@ app.listen(PORT, () => {
 
 /**
  * Checks if a message indicates user confusion or a request for explanation about an image
+ * Now only checks for direct image analysis requests
  * @param {string} text - The message text to check
- * @return {boolean} - True if the message indicates confusion about an image
+ * @return {boolean} - True if the message is a direct request for image analysis
  */
 function isConfusionRequest(text) {
-  if (!text || typeof text !== 'string') return false;
-  
-  // センシティブトピックのチェック - これらのトピックでは画像生成を提案しない
-  const sensitiveTopics = [
-    '性的', 'セクシャル', '依存症', 'アディクション', '自殺', '自傷',
-    'セックス', 'トラウマ', '虐待', '性癖', 'カウンセリング', '医者',
-    '専門家', '診断', '治療', '妄想', '性欲', '死にたい', '死'
-  ];
-  
-  // センシティブなトピックが検出された場合は混乱検出をスキップ
-  if (sensitiveTopics.some(topic => text.includes(topic))) {
-    console.log(`Sensitive topic detected in message: "${text}". Skipping confusion detection.`);
-    return false;
-  }
-  
-  // First check if the message contains image-related terms
-  const imageTerms = ['画像', '写真', 'イメージ', '図', 'がぞう', 'しゃしん', 'ピクチャ', '絵', 'この'];
-  const hasImageTerm = imageTerms.some(term => text.includes(term));
-  
-  // Then check for confusion patterns
-  const confusionPatterns = [
-    'わからない', '分からない', '理解できない', '意味がわからない', '意味が分からない',
-    '何これ', 'なにこれ', '何だこれ', 'なんだこれ', '何だろう', 'なんだろう',
-    'どういう意味', 'どういうこと', 'よくわからない', 'よく分からない', 
-    '何が起きてる', '何が起きている', 'なにが起きてる',
-    '何が書いてある', '何て書いてある', '何と書いてある', 'これは何',
-    'これはなに', 'これって何', 'これってなに', '何が表示されてる',
-    '何が表示されている', 'なにが表示されてる', 'これ何', 'これなに'
-  ];
-  
-  // More specific explanation request patterns that must be image-related
-  const explanationPatterns = [
-    '説明して', '教えて', '分析して', '解析して', '教えてください', '説明してください', 
-    '分析してください', '解析してください', 'について', 'を説明', 'を分析', 'を解析', 
-    'を認識', '認識して', '何が写って', '何が写ってる', '何が写っている'
-  ];
-  
-  // Image analysis specific phrases that should be detected regardless of other patterns
-  const directAnalysisRequests = [
-    'この画像について', 'この写真について', 'この画像を分析', 'この写真を分析',
-    'この画像を解析', 'この写真を解析', 'この画像を説明', 'この写真を説明',
-    'この画像の内容', 'この写真の内容', 'この画像に写っているもの', 'この写真に写っているもの'
-  ];
-  
-  // Direct request for image analysis
-  if (directAnalysisRequests.some(phrase => text.includes(phrase))) {
-    return true;
-  }
-  
-  // Pure confusion expressions that should trigger image explanation without image terms
-  const pureConfusionExpressions = [
-    'よくわからない', 'よく分からない', 'わからない', '分からない', '理解できない',
-    '意味がわからない', '意味が分からない', 'どういう意味', 'どういうこと'
-  ];
-  
-  // Direct confusion detection without requiring image terms - 短すぎるメッセージは除外
-  if (pureConfusionExpressions.some(expr => text.includes(expr))) {
-    // 短い表現や「億劫」などのネガティブな表現だけの場合はfalseを返す
-    if (text.length < 15 || text.includes('億劫') || text.includes('妥協')) {
-      console.log(`Confusion expression detected but message too short or contains negative expression: "${text}"`);
-      return false;
-    }
-    console.log(`Pure confusion expression detected: "${text}"`);
-    return true;
-  }
-  
-  // For other combinations, return true if:
-  // 1. Contains a confusion pattern AND an image term, OR
-  // 2. Contains a specific explanation request AND an image term
-  const hasConfusionPattern = confusionPatterns.some(pattern => text.includes(pattern));
-  const hasExplanationRequest = explanationPatterns.some(pattern => text.includes(pattern));
-  
-  return (hasImageTerm && (hasConfusionPattern || hasExplanationRequest));
+  // 直接的な画像分析リクエストかどうかを判断するだけの機能に変更
+  // 互換性のために関数名は変更せず
+  return isDirectImageAnalysisRequest(text);
 }
 
 /**
@@ -3822,4 +3823,44 @@ ${userMessages.join('\n\n')}`
     // エラーが発生した場合でも、ユーザーフレンドリーなメッセージを返す
     return "申し訳ありません。特性分析の処理中にエラーが発生しました。もう一度お試しいただくか、別の質問をしていただけますか？";
   }
+}
+
+/**
+ * 混乱や理解困難を示す表現を含むかどうかをチェックする
+ * @param {string} text - チェックするテキスト
+ * @return {boolean} - 混乱表現を含む場合はtrue
+ */
+function containsConfusionTerms(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 一般的な混乱表現
+  const confusionTerms = [
+    'わからない', '分からない', '理解できない', '意味がわからない', '意味が分からない',
+    'どういう意味', 'どういうこと', 'よくわからない', 'よく分からない',
+    '何が言いたい', 'なにが言いたい', '何を言ってる', 'なにを言ってる',
+    'もう少し', 'もっと', '簡単に', 'かみ砕いて', 'シンプルに', '例を挙げて',
+    '違う方法で', '別の言い方', '言い換えると', '言い換えれば', '詳しく',
+    '混乱', '複雑', '難解', 'むずかしい'
+  ];
+  
+  return confusionTerms.some(term => text.includes(term));
+}
+
+/**
+ * 直接的な画像分析リクエストかどうかを判断する
+ * @param {string} text - チェックするテキスト
+ * @return {boolean} - 直接的な画像分析リクエストの場合はtrue
+ */
+function isDirectImageAnalysisRequest(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 画像分析に特化したフレーズ
+  const directAnalysisRequests = [
+    'この画像について', 'この写真について', 'この画像を分析', 'この写真を分析',
+    'この画像を解析', 'この写真を解析', 'この画像を説明', 'この写真を説明',
+    'この画像の内容', 'この写真の内容', 'この画像に写っているもの', 'この写真に写っているもの'
+  ];
+  
+  // 直接的な画像分析リクエストの場合はtrueを返す
+  return directAnalysisRequests.some(phrase => text.includes(phrase));
 }
