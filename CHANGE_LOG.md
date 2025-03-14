@@ -193,3 +193,24 @@ Removed explicit trigger word detection in favor of more intelligent contextual 
 - **変更内容**: `handleText`関数内でFEEDBACK_PATTERNSを定義
 - **変更ファイル**: `server.js` 2329行目付近
 - **理由**: `ReferenceError: FEEDBACK_PATTERNS is not defined`エラーが発生していたため 
+
+## 2025-03-15: メッセージ取得ユーティリティの追加
+
+### PostgreSQLとAirtableの両方からメッセージを取得するユーティリティの実装
+
+#### Changes Made:
+1. **scripts/fetch-messages.js**:
+   - PostgreSQLとAirtableの両方からメッセージを取得する`fetchMessages`関数を実装
+   - 既存の`fetchUserHistory`関数を活用して、両方のデータソースからデータを取得
+   - コマンドライン引数でユーザーIDと取得件数を指定できる機能を追加
+
+2. **scripts/test-fetch-messages.js**:
+   - `fetchMessages`関数のテストスクリプトを作成
+   - テスト用のユーザーIDを生成して、メッセージ取得をテスト
+
+3. **server.js**:
+   - `fetchUserHistory`関数をモジュールとしてエクスポートするように変更
+   - 他のスクリプトから`fetchUserHistory`関数を利用できるように改善
+
+#### Reason for Change:
+アプリケーション内の他の部分やスクリプトからPostgreSQLとAirtableの両方のデータソースからメッセージを簡単に取得できるようにするため、再利用可能なユーティリティ関数を作成しました。これにより、データ取得のコードの重複を減らし、一貫した方法でメッセージにアクセスできるようになります。 

@@ -3641,3 +3641,8 @@ setInterval(() => {
     }
   });
 }, 3600000); // Clean up every hour
+
+// Export functions for use in other modules
+module.exports = {
+  fetchUserHistory
+};
