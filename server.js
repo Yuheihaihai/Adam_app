@@ -903,6 +903,9 @@ async function fetchUserHistory(userId, limit) {
 
 // 履歴の内容を分析する関数
 function analyzeHistoryContent(history, metadata) {
+  console.log(`\n======= 履歴内容分析デバッグ =======`);
+  console.log(`→ 分析対象メッセージ数: ${history.length}件`);
+  
   // 記録タイプのカウンターを初期化
   metadata.recordsByType = metadata.recordsByType || {};
   
@@ -912,29 +915,60 @@ function analyzeHistoryContent(history, metadata) {
   // 翻訳関連のキーワード
   const translationKeywords = ['翻訳', '訳して', '英語', '日本語', 'translate'];
   
+  // カウンター初期化
+  let careerContentCount = 0;
+  let translationContentCount = 0;
+  let userMessageCount = 0;
+  
   // 各メッセージを分析
   history.forEach(msg => {
     if (msg.role === 'user') {
+      userMessageCount++;
       const content = msg.content.toLowerCase();
       
       // キャリア関連の内容かチェック
       if (careerKeywords.some(keyword => content.includes(keyword))) {
         metadata.recordsByType.career = (metadata.recordsByType.career || 0) + 1;
         metadata.hasCareerRelatedContent = true;
+        careerContentCount++;
       }
       
       // 翻訳関連の内容かチェック
       if (translationKeywords.some(keyword => content.includes(keyword))) {
         metadata.recordsByType.translation = (metadata.recordsByType.translation || 0) + 1;
+        translationContentCount++;
       }
     }
   });
   
-  // 翻訳の割合が高いかチェック
-  const translationCount = metadata.recordsByType.translation || 0;
-  if (translationCount > 0 && translationCount / history.length > 0.7) {
+  // 翻訳に関する割合を計算
+  const translationPercentage = userMessageCount > 0 ? Math.round((translationContentCount / userMessageCount) * 100) : 0;
+  
+  // 分析結果ログ
+  console.log(`→ ユーザーメッセージ: ${userMessageCount}件`);
+  console.log(`→ キャリア関連: ${careerContentCount}件 (${Math.round(careerContentCount/userMessageCount*100)}%)`);
+  console.log(`→ 翻訳関連: ${translationContentCount}件 (${translationPercentage}%)`);
+  
+  // 翻訳の割合が高いかチェック (元のロジック)
+  const storedTranslationCount = metadata.recordsByType.translation || 0;
+  if (storedTranslationCount > 0 && storedTranslationCount / history.length > 0.7) {
     metadata.mostlyTranslation = true;
+    console.log(`→ 元のロジックによる判定: 翻訳割合が高い (70%超)`);
   }
+  
+  // メタデータの設定
+  if (history.length < 3) {
+    metadata.insufficientReason = 'few_records';
+    console.log(`→ 結論: 履歴が少ない (${history.length}件)`);
+  } else if (translationPercentage > 50) {
+    metadata.insufficientReason = 'translation_heavy';
+    metadata.translationPercentage = translationPercentage;
+    console.log(`→ 結論: 翻訳依頼が多い (${translationPercentage}%)`);
+  } else {
+    console.log(`→ 結論: 分析に十分な履歴あり`);
+  }
+  
+  console.log(`======= 履歴内容分析デバッグ終了 =======\n`);
 }
 
 function applyAdditionalInstructions(basePrompt, mode, historyData, userMessage) {
@@ -1619,6 +1653,33 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     console.log('└──────────────────────────────────────────────────────────┘');
     // ─────────────────────────────────────────────────────────────────────
     
+    // デバッグログ追加
+    console.log(`\n======= AIプロンプト構築デバッグ =======`);
+    console.log(`→ モード: ${mode}`);
+    console.log(`→ 会話履歴件数: ${history.length}`);
+    
+    // 特性分析に関するキーワードの検出
+    const analysisKeywords = ['特性', '分析', '性格', '過去の記録', '履歴'];
+    const containsAnalysisKeywords = userMessage && analysisKeywords.some(keyword => userMessage.includes(keyword));
+    console.log(`→ 特性分析キーワード検出: ${containsAnalysisKeywords}`);
+    
+    // 特性/キャリア分析モードの確認
+    if (mode === 'characteristics' || mode === 'career') {
+      console.log(`→ 特性/キャリア分析モードが有効`);
+      
+      if (metadata && metadata.insufficientReason) {
+        console.log(`→ 履歴不足理由: ${metadata.insufficientReason}`);
+        if (metadata.insufficientReason === 'few_records') {
+          console.log(`→ 履歴が少ない警告をプロンプトに追加: ${history.length}件`);
+        } else if (metadata.insufficientReason === 'translation_heavy') {
+          console.log(`→ 翻訳依頼が多い警告をプロンプトに追加: 翻訳率=${metadata.translationPercentage}%`);
+        }
+      } else if (history.length < 3) {
+        console.log(`→ 履歴が3件未満の警告をプロンプトに追加: ${history.length}件`);
+      }
+    }
+    console.log(`======= AIプロンプト構築デバッグ終了 =======\n`);
+    
     // Prepare the messages for the AI model
     console.log('\n📝 [3A] CREATING BASE PROMPT');
     console.log(`    ├─ System prompt: ${systemPrompt.length} characters`);
@@ -1840,6 +1901,38 @@ ${perplexityData.knowledge}
           // Call OpenAI API
           console.log('    ├─ Sending request to OpenAI API...');
           const response = await openai.chat.completions.create(requestOptions);
+          
+          // 特性分析に関連するキーワードを持つメッセージかどうかを確認
+          const isCharacteristicsRelated = userMessage && [
+            '特性', '分析', '性格', '過去の記録', '履歴'
+          ].some(keyword => userMessage.includes(keyword));
+          
+          // デバッグログ追加
+          if (isCharacteristicsRelated) {
+            console.log(`\n======= 特性分析関連レスポンスデバッグ =======`);
+            console.log(`→ AIレスポンス先頭: ${response.choices[0].message.content.substring(0, 50)}...`);
+            console.log(`→ 「過去の記録がない」関連フレーズを含むか: ${
+              response.choices[0].message.content.includes('過去の記録がない') || 
+              response.choices[0].message.content.includes('会話履歴がない') ||
+              response.choices[0].message.content.includes('過去の会話履歴がない')
+            }`);
+            
+            // レスポンスに問題がある場合、生成時の条件を詳細出力
+            if (response.choices[0].message.content.includes('過去の記録がない') || 
+                response.choices[0].message.content.includes('会話履歴がない') ||
+                response.choices[0].message.content.includes('過去の会話履歴がない')) {
+              console.log(`→ モード: ${mode}`);
+              console.log(`→ 会話履歴件数: ${history.length}`);
+              console.log(`→ ユーザーメッセージ: ${userMessage}`);
+              console.log(`→ 使用モデル: ${model}`);
+              
+              // 重要な部分の処理確認
+              console.log(`→ プロンプトに「過去の記録がないなどとは言わず」の指示: ${
+                finalPrompt.includes('過去の記録がない」などとは言わず')
+              }`);
+            }
+            console.log(`======= 特性分析関連レスポンスデバッグ終了 =======\n`);
+          }
           
           const timeTaken = Date.now() - startTime;
           console.log(`    ├─ AI response generated in ${timeTaken}ms`);
@@ -2231,6 +2324,8 @@ async function handleChatRecallWithRetries(userId, messageText) {
 async function fetchAndAnalyzeHistory(userId) {
   const startTime = Date.now();
   console.log(`📚 Fetching chat history for user ${userId}`);
+  console.log(`\n======= 特性分析デバッグログ: 履歴取得開始 =======`);
+  console.log(`→ ユーザーID: ${userId}`);
   
   try {
     // PostgreSQLから最大200件のメッセージを取得
@@ -2292,6 +2387,8 @@ async function fetchAndAnalyzeHistory(userId) {
     const response = await generateHistoryResponse(combinedHistory);
     
     console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
+    console.log(`→ 特性分析レスポンス生成完了: ${response.substring(0, 50)}...`);
+    console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
     return {
       type: 'text',
       text: response
@@ -2299,6 +2396,7 @@ async function fetchAndAnalyzeHistory(userId) {
     
   } catch (error) {
     console.error(`❌ Error in fetchAndAnalyzeHistory: ${error.message}`);
+    console.error(`→ スタックトレース: ${error.stack}`);
     // エラーが発生した場合でも、ユーザーフレンドリーなメッセージを返す
     return {
       type: 'text',
@@ -2455,6 +2553,20 @@ async function handleText(event) {
   try {
     const userId = event.source.userId;
     const messageText = event.message.text;
+    
+    // 特性分析に関連するメッセージかどうかを検出
+    if (messageText && (
+      messageText.includes('特性') || 
+      messageText.includes('分析') || 
+      messageText.includes('性格') || 
+      messageText.includes('過去の記録') || 
+      messageText.includes('履歴')
+    )) {
+      console.log(`\n======= 特性分析リクエスト検出 =======`);
+      console.log(`→ ユーザーID: ${userId}`);
+      console.log(`→ メッセージ: ${messageText}`);
+      console.log(`======= 特性分析リクエスト検出終了 =======\n`);
+    }
     
     // Define feedback patterns for sentiment detection
     const FEEDBACK_PATTERNS = {
@@ -3859,21 +3971,44 @@ module.exports = {
  */
 async function generateHistoryResponse(history) {
   try {
+    console.log(`\n======= 特性分析詳細ログ =======`);
+    
     // 会話履歴が空の場合
     if (!history || history.length === 0) {
+      console.log(`→ 会話履歴なし: 空のhistoryオブジェクト`);
       return "会話履歴がありません。もう少し会話を続けると、あなたの特性について分析できるようになります。";
     }
 
-    console.log(`Analyzing ${history.length} conversation records for characteristics...`);
+    console.log(`→ 分析開始: ${history.length}件の会話レコード`);
     
     // 会話履歴からユーザーのメッセージのみを抽出
     const userMessages = history.filter(msg => msg.role === 'user').map(msg => msg.content);
+    console.log(`→ ユーザーメッセージ抽出: ${userMessages.length}件`);
     
-    // 会話履歴の内容を確認
-    console.log(`Found ${userMessages.length} user messages for analysis`);
+    // 会話履歴の内容分析
+    const translationMessages = userMessages.filter(msg => 
+      msg.includes('翻訳') || 
+      msg.includes('英語') || 
+      msg.includes('英文') || 
+      (msg.match(/[a-zA-Z]{10,}/) && !msg.match(/[ぁ-んァ-ン]{5,}/))
+    );
+    
+    const shortMessages = userMessages.filter(msg => msg.length < 20);
+    const potentiallyUsefulMessages = userMessages.filter(msg => 
+      !translationMessages.includes(msg) && 
+      !shortMessages.includes(msg)
+    );
+    
+    console.log(`→ メッセージ分類:`);
+    console.log(`   - 翻訳関連: ${translationMessages.length}件`);
+    console.log(`   - 短いメッセージ: ${shortMessages.length}件`);
+    console.log(`   - 分析に利用可能: ${potentiallyUsefulMessages.length}件`);
     
     // 分析に十分なデータがあるかどうかを確認（最低1件あれば分析を試みる）
     if (userMessages.length > 0) {
+      console.log(`→ OpenAI API呼び出し準備完了`);
+      console.log(`→ プロンプト付与: "たとえデータが少なくても、「過去の記録がない」などとは言わず、利用可能なデータから最大限の分析を行ってください"`);
+      
       // OpenAI APIを使用して特性分析を実行
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
       
@@ -3926,13 +4061,20 @@ ${userMessages.join('\n\n')}`
         max_tokens: 500
       });
       
+      console.log(`→ OpenAI API応答受信: ${response.choices[0].message.content.substring(0, 50)}...`);
+      console.log(`→ レスポンスが「過去の記録がない」を含むか: ${response.choices[0].message.content.includes('過去の記録がない') || response.choices[0].message.content.includes('会話履歴がない')}`);
+      console.log(`======= 特性分析詳細ログ終了 =======\n`);
       return response.choices[0].message.content;
     } else {
+      console.log(`→ 分析に利用可能なメッセージなし`);
+      console.log(`======= 特性分析詳細ログ終了 =======\n`);
       // 会話履歴が不足している場合でも、否定的な表現は避ける
       return "会話履歴を分析しました。より詳細な特性分析のためには、もう少し会話を続けることをお勧めします。現時点では、あなたの興味や関心に合わせたサポートを提供できるよう努めています。何か具体的な質問や話題があれば、お気軽にお聞かせください。";
     }
   } catch (error) {
     console.error('Error in generateHistoryResponse:', error);
+    console.error(`→ エラースタックトレース: ${error.stack}`);
+    console.log(`======= 特性分析詳細ログ終了 (エラー発生) =======\n`);
     // エラーが発生した場合でも、ユーザーフレンドリーなメッセージを返す
     return "申し訳ありません。特性分析の処理中にエラーが発生しました。もう一度お試しいただくか、別の質問をしていただけますか？";
   }
