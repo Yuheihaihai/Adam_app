@@ -1556,13 +1556,13 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
 
     if (!userPrefs.showServiceRecommendations) {
       serviceNotificationReason = 'disabled';
-      console.log('Skipping service recommendations: User preferences disabled');
+      console.log('⚠️ Skipping service recommendations: User preferences disabled');
     } else {
       // detectAdviceRequestが非同期関数になったため、awaitで結果を取得
       const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
       if (!isAdviceRequest) {
       serviceNotificationReason = 'no_request';
-        console.log('Skipping service recommendations: No advice request detected by LLM');
+        console.log('⚠️ Skipping service recommendations: No advice request detected by LLM');
     } else {
       // Check timing constraints
         const shouldShow = await shouldShowServicesToday(userId, history, userMessage);
@@ -1586,13 +1586,15 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
         
         if (servicesToday >= 9) {
           serviceNotificationReason = 'daily_limit';
+          console.log('⚠️ Not showing services: Daily limit reached');
         } else {
           serviceNotificationReason = 'cooldown';
+          console.log(`⚠️ Not showing services: Cooldown period (Last shown: ${lastServiceTime ? Math.round((now - lastServiceTime) / 60000) + ' minutes ago' : 'never'})`);
         }
         
-        console.log(`Skipping service recommendations: Timing constraints not met (reason: ${serviceNotificationReason})`);
+        console.log(`Service recommendations skipped: ${serviceNotificationReason}`);
       } else {
-        console.log('User explicitly asked for advice and timing is appropriate. Getting service recommendations...');
+        console.log('✅ Starting service recommendation process - constraints passed');
         // 最終的に表示が決まったら、表示時刻を記録
         userPrefs.lastServiceTime = Date.now();
         userPreferences.updateUserPreferences(userId, userPrefs);
@@ -3687,92 +3689,31 @@ async function detectAdviceRequestWithLLM(userMessage, history) {
     });
     
     const result = response.choices[0].message.content.trim().toLowerCase();
-    console.log(`LLM advice request detection result: ${result}`);
+    
+    // 詳細なログを追加
+    if (result === 'yes') {
+      console.log(`✅ Advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+    } else {
+      console.log(`❌ No advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+    }
     
     return result === 'yes';
   } catch (error) {
     console.error('Error in LLM advice request detection:', error);
     // Fall back to simpler heuristic in case of error
-  return false;
+    console.log(`⚠️ Error in advice request detection, defaulting to false`);
+    return false;
   }
 }
 
 /**
  * Check if it's an appropriate time in the conversation to show service recommendations
  */
-function isAppropriateTimeForServices(history, userMessage) {
-  if (!history || history.length < 1) return true;
-  
-  // Check if the conversation just started (fewer than 4 messages)
-  if (history.length < 4) {
-    return false; // Too early in conversation
-  }
-  
-  // Get the most recent messages
-  const recentMessages = history.slice(-5);
-  
-  // Check if services were already shown very recently
-  let lastServiceTime = -1;
-  for (let i = recentMessages.length - 1; i >= 0; i--) {
-    const msg = recentMessages[i];
-    if (msg.role === 'assistant' && 
-        msg.content && 
-        (msg.content.includes('サービス') || 
-         msg.content.includes('■ お役立ち情報 ■') || 
-         msg.content.includes('■ サポート情報 ■'))) {
-      lastServiceTime = i;
-      break;
-    }
-  }
-  
-  // If services were shown in the last message, don't show again
-  if (lastServiceTime === recentMessages.length - 1) {
-    return false;
-  }
-  
-  // If services were shown in the last 2 exchanges, check if user engaged
-  if (lastServiceTime >= 0 && lastServiceTime >= recentMessages.length - 3) {
-    // Check if user mentioned services or seemed interested
-    const userResponse = recentMessages[lastServiceTime + 1];
-    if (userResponse && userResponse.role === 'user' && userResponse.content) {
-      const interestWords = ['ありがとう', 'サービス', 'いいね', '助かる', '使ってみ'];
-      const showedInterest = interestWords.some(word => userResponse.content.includes(word));
-      
-      if (!showedInterest) {
-        // User didn't engage with previous recommendations
-        return false;
-      }
-    }
-  }
-  
-  // Check if user seems to be in a rapid back-and-forth informational exchange
-  let shortExchangeCount = 0;
-  for (let i = 0; i < recentMessages.length - 1; i++) {
-    if (recentMessages[i].role === 'user' && 
-        recentMessages[i + 1].role === 'assistant' && 
-        recentMessages[i].content && recentMessages[i + 1].content &&
-        recentMessages[i].content.length < 30 && 
-        recentMessages[i + 1].content.length < 200) {
-      shortExchangeCount++;
-    }
-  }
-  
-  // If in the middle of a rapid exchange, don't interrupt with services
-  if (shortExchangeCount >= 2 && userMessage && userMessage.length < 30) {
-    return false;
-  }
-  
-  return true;
-}
-
-/**
- * Check frequency and timing constraints for showing services
- */
 async function shouldShowServicesToday(userId, history, userMessage) {
   // If user explicitly asks for advice/services, always show
   const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
   if (isAdviceRequest) {
-    console.log('Advice request detected by LLM in shouldShowServicesToday - always showing services');
+    console.log('✅ Advice request detected by LLM in shouldShowServicesToday - always showing services');
     return true;
   }
   
@@ -3799,13 +3740,13 @@ async function shouldShowServicesToday(userId, history, userMessage) {
       
       // Limit to no more than 9 service recommendations per day
       if (servicesToday >= 9) {
-        console.log('Daily service recommendation limit reached (9 per day) - not showing services');
+        console.log('⚠️ Daily service recommendation limit reached (9 per day) - not showing services');
         return false;
       }
       
       // If fewer than 5 service recommendations today, require a longer minimum gap
       if (servicesToday < 5 && now - lastServiceTime < 45 * 60 * 1000) {
-        console.log('Time between service recommendations too short (< 45 minutes) - not showing services');
+        console.log(`⚠️ Time between service recommendations too short (< 45 minutes) - not showing services. Last shown: ${Math.round((now - lastServiceTime) / 60000)} minutes ago`);
         return false; // Less than 45 minutes since last recommendation
       }
     }
