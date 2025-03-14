@@ -6,6 +6,8 @@
 
 const wrapper = require('./wrapper');
 const logger = require('./logger');
+const { monitoringSystem } = require('./monitoring');
+const { config } = require('./config');
 
 // モジュール初期化
 (async () => {
@@ -15,6 +17,40 @@ const logger = require('./logger');
     logger.error(`ML拡張モジュールの初期化に失敗: ${error.message}`);
   }
 })();
+
+// モニタリングシステムの初期化を追加
+async function initialize() {
+  try {
+    logger.info('ML拡張機能の初期化を開始');
+    
+    // モニタリングシステムの初期化
+    await monitoringSystem.initialize();
+    
+    // ... existing initialization code ...
+    
+    logger.info('ML拡張機能の初期化が完了');
+  } catch (error) {
+    logger.error('ML拡張機能の初期化に失敗:', error);
+    throw error;
+  }
+}
+
+// メトリクス取得エンドポイントを追加
+async function getMetrics() {
+  try {
+    const metrics = monitoringSystem.getMetrics();
+    const alerts = monitoringSystem.checkAlerts();
+    
+    return {
+      metrics,
+      alerts,
+      status: 'healthy'
+    };
+  } catch (error) {
+    logger.error('メトリクスの取得に失敗:', error);
+    throw error;
+  }
+}
 
 // 既存のlocalML.jsと同じインターフェースをエクスポート
 module.exports = {
@@ -26,5 +62,7 @@ module.exports = {
   
   // その他必要な関数もここでエクスポート
   _loadPatterns: wrapper.loadPatterns,
-  _getPatternDetails: wrapper.getPatternDetails
+  _getPatternDetails: wrapper.getPatternDetails,
+  initialize,
+  getMetrics
 }; 

@@ -246,7 +246,41 @@ Removed explicit trigger word detection in favor of more intelligent contextual 
      - エラー処理を改善し、ユーザーフレンドリーなエラーメッセージを提供
 
 #### Reason for Change:
-特性分析機能において「過去の記録がない」というメッセージが表示される問題を解決するために、PostgreSQLとAirtableの両方からデータを取得し、より多くの会話履歴を分析に活用できるようにしました。また、限られたデータからでも何らかの分析結果を提供するように改善し、ユーザー体験を向上させました。これにより、ユーザーは自分の特性についてより詳細で有用な洞察を得ることができます。 
+特性分析機能において「過去の記録がない」というメッセージが表示される問題を解決するために、PostgreSQLとAirtableの両方からデータを取得し、より多くの会話履歴を分析に活用できるようにしました。また、限られたデータからでも何らかの分析結果を提供するように改善し、ユーザー体験を向上させました。これにより、ユーザーは自分の特性についてより詳細で有用な洞察を得ることができます。
+
+### 日本語での詳細説明：会話データが限られている場合の改善されたユーザー体験
+
+#### 改善のポイント：
+この更新により、特性分析を行う際に「過去の記録がない」といった否定的なメッセージではなく、以下のように改善されました：
+
+1. **データの状況を透明に説明**：
+   - 利用可能な会話履歴の内容（例：翻訳依頼が多いなど）を明確に説明
+   - なぜ詳細な分析が難しいのかを具体的に伝える
+
+2. **建設的な代替案の提供**：
+   - 分析に必要な追加情報を具体的に質問
+   - ユーザーが提供できる情報の例を示す
+
+3. **限られたデータからでも価値を提供**：
+   - 少ないデータからでも可能な範囲での分析結果を提供
+   - 完全な「できない」ではなく「現時点でわかること」を伝える
+
+#### 具体例（ユーザーケース）：
+例えば、主に翻訳サービスとしてAIを利用していたユーザーが突然キャリア分析を依頼した場合：
+
+**改善前の応答**：
+「過去の記録がないため、詳細な分析は難しいです」
+
+**改善後の応答**：
+「※過去の会話記録は主に英語翻訳の依頼（全体の約80%）であり、キャリア分析に必要な個人的な情報が少ないため、詳細な分析が難しい状況です。より正確な診断のためには、あなたの仕事に関する好み、スキル、経験などの情報をもう少し共有していただけると助かります。
+
+以下についてお聞かせいただけますか？：
+1. 現在の仕事内容と経験年数
+2. 特に得意だと感じるスキルや強み
+3. 仕事で大切にしている価値観
+4. 興味のある技術分野や業界」
+
+この改善により、ユーザーは「なぜ分析できないのか」を理解し、必要な情報を提供することで目的を達成できるようになりました。システムの透明性が高まり、ユーザー体験と信頼性が向上しています。
 
 ## 2023-11-10
 - 短い表現（「わからない」「億劫」など）の画像生成提案機能を改善
@@ -275,8 +309,47 @@ Removed explicit trigger word detection in favor of more intelligent contextual 
   - 95%以上の確度でユーザーが理解していないと判断された場合のみ画像生成を提案
   - 判断基準にメッセージ長さを使用せず、内容のみで判断 
 
-## 2023-11-15
-- Airtableからの会話履歴取得の修正
-  - `fetchAndAnalyzeHistory`関数でフィールド名の不一致を修正
-  - `ConversationHistory`テーブルの`UserID`、`Timestamp`、`Role`、`Content`フィールドの大文字小文字を正しく参照
-  - 特性分析・適職診断時の「過去の記録がない」というエラーの解消 
+## 2023-11-14: Perplexity Search Implementation
+
+### Integration of Perplexity API for Enhanced Knowledge Retrieval and Job Market Analysis
+
+#### Changes Made:
+1. **perplexitySearch.js**:
+   - Implemented a new `PerplexitySearch` class for integrating with the Perplexity Sonar model
+   - Added `enhanceKnowledge` method to analyze user characteristics and career needs
+   - Created `getJobTrends` method to retrieve current job market information
+   - Implemented `handleAllowedQuery` for weather and sports-related information
+   - Added contextual search capabilities using recent conversation history
+
+2. **server.js**:
+   - Integrated Perplexity search functionality into the main conversation processing flow
+   - Implemented parallel API calls for knowledge enhancement and job trends
+   - Added error handling for Perplexity API requests
+
+3. **Security and Configuration**:
+   - Added Perplexity API to CSP (Content Security Policy) settings
+   - Implemented appropriate connection timeout settings (25 seconds)
+
+#### Reason for Change:
+The Perplexity search implementation enhances the application's ability to provide relevant, up-to-date information to users. This integration allows the system to analyze user characteristics based on conversation history, provide information about current job market trends, and deliver more accurate career-related insights. The search functionality intelligently determines when knowledge enhancement is needed based on the context of the conversation, making the responses more informative and valuable to users seeking career guidance. 
+
+### 日本語での説明：Perplexity検索機能の実装について
+
+#### 変更内容の概要：
+Perplexity APIを活用した新しい検索機能を実装しました。この機能により、アプリケーションは会話の文脈を理解し、ユーザーの特性や職業適性を分析できるようになりました。また、最新の求人市場情報を取得し、キャリアに関する洞察を提供することも可能になりました。
+
+#### 主な改善点：
+1. **ユーザー特性の分析機能**：
+   - 会話履歴からユーザーのコミュニケーションスタイルや思考パターンを分析
+   - キャリアに関連する強みや課題を特定
+   - ユーザーに合った職種や業界の提案を生成
+
+2. **最新の求人市場情報の提供**：
+   - 現在のキャリアトレンドや新興職種に関する情報を取得
+   - 将来性の高い職種とその必要スキルについての分析
+   - 関連する求人情報のURLを提供
+
+3. **天気予報とスポーツ情報の検索**：
+   - 限定的な一般情報（天気予報、スポーツ結果）の検索機能を追加
+
+この機能強化により、ユーザーはより個人に合わせたキャリアアドバイスを受けることができ、最新の市場動向に基づいた意思決定が可能になります。また、システムはユーザーの会話内容を理解し、必要な時に適切な情報を提供できるようになりました。 

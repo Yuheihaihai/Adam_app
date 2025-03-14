@@ -775,6 +775,14 @@ async function fetchUserHistory(userId, limit) {
   try {
     console.log(`Fetching history for user ${userId}, limit: ${limit}`);
     
+    // 履歴分析用のメタデータオブジェクトを初期化
+    const historyMetadata = {
+      totalRecords: 0,
+      recordsByType: {},
+      hasCareerRelatedContent: false,
+      insufficientReason: null
+    };
+    
     // 1. まずConversationHistoryテーブルからの取得を試みる（新機能）
     try {
       if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
@@ -798,11 +806,15 @@ async function fetchUserHistory(userId, limit) {
               content: r.get('Content') || '',
             }));
             
+            // 履歴の内容を分析
+            historyMetadata.totalRecords += conversationRecords.length;
+            analyzeHistoryContent(history, historyMetadata);
+            
             // 新しい会話履歴順（昇順→降順→最新のlimit件）に並べ替え
             if (history.length > limit) {
-              return history.slice(-limit);
+              return { history: history.slice(-limit), metadata: historyMetadata };
             }
-            return history;
+            return { history, metadata: historyMetadata };
           }
         } catch (tableErr) {
           // ConversationHistoryテーブルが存在しない場合は無視して次の方法を試す
@@ -831,11 +843,15 @@ async function fetchUserHistory(userId, limit) {
                     content: msg.content || msg.message || '',
                   }));
                   
+                  // 履歴の内容を分析
+                  historyMetadata.totalRecords += data.conversation.length;
+                  analyzeHistoryContent(history, historyMetadata);
+                  
                   // 最新のlimit件を返す
                   if (history.length > limit) {
-                    return history.slice(-limit);
+                    return { history: history.slice(-limit), metadata: historyMetadata };
                   }
-                  return history;
+                  return { history, metadata: historyMetadata };
                 }
               } catch (jsonErr) {
                 console.error('Error parsing conversation data from UserAnalysis:', jsonErr);
@@ -862,18 +878,71 @@ async function fetchUserHistory(userId, limit) {
     console.log(`Found ${records.length} records for user in original INTERACTIONS_TABLE`);
 
     const reversed = records.reverse();
-    return reversed.map((r) => ({
+    const history = reversed.map((r) => ({
       role: r.get('Role') === 'assistant' ? 'assistant' : 'user',
       content: r.get('Content') || '',
     }));
+    
+    // 履歴の内容を分析
+    historyMetadata.totalRecords += records.length;
+    analyzeHistoryContent(history, historyMetadata);
+    
+    // 履歴が少ない場合の理由を設定
+    if (history.length < 3) {
+      historyMetadata.insufficientReason = 'few_records';
+    } else if (!historyMetadata.hasCareerRelatedContent && historyMetadata.recordsByType.translation > 0) {
+      historyMetadata.insufficientReason = 'mostly_translation';
+    }
+    
+    return { history, metadata: historyMetadata };
   } catch (error) {
     console.error('Error fetching history:', error);
-    return [];
+    return { history: [], metadata: { totalRecords: 0, insufficientReason: 'error' } };
   }
 }
 
-function applyAdditionalInstructions(basePrompt, mode, history, userMessage) {
+// 履歴の内容を分析する関数
+function analyzeHistoryContent(history, metadata) {
+  // 記録タイプのカウンターを初期化
+  metadata.recordsByType = metadata.recordsByType || {};
+  
+  // キャリア関連のキーワード
+  const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職'];
+  
+  // 翻訳関連のキーワード
+  const translationKeywords = ['翻訳', '訳して', '英語', '日本語', 'translate'];
+  
+  // 各メッセージを分析
+  history.forEach(msg => {
+    if (msg.role === 'user') {
+      const content = msg.content.toLowerCase();
+      
+      // キャリア関連の内容かチェック
+      if (careerKeywords.some(keyword => content.includes(keyword))) {
+        metadata.recordsByType.career = (metadata.recordsByType.career || 0) + 1;
+        metadata.hasCareerRelatedContent = true;
+      }
+      
+      // 翻訳関連の内容かチェック
+      if (translationKeywords.some(keyword => content.includes(keyword))) {
+        metadata.recordsByType.translation = (metadata.recordsByType.translation || 0) + 1;
+      }
+    }
+  });
+  
+  // 翻訳の割合が高いかチェック
+  const translationCount = metadata.recordsByType.translation || 0;
+  if (translationCount > 0 && translationCount / history.length > 0.7) {
+    metadata.mostlyTranslation = true;
+  }
+}
+
+function applyAdditionalInstructions(basePrompt, mode, historyData, userMessage) {
   let finalPrompt = basePrompt;
+  
+  // historyDataから履歴とメタデータを取得
+  const history = historyData.history || [];
+  const metadata = historyData.metadata || {};
 
   // Add character limit instruction (add this at the very beginning)
   finalPrompt = `
@@ -889,8 +958,45 @@ ${finalPrompt}`;
 3. 特に200文字以上の投稿は必ず要約してから返答する
 `;
 
-  // If chat history < 3 but user wants analysis/career
-  if ((mode === 'characteristics' || mode === 'career') && history.length < 3) {
+  // 履歴メタデータに基づいて説明を追加
+  if ((mode === 'characteristics' || mode === 'career') && metadata && metadata.insufficientReason) {
+    // 履歴が少ない場合
+    if (metadata.insufficientReason === 'few_records') {
+      finalPrompt += `
+※ユーザーの履歴が少ないです（${history.length}件）。まずは本人に追加の状況説明や詳細を尋ね、やりとりを増やして理解を深めてください。また、履歴が少ない理由を最初に簡潔に説明してください。
+
+[説明例]
+「過去の会話記録が少ないため、詳細な分析が難しい状況です。より正確な診断のためには、あなたについてもう少し情報をお聞かせください。」
+
+[質問例]
+• 現在の職種や経験について
+• 興味のある分野や得意なこと
+• 働く上で大切にしたい価値観
+• 具体的なキャリアの悩みや課題
+`;
+    } 
+    // 主に翻訳依頼の場合
+    else if (metadata.insufficientReason === 'mostly_translation') {
+      const translationCount = metadata.recordsByType.translation || 0;
+      const totalRecords = metadata.totalRecords || 0;
+      const translationPercentage = totalRecords > 0 ? Math.round((translationCount / totalRecords) * 100) : 0;
+      
+      finalPrompt += `
+※ユーザーの過去の会話記録は主に翻訳依頼（全体の約${translationPercentage}%）であり、キャリア分析に必要な個人的な情報が少ないため、詳細な分析が難しい状況です。この状況を最初に簡潔に説明し、より多くの情報を得るための質問をしてください。
+
+[説明例]
+「過去の会話記録は主に翻訳依頼であり、キャリア分析に使える個人的な情報が少ないため、詳細な分析が難しい状況です。より正確な診断のためには、あなたの仕事に関する好み、スキル、経験などの情報をもう少し共有していただけると助かります。」
+
+[質問例]
+• 現在の職種や経験について
+• 興味のある分野や得意なこと
+• 働く上で大切にしたい価値観
+• 具体的なキャリアの悩みや課題
+`;
+    }
+  } 
+  // 従来の条件（履歴が少ない場合）
+  else if ((mode === 'characteristics' || mode === 'career') && history.length < 3) {
     finalPrompt += `
 ※ユーザーの履歴が少ないです。まずは本人に追加の状況説明や詳細を尋ね、やりとりを増やして理解を深めてください。
 
@@ -1260,13 +1366,17 @@ async function checkEngagementWithLLM(userMessage, history) {
   }
 }
 
-async function processWithAI(systemPrompt, userMessage, history, mode, userId, client) {
+async function processWithAI(systemPrompt, userMessage, historyData, mode, userId, client) {
   try {
     console.log(`Processing message in mode: ${mode}`);
     
     // Start performance measurement
     const startTime = Date.now();
     const overallStartTime = startTime; // Add this line to fix the ReferenceError
+    
+    // historyDataからhistoryとmetadataを取り出す
+    const history = historyData.history || [];
+    const historyMetadata = historyData.metadata || {};
     
     // Get user preferences
     const userPrefs = userPreferences.getUserPreferences(userId);
@@ -2137,16 +2247,16 @@ async function fetchAndAnalyzeHistory(userId) {
         // Airtableからの取得を試みる
         const records = await base('ConversationHistory')
           .select({
-            filterByFormula: `{UserID} = '${userId}'`,
-            sort: [{ field: 'Timestamp', direction: 'desc' }],
+            filterByFormula: `{userId} = '${userId}'`,
+            sort: [{ field: 'timestamp', direction: 'desc' }],
             maxRecords: 100
           })
           .all();
         
         airtableHistory = records.map(record => ({
-          role: record.get('Role') || 'user',
-          content: record.get('Content') || '',
-          timestamp: record.get('Timestamp') || new Date().toISOString()
+          role: record.get('role') || 'user',
+          content: record.get('content') || '',
+          timestamp: record.get('timestamp') || new Date().toISOString()
         }));
         
         console.log(`📝 Found additional ${airtableHistory.length} records from Airtable`);
@@ -2572,11 +2682,14 @@ ${SHARE_URL}
     }
 
     // 最近の会話履歴の取得
-    const history = await fetchUserHistory(userId, 10);
-    const lastAssistantMessage = history.filter(item => item.role === 'assistant').pop();
+    const historyData = await fetchUserHistory(userId, 10);
+    const historyForProcessing = historyData.history || [];
+    const historyMetadata = historyData.metadata || {};
+    const systemPrompt = getSystemPromptForMode(mode);
 
     // 画像説明の提案トリガーチェック：isConfusionRequest のみを使用
     let triggerImageExplanation = false;
+    
     
     // 直接的な画像分析リクエストの場合は即座にトリガー
     if (isConfusionRequest(userMessage)) {
@@ -2689,17 +2802,17 @@ ${SHARE_URL}
     // 通常のテキスト処理へ進む
     await storeInteraction(userId, 'user', userMessage);
 
-    const historyForAI = await fetchUserHistory(userId, limit);
-    const systemPrompt = getSystemPromptForMode(mode);
+    const historyForAIProcessing = await fetchUserHistory(userId, limit);
+    // systemPrompt is already defined above
     
     // アドバイス要求の検出（非同期処理に対応）
-    const adviceRequested = await detectAdviceRequestWithLLM(userMessage, historyForAI);
+    const adviceRequested = await detectAdviceRequestWithLLM(userMessage, historyForAIProcessing);
     
     // サービス表示の判断
-    const showServices = await shouldShowServicesToday(userId, historyForAI, userMessage);
+    const showServices = await shouldShowServicesToday(userId, historyForAIProcessing, userMessage);
     
     // AIでの処理を実行
-    const result = await processWithAI(systemPrompt, userMessage, historyForAI, mode, userId, client);
+    const result = await processWithAI(systemPrompt, userMessage, historyForAIProcessing, mode, userId, client);
     
     // サービス推奨がある場合、それを応答に追加
     let finalResponse = result.response;
