@@ -1074,10 +1074,16 @@ class ServiceRecommender {
       
       // Generate embedding for the query
       console.log('Generating embedding for user query...');
+      console.log(`Detailed query: ${queryText.substring(0, 200)}${queryText.length > 200 ? '...' : ''}`);
       const queryEmbedding = await this._generateEmbedding(queryText);
       
       // Calculate similarity scores for all services
       const matches = [];
+      console.log('🔍 [VECTOR MATCHING] Beginning service comparison:');
+      console.log(`Current confidence threshold: ${(this.CONFIDENCE_THRESHOLD * 100).toFixed(1)}%`);
+      
+      const allScores = []; // 全サービスのスコアを記録
+
       for (const service of this.services) {
         try {
           const serviceEmbedding = this.serviceEmbeddings[service.id];
@@ -1090,6 +1096,8 @@ class ServiceRecommender {
           
           // Apply additional adjustments based on context if available
           let finalScore = similarityScore;
+          let adjustments = [];
+
           if (conversationContext) {
             // Adjust score based on topic match
             if (conversationContext.recentTopics && service.criteria && service.criteria.topics) {
@@ -1098,7 +1106,9 @@ class ServiceRecommender {
               ).length;
               
               if (topicOverlap > 0) {
-                finalScore += 0.05 * topicOverlap;
+                const topicBoost = 0.05 * topicOverlap;
+                finalScore += topicBoost;
+                adjustments.push(`+${(topicBoost * 100).toFixed(1)}% (${topicOverlap} topic matches)`);
               }
             }
             
@@ -1106,17 +1116,28 @@ class ServiceRecommender {
             if (conversationContext.currentMood && service.criteria && service.criteria.moods) {
               if (service.criteria.moods.includes(conversationContext.currentMood)) {
                 finalScore += 0.1;
+                adjustments.push(`+10% (mood match: ${conversationContext.currentMood})`);
               }
             }
             
             // Adjust score based on urgency
             if (conversationContext.urgency > 0 && service.criteria && service.criteria.urgent) {
               finalScore += 0.15;
+              adjustments.push(`+15% (urgency match)`);
             }
           }
           
           // Cap the score at 1.0
           finalScore = Math.min(finalScore, 1.0);
+          
+          // ログに各サービスの詳細スコアを追加
+          allScores.push({
+            id: service.id,
+            name: service.serviceName,
+            baseScore: similarityScore,
+            finalScore: finalScore,
+            adjustments: adjustments
+          });
           
           matches.push({
             service,
@@ -1128,13 +1149,26 @@ class ServiceRecommender {
         }
       }
       
+      // Sort all scores for logging
+      allScores.sort((a, b) => b.finalScore - a.finalScore);
+      
+      // ログに全サービスのスコアを出力
+      console.log('🔍 [VECTOR MATCHING] All service scores:');
+      allScores.forEach((item, index) => {
+        const passedThreshold = item.finalScore >= this.CONFIDENCE_THRESHOLD;
+        const scoreInfo = `${(item.finalScore * 100).toFixed(1)}% (base: ${(item.baseScore * 100).toFixed(1)}%)`;
+        const status = passedThreshold ? '✅ PASS' : '❌ BELOW THRESHOLD';
+        const adjustInfo = item.adjustments.length > 0 ? ` | Adjustments: ${item.adjustments.join(', ')}` : '';
+        console.log(`${index + 1}. ${item.name} (${item.id}): ${scoreInfo} ${status}${adjustInfo}`);
+      });
+      
       // Filter services that meet the confidence threshold
       const filteredMatches = matches.filter(match => match.score >= this.CONFIDENCE_THRESHOLD);
       
       // Sort by score in descending order
       filteredMatches.sort((a, b) => b.score - a.score);
       
-      console.log(`Vector matching found ${filteredMatches.length} services above threshold`);
+      console.log(`Vector matching found ${filteredMatches.length} services above threshold (${(this.CONFIDENCE_THRESHOLD * 100).toFixed(1)}%)`);
       
       // Return just the service objects
       return filteredMatches.map(match => match.service);

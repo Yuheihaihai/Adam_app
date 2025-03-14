@@ -1561,56 +1561,80 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
       // detectAdviceRequestが非同期関数になったため、awaitで結果を取得
       const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
       if (!isAdviceRequest) {
-      serviceNotificationReason = 'no_request';
+        serviceNotificationReason = 'no_request';
         console.log('⚠️ Skipping service recommendations: No advice request detected by LLM');
-    } else {
-      // Check timing constraints
+      } else {
+        // Check timing constraints
         const shouldShow = await shouldShowServicesToday(userId, history, userMessage);
-      if (!shouldShow) {
-        // Check the reason
-        const now = Date.now();
-        const lastServiceTime = userPrefs.lastServiceTime || 0;
         
-        // Count total service recommendations today
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
+        // メッセージの詳細ログを追加
+        console.log(`📝 [SERVICE DEBUG] Analyzing user message for service matching: "${userMessage.substring(0, 100)}${userMessage.length > 100 ? '...' : ''}"`);
         
-        let servicesToday = 0;
-        if (userPrefs.recentlyShownServices) {
-          for (const timestamp in userPrefs.recentlyShownServices) {
-            if (parseInt(timestamp) > todayStart.getTime()) {
-              servicesToday += userPrefs.recentlyShownServices[timestamp].length;
+        if (!shouldShow) {
+          // Check the reason
+          const now = Date.now();
+          const lastServiceTime = userPrefs.lastServiceTime || 0;
+          
+          // Count total service recommendations today
+          const todayStart = new Date();
+          todayStart.setHours(0, 0, 0, 0);
+          
+          let servicesToday = 0;
+          if (userPrefs.recentlyShownServices) {
+            for (const timestamp in userPrefs.recentlyShownServices) {
+              if (parseInt(timestamp) > todayStart.getTime()) {
+                servicesToday += userPrefs.recentlyShownServices[timestamp].length;
+              }
             }
           }
-        }
-        
-        if (servicesToday >= 9) {
-          serviceNotificationReason = 'daily_limit';
-          console.log('⚠️ Not showing services: Daily limit reached');
+          
+          if (servicesToday >= 9) {
+            serviceNotificationReason = 'daily_limit';
+            console.log('⚠️ Not showing services: Daily limit reached');
+            console.log(`📝 [SERVICE DEBUG] Service count today: ${servicesToday}/9`);
+          } else {
+            serviceNotificationReason = 'cooldown';
+            const minutesSinceLastShown = lastServiceTime ? Math.round((now - lastServiceTime) / 60000) : null;
+            console.log(`⚠️ Not showing services: Cooldown period (Last shown: ${lastServiceTime ? minutesSinceLastShown + ' minutes ago' : 'never'})`);
+            console.log(`📝 [SERVICE DEBUG] Cooldown details - Minutes since last recommendation: ${minutesSinceLastShown}, Required cooldown: 45 minutes`);
+          }
+          
+          console.log(`Service recommendations skipped: ${serviceNotificationReason}`);
         } else {
-          serviceNotificationReason = 'cooldown';
-          console.log(`⚠️ Not showing services: Cooldown period (Last shown: ${lastServiceTime ? Math.round((now - lastServiceTime) / 60000) + ' minutes ago' : 'never'})`);
-        }
-        
-        console.log(`Service recommendations skipped: ${serviceNotificationReason}`);
-      } else {
-        console.log('✅ Starting service recommendation process - constraints passed');
-        // 最終的に表示が決まったら、表示時刻を記録
-        userPrefs.lastServiceTime = Date.now();
-        userPreferences.updateUserPreferences(userId, userPrefs);
-        
-        // Enhance conversationContext with the latest user message
-        if (conversationContext.recentMessages) {
-          conversationContext.recentMessages.push(userMessage);
-          console.log(`Added message to conversationContext, now has ${conversationContext.recentMessages.length} messages`);
-          console.log(`Latest message: ${conversationContext.recentMessages[conversationContext.recentMessages.length - 1]}`);
-        }
-        
-        serviceRecommendationsPromise = serviceRecommender.getFilteredRecommendations(
-          userId, 
-          userNeeds,
-          conversationContext
-        );
+          console.log('✅ Starting service recommendation process - constraints passed');
+          console.log(`📝 [SERVICE DEBUG] Recommendation process starting for user message: "${userMessage.substring(0, 50)}..."`);
+          
+          // 最終的に表示が決まったら、表示時刻を記録
+          userPrefs.lastServiceTime = Date.now();
+          userPreferences.updateUserPreferences(userId, userPrefs);
+          
+          // Enhance conversationContext with the latest user message
+          if (conversationContext.recentMessages) {
+            conversationContext.recentMessages.push(userMessage);
+            console.log(`Added message to conversationContext, now has ${conversationContext.recentMessages.length} messages`);
+            console.log(`Latest message: ${conversationContext.recentMessages[conversationContext.recentMessages.length - 1]}`);
+            
+            // recentTopicsがあれば表示
+            if (conversationContext.recentTopics && conversationContext.recentTopics.length > 0) {
+              console.log(`📝 [SERVICE DEBUG] Recent topics detected: ${conversationContext.recentTopics.join(', ')}`);
+            }
+            
+            // moodがあれば表示
+            if (conversationContext.currentMood) {
+              console.log(`📝 [SERVICE DEBUG] Current mood detected: ${conversationContext.currentMood}`);
+            }
+            
+            // urgencyがあれば表示
+            if (conversationContext.urgency !== undefined) {
+              console.log(`📝 [SERVICE DEBUG] Urgency level: ${conversationContext.urgency}`);
+            }
+          }
+          
+          serviceRecommendationsPromise = serviceRecommender.getFilteredRecommendations(
+            userId, 
+            userNeeds,
+            conversationContext
+          );
         }
       }
     }
