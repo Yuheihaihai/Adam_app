@@ -352,12 +352,12 @@ app.post('/webhook', rawBodyParser, line.middleware(config), (req, res) => {
     try {
       // 各イベントを非同期で処理
       const results = await Promise.all(req.body.events.map(event => {
-        // handleEventが例外をスローする可能性があるため、Promise.resolveでラップする
-        return Promise.resolve().then(() => handleEvent(event))
-          .catch(err => {
-            console.error(`Error handling event: ${JSON.stringify(event)}`, err);
-            return null; // エラーを飲み込んで処理を続行
-          });
+    // handleEventが例外をスローする可能性があるため、Promise.resolveでラップする
+    return Promise.resolve().then(() => handleEvent(event))
+      .catch(err => {
+        console.error(`Error handling event: ${JSON.stringify(event)}`, err);
+        return null; // エラーを飲み込んで処理を続行
+      });
       }));
       
       console.log(`Webhook processing completed for ${results.filter(r => r !== null).length} events`);
@@ -1369,7 +1369,7 @@ async function checkEngagementWithLLM(userMessage, history) {
     const hasPositiveKeyword = POSITIVE_KEYWORDS.some(keyword => 
       userMessage.includes(keyword)
     );
-    return hasPersonalReference && hasPositiveKeyword;
+  return hasPersonalReference && hasPositiveKeyword;
   }
 }
 
@@ -1568,54 +1568,54 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
       // detectAdviceRequestが非同期関数になったため、awaitで結果を取得
       const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
       if (!isAdviceRequest) {
-        serviceNotificationReason = 'no_request';
+      serviceNotificationReason = 'no_request';
         console.log('Skipping service recommendations: No advice request detected by LLM');
-      } else {
-        // Check timing constraints
+    } else {
+      // Check timing constraints
         const shouldShow = await shouldShowServicesToday(userId, history, userMessage);
-        if (!shouldShow) {
-          // Check the reason
-          const now = Date.now();
-          const lastServiceTime = userPrefs.lastServiceTime || 0;
-          
-          // Count total service recommendations today
-          const todayStart = new Date();
-          todayStart.setHours(0, 0, 0, 0);
-          
-          let servicesToday = 0;
-          if (userPrefs.recentlyShownServices) {
-            for (const timestamp in userPrefs.recentlyShownServices) {
-              if (parseInt(timestamp) > todayStart.getTime()) {
-                servicesToday += userPrefs.recentlyShownServices[timestamp].length;
-              }
+      if (!shouldShow) {
+        // Check the reason
+        const now = Date.now();
+        const lastServiceTime = userPrefs.lastServiceTime || 0;
+        
+        // Count total service recommendations today
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        
+        let servicesToday = 0;
+        if (userPrefs.recentlyShownServices) {
+          for (const timestamp in userPrefs.recentlyShownServices) {
+            if (parseInt(timestamp) > todayStart.getTime()) {
+              servicesToday += userPrefs.recentlyShownServices[timestamp].length;
             }
           }
-          
-          if (servicesToday >= 9) {
-            serviceNotificationReason = 'daily_limit';
-          } else {
-            serviceNotificationReason = 'cooldown';
-          }
-          
-          console.log(`Skipping service recommendations: Timing constraints not met (reason: ${serviceNotificationReason})`);
+        }
+        
+        if (servicesToday >= 9) {
+          serviceNotificationReason = 'daily_limit';
         } else {
-          console.log('User explicitly asked for advice and timing is appropriate. Getting service recommendations...');
-          // 最終的に表示が決まったら、表示時刻を記録
-          userPrefs.lastServiceTime = Date.now();
-          userPreferences.updateUserPreferences(userId, userPrefs);
-          
-          // Enhance conversationContext with the latest user message
-          if (conversationContext.recentMessages) {
-            conversationContext.recentMessages.push(userMessage);
-            console.log(`Added message to conversationContext, now has ${conversationContext.recentMessages.length} messages`);
-            console.log(`Latest message: ${conversationContext.recentMessages[conversationContext.recentMessages.length - 1]}`);
-          }
-          
-          serviceRecommendationsPromise = serviceRecommender.getFilteredRecommendations(
-            userId, 
-            userNeeds,
-            conversationContext
-          );
+          serviceNotificationReason = 'cooldown';
+        }
+        
+        console.log(`Skipping service recommendations: Timing constraints not met (reason: ${serviceNotificationReason})`);
+      } else {
+        console.log('User explicitly asked for advice and timing is appropriate. Getting service recommendations...');
+        // 最終的に表示が決まったら、表示時刻を記録
+        userPrefs.lastServiceTime = Date.now();
+        userPreferences.updateUserPreferences(userId, userPrefs);
+        
+        // Enhance conversationContext with the latest user message
+        if (conversationContext.recentMessages) {
+          conversationContext.recentMessages.push(userMessage);
+          console.log(`Added message to conversationContext, now has ${conversationContext.recentMessages.length} messages`);
+          console.log(`Latest message: ${conversationContext.recentMessages[conversationContext.recentMessages.length - 1]}`);
+        }
+        
+        serviceRecommendationsPromise = serviceRecommender.getFilteredRecommendations(
+          userId, 
+          userNeeds,
+          conversationContext
+        );
         }
       }
     }
@@ -2361,7 +2361,6 @@ async function fetchAndAnalyzeHistory(userId) {
     });
     
     console.log(`📊 Total combined records for analysis: ${combinedHistory.length}`);
-    console.log(`→ すべてのメッセージを分析に使用します`);
     
     // 結合したデータを使用して分析を実行
     const response = await generateHistoryResponse(combinedHistory);
@@ -2787,7 +2786,7 @@ ${SHARE_URL}
     if (isConfusionRequest(userMessage)) {
       console.log(`[DEBUG] Direct image request detected in message: "${userMessage}"`);
       triggerImageExplanation = true;
-    } 
+    }
     // それ以外のすべてのメッセージはLLMで分析
     else {
       // LLMを使用して「AIの発言を理解していないか」を判定
@@ -2896,13 +2895,13 @@ ${SHARE_URL}
 
     const historyForAIProcessing = await fetchUserHistory(userId, limit);
     // systemPrompt is already defined above
-    
+
     // アドバイス要求の検出（非同期処理に対応）
     const adviceRequested = await detectAdviceRequestWithLLM(userMessage, historyForAIProcessing);
     
     // サービス表示の判断
     const showServices = await shouldShowServicesToday(userId, historyForAIProcessing, userMessage);
-    
+
     // AIでの処理を実行
     const result = await processWithAI(systemPrompt, userMessage, historyForAIProcessing, mode, userId, client);
     
@@ -3701,7 +3700,7 @@ async function detectAdviceRequestWithLLM(userMessage, history) {
   } catch (error) {
     console.error('Error in LLM advice request detection:', error);
     // Fall back to simpler heuristic in case of error
-    return false;
+  return false;
   }
 }
 
@@ -3964,7 +3963,6 @@ async function generateHistoryResponse(history) {
     // 会話履歴からユーザーのメッセージのみを抽出
     const userMessages = history.filter(msg => msg.role === 'user').map(msg => msg.content);
     console.log(`→ ユーザーメッセージ抽出: ${userMessages.length}件`);
-    console.log(`→ すべてのメッセージを分析に使用します（短いメッセージも含む）`);
     
     // 分析に十分なデータがあるかどうかを確認（最低1件あれば分析を試みる）
     if (userMessages.length > 0) {
@@ -4010,9 +4008,7 @@ async function generateHistoryResponse(history) {
 - 「データが不足している」「分析できない」「記録が少ない」などの否定的な表現は避け、限られたデータからでも何らかの洞察を提供する
 - 専門家への相談を推奨する
 
-重要: たとえデータが少なくても、「過去の記録がない」「データが少ない」「これまでの記録が少ない」などの表現は絶対に使わず、利用可能なデータから最大限の具体的な分析を行ってください。データ量についての言及は一切避け、直接分析内容を伝えてください。
-
-すべてのメッセージを分析に使用し、短いメッセージや翻訳関連のメッセージも含めて総合的に分析してください。`
+重要: たとえデータが少なくても、「過去の記録がない」「データが少ない」「これまでの記録が少ない」などの表現は絶対に使わず、利用可能なデータから最大限の具体的な分析を行ってください。データ量についての言及は一切避け、直接分析内容を伝えてください。`
           },
           {
             role: "user",
