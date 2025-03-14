@@ -16,18 +16,26 @@ if (!USE_DATABASE) {
 // Airtable設定の確認
 const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY;
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
-if (!AIRTABLE_API_KEY || !AIRTABLE_BASE_ID) {
-  console.error('エラー: Airtableの設定が不足しています。AIRTABLE_API_KEYとAIRTABLE_BASE_IDを確認してください。');
-  process.exit(1);
+const USE_AIRTABLE = AIRTABLE_API_KEY && AIRTABLE_BASE_ID;
+if (!USE_AIRTABLE) {
+  console.log('警告: Airtableの設定が不足しています。Airtableテストはスキップされます。');
 }
 
 // 必要なモジュールのインポート
-const Airtable = require('airtable');
+const Airtable = USE_AIRTABLE ? require('airtable') : null;
 const db = USE_DATABASE ? require('../database') : null;
 const { v4: uuidv4 } = require('uuid');
 
 // Airtableの設定
-const airtableBase = new Airtable({ apiKey: AIRTABLE_API_KEY }).base(AIRTABLE_BASE_ID);
+let airtableBase = null;
+if (USE_AIRTABLE) {
+  try {
+    airtableBase = new Airtable({ apiKey: AIRTABLE_API_KEY }).base(AIRTABLE_BASE_ID);
+    console.log('Airtable接続を設定しました');
+  } catch (error) {
+    console.error('Airtable接続の設定に失敗しました:', error.message);
+  }
+}
 const INTERACTIONS_TABLE = 'UserMessages';
 
 /**
@@ -53,6 +61,8 @@ function generateTestMessage(userId) {
  */
 async function storeInteraction(message) {
   console.log('メッセージを保存しています...');
+  let postgresSuccess = false;
+  let airtableSuccess = false;
   
   // PostgreSQLに保存（有効な場合）
   if (USE_DATABASE) {
@@ -62,26 +72,32 @@ async function storeInteraction(message) {
         [message.userId, message.messageId, message.role, message.content, message.timestamp, message.mode, message.messageType]
       );
       console.log('PostgreSQLにメッセージを保存しました');
+      postgresSuccess = true;
     } catch (error) {
       console.error('PostgreSQLへの保存中にエラーが発生しました:', error);
     }
   }
   
-  // Airtableに保存
-  try {
-    await airtableBase(INTERACTIONS_TABLE).create({
-      UserID: message.userId,
-      MessageID: message.messageId,
-      Role: message.role,
-      Content: message.content,
-      Timestamp: message.timestamp,
-      Mode: message.mode,
-      MessageType: message.messageType
-    });
-    console.log('Airtableにメッセージを保存しました');
-  } catch (error) {
-    console.error('Airtableへの保存中にエラーが発生しました:', error);
+  // Airtableに保存（有効な場合）
+  if (USE_AIRTABLE && airtableBase) {
+    try {
+      await airtableBase(INTERACTIONS_TABLE).create({
+        UserID: message.userId,
+        MessageID: message.messageId,
+        Role: message.role,
+        Content: message.content,
+        Timestamp: message.timestamp,
+        Mode: message.mode,
+        MessageType: message.messageType
+      });
+      console.log('Airtableにメッセージを保存しました');
+      airtableSuccess = true;
+    } catch (error) {
+      console.error('Airtableへの保存中にエラーが発生しました:', error);
+    }
   }
+  
+  return { postgresSuccess, airtableSuccess };
 }
 
 /**
@@ -90,6 +106,8 @@ async function storeInteraction(message) {
 async function fetchUserHistory(userId, limit = 20) {
   console.log(`ユーザー ${userId} の会話履歴を取得しています...`);
   let messages = [];
+  let postgresSuccess = false;
+  let airtableSuccess = false;
   
   // PostgreSQLからデータを取得（有効な場合）
   if (USE_DATABASE) {
@@ -99,7 +117,7 @@ async function fetchUserHistory(userId, limit = 20) {
         [userId, limit]
       );
       
-      if (result.rows.length > 0) {
+      if (result.rows && result.rows.length > 0) {
         console.log(`PostgreSQLから ${result.rows.length} 件のメッセージを取得しました`);
         messages = result.rows.map(row => ({
           role: row.role,
@@ -108,6 +126,7 @@ async function fetchUserHistory(userId, limit = 20) {
           mode: row.mode,
           messageType: row.message_type
         })).reverse(); // 古い順に並べ替え
+        postgresSuccess = true;
       } else {
         console.log('PostgreSQLにメッセージが見つかりませんでした');
       }
@@ -116,8 +135,8 @@ async function fetchUserHistory(userId, limit = 20) {
     }
   }
   
-  // Airtableからデータを取得（PostgreSQLにデータがない場合）
-  if (messages.length === 0) {
+  // Airtableからデータを取得（PostgreSQLにデータがない場合かつAirtableが有効な場合）
+  if (messages.length === 0 && USE_AIRTABLE && airtableBase) {
     try {
       const records = await airtableBase(INTERACTIONS_TABLE)
         .select({
@@ -127,7 +146,7 @@ async function fetchUserHistory(userId, limit = 20) {
         })
         .all();
       
-      if (records.length > 0) {
+      if (records && records.length > 0) {
         console.log(`Airtableから ${records.length} 件のメッセージを取得しました`);
         messages = records.map(record => ({
           role: record.get('Role'),
@@ -136,6 +155,7 @@ async function fetchUserHistory(userId, limit = 20) {
           mode: record.get('Mode'),
           messageType: record.get('MessageType')
         })).reverse(); // 古い順に並べ替え
+        airtableSuccess = true;
       } else {
         console.log('Airtableにメッセージが見つかりませんでした');
       }
@@ -144,7 +164,24 @@ async function fetchUserHistory(userId, limit = 20) {
     }
   }
   
-  return messages;
+  return { messages, postgresSuccess, airtableSuccess };
+}
+
+/**
+ * データベーステーブルを初期化する
+ */
+async function initializeDatabaseTables() {
+  if (USE_DATABASE) {
+    try {
+      await db.initializeTables();
+      console.log('データベーステーブルを初期化しました');
+      return true;
+    } catch (error) {
+      console.error('データベーステーブルの初期化に失敗しました:', error);
+      return false;
+    }
+  }
+  return false;
 }
 
 /**
@@ -152,6 +189,9 @@ async function fetchUserHistory(userId, limit = 20) {
  */
 async function runTest() {
   console.log('データベース統合テストを開始します...');
+  
+  // データベーステーブルを初期化
+  await initializeDatabaseTables();
   
   // テスト用のユーザーID
   const testUserId = `test-user-${Date.now()}`;
@@ -162,24 +202,27 @@ async function runTest() {
   console.log('テストメッセージ:', testMessage);
   
   // メッセージを保存
-  await storeInteraction(testMessage);
+  const saveResult = await storeInteraction(testMessage);
   
   // 少し待機してデータが確実に保存されるようにする
   console.log('データが保存されるのを待機しています...');
   await new Promise(resolve => setTimeout(resolve, 2000));
   
   // 会話履歴を取得
-  const history = await fetchUserHistory(testUserId);
-  console.log('取得した会話履歴:', history);
+  const { messages, postgresSuccess, airtableSuccess } = await fetchUserHistory(testUserId);
+  console.log('取得した会話履歴:', messages);
   
   // テスト結果の検証
-  if (history.length > 0) {
+  let testPassed = false;
+  
+  if (messages.length > 0) {
     console.log('テスト成功: メッセージが正常に保存され、取得されました');
     
     // 内容の検証
-    const retrievedMessage = history[0];
+    const retrievedMessage = messages[0];
     if (retrievedMessage.content === testMessage.content) {
       console.log('内容の検証: 成功');
+      testPassed = true;
     } else {
       console.log('内容の検証: 失敗 - 内容が一致しません');
       console.log('期待値:', testMessage.content);
@@ -188,6 +231,16 @@ async function runTest() {
   } else {
     console.log('テスト失敗: メッセージが取得できませんでした');
   }
+  
+  // テスト結果のサマリー
+  console.log('\nテスト結果サマリー:');
+  console.log('-------------------');
+  console.log(`PostgreSQL保存: ${saveResult.postgresSuccess ? '成功' : '失敗'}`);
+  console.log(`Airtable保存: ${saveResult.airtableSuccess ? '成功' : '失敗'}`);
+  console.log(`PostgreSQL取得: ${postgresSuccess ? '成功' : '失敗'}`);
+  console.log(`Airtable取得: ${airtableSuccess ? '成功' : '失敗'}`);
+  console.log(`全体テスト結果: ${testPassed ? '成功' : '失敗'}`);
+  console.log('-------------------');
   
   console.log('データベース統合テストが完了しました');
   

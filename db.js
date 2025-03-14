@@ -79,13 +79,29 @@ async function initializeTables() {
       CREATE TABLE IF NOT EXISTS user_messages (
         id SERIAL PRIMARY KEY,
         user_id VARCHAR(255) NOT NULL,
+        message_id VARCHAR(255),
         content TEXT NOT NULL,
         role VARCHAR(50) NOT NULL,
-        timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        mode VARCHAR(50),
+        message_type VARCHAR(50)
       )
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_user_messages_user_id ON user_messages(user_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_user_messages_timestamp ON user_messages(timestamp)`);
+    
+    // message_idカラムが存在しない場合は追加
+    try {
+      await client.query(`
+        ALTER TABLE user_messages 
+        ADD COLUMN IF NOT EXISTS message_id VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS mode VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS message_type VARCHAR(50)
+      `);
+      console.log('Added missing columns to user_messages table');
+    } catch (error) {
+      console.error('Error adding columns to user_messages table:', error.message);
+    }
 
     // 分析結果テーブル
     await client.query(`
