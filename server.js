@@ -884,14 +884,57 @@ async function fetchUserHistory(userId, limit) {
           if (conversationRecords && conversationRecords.length > 0) {
             console.log(`Found ${conversationRecords.length} conversation history records in ConversationHistory table`);
             
-            const history = conversationRecords.map((r) => ({
-              role: r.get('Role') === 'assistant' ? 'assistant' : 'user',
-              content: r.get('Content') || '',
-            }));
-            
             // 【新規】取得した履歴データの詳細ログ
             console.log(`\n===== ConversationHistoryテーブルの詳細データ =====`);
             console.log(`→ 取得レコード数: ${conversationRecords.length}件`);
+            
+            // ConversationHistoryテーブルから取得したレコードの詳細をログに記録（デバッグ用）
+            console.log(`→ 変換前の生データサンプル:`);
+            if (conversationRecords.length > 0) {
+              const sampleRecord = conversationRecords[0];
+              console.log(`  サンプルレコードID: ${sampleRecord.id}`);
+              console.log(`  Role: "${sampleRecord.get('Role')}"`);
+              console.log(`  Content: "${sampleRecord.get('Content')}"`);
+              console.log(`  ContentのType: ${typeof sampleRecord.get('Content')}`);
+              
+              // フィールド名を確認
+              console.log(`  利用可能なフィールド: ${Object.keys(sampleRecord.fields).join(', ')}`);
+            }
+            
+            // 修正：Airtableから取得したレコードを適切な形式に変換
+            const history = [];
+            for (const record of conversationRecords) {
+              try {
+                const role = record.fields['Role'] === 'assistant' ? 'assistant' : 'user';
+                let content = '';
+                
+                // Content取得を試みる - フィールドから直接取得
+                if (record.fields && record.fields['Content']) {
+                  content = record.fields['Content'];
+                } else if (record.get) {
+                  // get()メソッドを試す
+                  content = record.get('Content') || '';
+                }
+                
+                // 確実に文字列として扱う
+                if (typeof content !== 'string') {
+                  content = String(content || '');
+                }
+                
+                // 空でないcontentの場合のみ追加
+                if (content.trim()) {
+                  history.push({
+                    role: role,
+                    content: content
+                  });
+                } else {
+                  console.log(`  ⚠ 警告: 空のcontentを持つレコードをスキップしました (ID: ${record.id})`);
+                }
+              } catch (err) {
+                console.error(`  ⚠ レコード変換エラー: ${err.message}`);
+              }
+            }
+            
             console.log(`→ 変換後の会話履歴数: ${history.length}件`);
             
             // 最新の3件を表示
@@ -906,10 +949,10 @@ async function fetchUserHistory(userId, limit) {
             console.log(`===== ConversationHistoryテーブルの詳細データ終了 =====\n`);
             
             // 履歴の内容を分析
-            historyMetadata.totalRecords += conversationRecords.length;
+            historyMetadata.totalRecords += history.length;
             analyzeHistoryContent(history, historyMetadata);
             
-            // 新しい会話履歴順（昇順→降順→最新のlimit件）に並べ替え
+            // 最新のlimit件を返す
             if (history.length > limit) {
               return { history: history.slice(-limit), metadata: historyMetadata };
             }
