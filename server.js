@@ -1276,7 +1276,34 @@ const anthropic = new Anthropic({
 
 async function callPrimaryModel(gptOptions) {
   const resp = await openai.chat.completions.create(gptOptions);
-  return resp.choices?.[0]?.message?.content || '（No reply）';
+  
+  // レスポンスを詳細にログ出力
+  console.log(`→ OpenAI APIレスポンス構造: ${JSON.stringify(resp).substring(0, 200)}...`);
+  
+  // レスポンスからコンテンツを抽出する処理を強化
+  let content = '';
+  
+  if (resp && resp.choices && resp.choices.length > 0) {
+    const choice = resp.choices[0];
+    
+    if (choice.message && choice.message.content) {
+      content = choice.message.content;
+      console.log(`→ 通常のOpenAI API形式でコンテンツを抽出: ${content.substring(0, 50)}...`);
+    } else if (choice.text) {
+      // 古いAPI形式
+      content = choice.text;
+      console.log(`→ 旧OpenAI API形式でコンテンツを抽出: ${content.substring(0, 50)}...`);
+    } else {
+      // 変換不能な形式の場合、オブジェクト全体をJSONとして返す
+      console.log(`→ 未知のレスポンス形式: ${JSON.stringify(choice)}`);
+      content = '申し訳ありません、APIからの応答形式に問題がありました。もう一度お試しください。';
+    }
+  } else {
+    console.error(`→ OpenAI APIから有効なレスポンスが返されませんでした: ${JSON.stringify(resp)}`);
+    content = '申し訳ありません、AIからの応答を取得できませんでした。もう一度お試しください。';
+  }
+  
+  return content;
 }
 
 async function callClaudeModel(messages) {
@@ -2001,11 +2028,56 @@ ${additionalPromptData.jobTrends.analysis}`;
       }
     }
     
-    // 応答が空の場合のエラーログ
+    // レスポンス構造を詳細にログに出力
+    console.log(`→ レスポンス詳細デバッグ: ${JSON.stringify(response).substring(0, 500)}...`);
+    
+    // 応答オブジェクトの構造をさらに検証
     if (!aiResponse || aiResponse.trim() === '') {
       console.error(`⚠⚠⚠ 重大な警告: AIから空の応答を受け取りました ⚠⚠⚠`);
-      console.error(`→ レスポンス構造: ${JSON.stringify(response, null, 2).substring(0, 300)}...`);
-      // エラーをスローせず、空の応答をそのまま返す（上位関数でフォールバックメッセージが適用される）
+      
+      // レスポンスをより詳細に検査
+      if (typeof response === 'string') {
+        // 文字列の場合はそのまま使用（エラー応答の場合など）
+        aiResponse = response;
+        console.log(`→ 応答が文字列形式: ${aiResponse.substring(0, 100)}...`);
+      } else if (response && typeof response === 'object') {
+        console.error(`→ レスポンス構造: ${JSON.stringify(response, null, 2).substring(0, 300)}...`);
+        
+        // さらにchoicesの構造を検証
+        if (response.choices && response.choices.length > 0) {
+          console.log(`→ choices[0]の内容: ${JSON.stringify(response.choices[0])}`);
+          
+          // 異なる形式のレスポンスを試行
+          if (response.choices[0].message && typeof response.choices[0].message === 'object') {
+            const message = response.choices[0].message;
+            console.log(`→ message構造: ${JSON.stringify(message)}`);
+            
+            if (message.content) {
+              aiResponse = message.content;
+              console.log(`→ content直接抽出: ${aiResponse.substring(0, 100)}`);
+            }
+          } else if (response.choices[0].text) {
+            aiResponse = response.choices[0].text;
+            console.log(`→ text直接抽出: ${aiResponse.substring(0, 100)}`);
+          } else if (response.choices[0].delta && response.choices[0].delta.content) {
+            aiResponse = response.choices[0].delta.content;
+            console.log(`→ delta.content抽出: ${aiResponse.substring(0, 100)}`);
+          }
+        }
+        
+        // 最終手段：レスポンス自体が直接コンテンツを含む場合
+        if (!aiResponse && response.content) {
+          aiResponse = response.content;
+          console.log(`→ ルートレベルのcontent抽出: ${aiResponse.substring(0, 100)}`);
+        }
+      }
+      
+      // それでも空の場合はデフォルトメッセージを設定（上位関数でのフォールバック用）
+      if (!aiResponse || aiResponse.trim() === '') {
+        console.log(`→ すべての抽出方法を試行しましたが、有効なコンテンツを見つけられませんでした`);
+      } else {
+        console.log(`→ 代替抽出方法でコンテンツを復旧しました: ${aiResponse.substring(0, 50)}...`);
+      }
     }
     
     // 【新規】AIレスポンスのデバッグログ
