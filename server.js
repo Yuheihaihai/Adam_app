@@ -903,18 +903,40 @@ async function fetchUserHistory(userId, limit) {
             
             // 修正：Airtableから取得したレコードを適切な形式に変換
             const history = [];
+
+            // 【修正】テーブル構造確認用のログ
+            console.log(`→ テーブル構造確認:`);
+            const fullSample = conversationRecords[0];
+            console.log(`  レコード構造: ${JSON.stringify(fullSample._rawJson || {})}`);
+            
             for (const record of conversationRecords) {
               try {
-                const role = record.fields['Role'] === 'assistant' ? 'assistant' : 'user';
+                // 【修正】_rawJsonから直接データを抽出
+                let role = '';
                 let content = '';
                 
-                // Content取得を試みる - フィールドから直接取得
-                if (record.fields && record.fields['Content']) {
-                  content = record.fields['Content'];
+                if (record._rawJson && record._rawJson.fields) {
+                  // 直接rawJsonから取得
+                  role = record._rawJson.fields['Role'] || '';
+                  content = record._rawJson.fields['Content'] || '';
+                  
+                  console.log(`  データ取得方法: rawJson, Role: ${role}, Content長さ: ${content.length}`);
+                } else if (record.fields) {
+                  // fieldsから取得
+                  role = record.fields['Role'] || '';
+                  content = record.fields['Content'] || '';
+                  
+                  console.log(`  データ取得方法: fields, Role: ${role}, Content長さ: ${content.length}`);
                 } else if (record.get) {
-                  // get()メソッドを試す
+                  // getメソッドを使用
+                  role = record.get('Role') || '';
                   content = record.get('Content') || '';
+                  
+                  console.log(`  データ取得方法: get(), Role: ${role}, Content長さ: ${content.length}`);
                 }
+                
+                // roleの正規化
+                const normalizedRole = role.toLowerCase() === 'assistant' ? 'assistant' : 'user';
                 
                 // 確実に文字列として扱う
                 if (typeof content !== 'string') {
@@ -924,7 +946,7 @@ async function fetchUserHistory(userId, limit) {
                 // 空でないcontentの場合のみ追加
                 if (content.trim()) {
                   history.push({
-                    role: role,
+                    role: normalizedRole,
                     content: content
                   });
                 } else {
@@ -932,6 +954,54 @@ async function fetchUserHistory(userId, limit) {
                 }
               } catch (err) {
                 console.error(`  ⚠ レコード変換エラー: ${err.message}`);
+              }
+            }
+            
+            // 会話履歴が空の場合の処理
+            if (history.length === 0) {
+              console.log(`⚠ 警告: 全てのレコードがスキップされ、会話履歴が空になりました`);
+              console.log(`⚠ 問題診断: Airtableテーブル'ConversationHistory'の構造を確認してください`);
+              
+              // テーブル構造の問題がある場合の代替処理
+              console.log(`⚠ 代替処理: 代替メソッドを使用して会話履歴を構築します`);
+              
+              // レコードから直接、最小限の情報を抽出
+              for (const record of conversationRecords) {
+                try {
+                  // レコードの全データをログに出力
+                  console.log(`  レコード診断 (ID: ${record.id}):`);
+                  console.log(`  - 全フィールド: ${JSON.stringify(record.fields || {})}`);
+                  
+                  // どんなデータでも取得できるよう試行
+                  let foundContent = false;
+                  
+                  // 1. オブジェクトの全フィールドをチェック
+                  if (record.fields) {
+                    Object.keys(record.fields).forEach(key => {
+                      const value = record.fields[key];
+                      if (typeof value === 'string' && value.trim().length > 0 && key !== 'UserID' && key !== 'Timestamp') {
+                        console.log(`  - 使用可能な内容を見つけました: ${key}: ${value.substring(0, 30)}...`);
+                        
+                        // 役割の推定を試みる
+                        const isUser = key.toLowerCase().includes('user') || 
+                                       record.fields['Role']?.toLowerCase() === 'user';
+                        
+                        history.push({
+                          role: isUser ? 'user' : 'assistant',
+                          content: value
+                        });
+                        
+                        foundContent = true;
+                      }
+                    });
+                  }
+                  
+                  if (!foundContent) {
+                    console.log(`  - 使用可能なコンテンツが見つかりませんでした`);
+                  }
+                } catch (e) {
+                  console.error(`  代替処理エラー: ${e.message}`);
+                }
               }
             }
             
