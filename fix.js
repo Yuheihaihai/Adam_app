@@ -1,0 +1,1 @@
+const fs = require("fs"); const content = fs.readFileSync("server.js", "utf8"); const modified = content.replace(/const model = useGpt4 \? .gpt-4o-latest. : .gpt-4o.;/, "const model = useGpt4 ? \"gpt-4o\" : \"gpt-4o\";"); fs.writeFileSync("server.js", modified);

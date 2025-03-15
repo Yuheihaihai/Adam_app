@@ -1,0 +1,200 @@
+2025-03-14T15:17:01.848875+00:00 app[web.1]: │  ❌ critical_thinking_skills: false
+2025-03-14T15:17:01.848893+00:00 app[web.1]: ├─ daily_living:
+2025-03-14T15:17:01.848895+00:00 app[web.1]: │  ❌ housing_needs: false
+2025-03-14T15:17:01.848995+00:00 app[web.1]: │  ❌ financial_assistance: false
+2025-03-14T15:17:01.848997+00:00 app[web.1]: │  ❌ legal_support: false
+2025-03-14T15:17:01.848998+00:00 app[web.1]: │  ❌ healthcare_access: false
+2025-03-14T15:17:01.848998+00:00 app[web.1]: │  ❌ executive_function_challenges: false
+2025-03-14T15:17:01.848999+00:00 app[web.1]: │  ❌ daily_routine_structure: false
+2025-03-14T15:17:01.848999+00:00 app[web.1]: │  ❌ basic_needs_security: false
+2025-03-14T15:17:01.848999+00:00 app[web.1]: │  ❌ transportation_access: false
+2025-03-14T15:17:01.848999+00:00 app[web.1]: │  ❌ digital_literacy: false
+2025-03-14T15:17:01.848999+00:00 app[web.1]: │  ❌ self_care_habits: false
+2025-03-14T15:17:01.849000+00:00 app[web.1]: │  ❌ time_management: false
+2025-03-14T15:17:01.849000+00:00 app[web.1]: │  ❌ household_management: false
+2025-03-14T15:17:01.849000+00:00 app[web.1]: │  ❌ personal_finance_management: false
+2025-03-14T15:17:01.849001+00:00 app[web.1]: ├─ interests:
+2025-03-14T15:17:01.849002+00:00 app[web.1]: │  ❌ technology: false
+2025-03-14T15:17:01.849002+00:00 app[web.1]: │  ❌ creative_arts: false
+2025-03-14T15:17:01.849002+00:00 app[web.1]: │  ❌ physical_activities: false
+2025-03-14T15:17:01.849003+00:00 app[web.1]: │  ❌ intellectual_pursuits: false
+2025-03-14T15:17:01.849009+00:00 app[web.1]: │  ❌ special_interests: false
+2025-03-14T15:17:01.849014+00:00 app[web.1]: │  ❌ nature_outdoors: false
+2025-03-14T15:17:01.849027+00:00 app[web.1]: │  ❌ cultural_activities: false
+2025-03-14T15:17:01.849029+00:00 app[web.1]: │  ❌ entertainment_media: false
+2025-03-14T15:17:01.849047+00:00 app[web.1]: │  ❌ culinary_interests: false
+2025-03-14T15:17:01.849057+00:00 app[web.1]: │  ❌ collecting_hobbies: false
+2025-03-14T15:17:01.849066+00:00 app[web.1]: │  ❌ gaming: false
+2025-03-14T15:17:01.849067+00:00 app[web.1]: │  ❌ reading_preferences: false
+2025-03-14T15:17:01.849088+00:00 app[web.1]: │  ❌ learning_exploration: false
+2025-03-14T15:17:01.849089+00:00 app[web.1]: ├─ relationships:
+2025-03-14T15:17:01.849113+00:00 app[web.1]: │  ❌ seeking_romantic_connection: false
+2025-03-14T15:17:01.849113+00:00 app[web.1]: │  ❌ seeking_emotional_support: false
+2025-03-14T15:17:01.849115+00:00 app[web.1]: │  ❌ loneliness: false
+2025-03-14T15:17:01.849127+00:00 app[web.1]: │  ❌ desire_for_intimacy: false
+2025-03-14T15:17:01.849128+00:00 app[web.1]: │  ❌ relationship_difficulties: false
+2025-03-14T15:17:01.849143+00:00 app[web.1]: │  ❌ attachment_style: false
+2025-03-14T15:17:01.849153+00:00 app[web.1]: │  ❌ trust_issues: false
+2025-03-14T15:17:01.849163+00:00 app[web.1]: │  ❌ boundary_setting: false
+2025-03-14T15:17:01.849164+00:00 app[web.1]: │  ❌ conflict_resolution_skills: false
+2025-03-14T15:17:01.849186+00:00 app[web.1]: │  ❌ caregiver_role: false
+2025-03-14T15:17:01.849189+00:00 app[web.1]: │  ❌ social_circle_size: false
+2025-03-14T15:17:01.849190+00:00 app[web.1]: │  ❌ seeking_friendship: false
+2025-03-14T15:17:01.849207+00:00 app[web.1]: ├─ cognitive_style:
+2025-03-14T15:17:01.849348+00:00 app[web.1]: │  ❌ analytical_thinking: false
+2025-03-14T15:17:01.849349+00:00 app[web.1]: │  ❌ creative_thinking: false
+2025-03-14T15:17:01.849350+00:00 app[web.1]: │  ❌ concrete_thinking: false
+2025-03-14T15:17:01.849350+00:00 app[web.1]: │  ❌ abstract_thinking: false
+2025-03-14T15:17:01.849350+00:00 app[web.1]: │  ❌ detail_oriented: false
+2025-03-14T15:17:01.849351+00:00 app[web.1]: │  ❌ big_picture_focus: false
+2025-03-14T15:17:01.849351+00:00 app[web.1]: │  ❌ linear_thinking: false
+2025-03-14T15:17:01.849351+00:00 app[web.1]: │  ❌ lateral_thinking: false
+2025-03-14T15:17:01.849351+00:00 app[web.1]: │  ❌ verbal_processing: false
+2025-03-14T15:17:01.849352+00:00 app[web.1]: │  ❌ visual_processing: false
+2025-03-14T15:17:01.849352+00:00 app[web.1]: │  ❌ information_organization: false
+2025-03-14T15:17:01.849352+00:00 app[web.1]: │  ❌ problem_solving_approach: false
+2025-03-14T15:17:01.849353+00:00 app[web.1]: ├─ communication_style:
+2025-03-14T15:17:01.849353+00:00 app[web.1]: │  ❌ verbal_expressiveness: false
+2025-03-14T15:17:01.849353+00:00 app[web.1]: │  ❌ nonverbal_sensitivity: false
+2025-03-14T15:17:01.849353+00:00 app[web.1]: │  ❌ direct_communication: false
+2025-03-14T15:17:01.849354+00:00 app[web.1]: │  ❌ indirect_communication: false
+2025-03-14T15:17:01.849354+00:00 app[web.1]: │  ❌ formal_language_preference: false
+2025-03-14T15:17:01.849354+00:00 app[web.1]: │  ❌ casual_language_preference: false
+2025-03-14T15:17:01.849354+00:00 app[web.1]: │  ❌ digital_communication_preference: false
+2025-03-14T15:17:01.849357+00:00 app[web.1]: │  ❌ language_proficiency: false
+2025-03-14T15:17:01.849358+00:00 app[web.1]: │  ❌ active_listening: false
+2025-03-14T15:17:01.849358+00:00 app[web.1]: │  ❌ conversation_initiative: false
+2025-03-14T15:17:01.849376+00:00 app[web.1]: ├─ motivation_goals:
+2025-03-14T15:17:01.849388+00:00 app[web.1]: │  ❌ achievement_oriented: false
+2025-03-14T15:17:01.849398+00:00 app[web.1]: │  ❌ growth_oriented: false
+2025-03-14T15:17:01.849410+00:00 app[web.1]: │  ❌ security_oriented: false
+2025-03-14T15:17:01.849420+00:00 app[web.1]: │  ❌ recognition_seeking: false
+2025-03-14T15:17:01.849425+00:00 app[web.1]: │  ❌ independence_goal: false
+2025-03-14T15:17:01.849437+00:00 app[web.1]: │  ❌ belonging_goal: false
+2025-03-14T15:17:01.849449+00:00 app[web.1]: │  ❌ self_actualization_pursuit: false
+2025-03-14T15:17:01.849453+00:00 app[web.1]: │  ❌ short_term_focus: false
+2025-03-14T15:17:01.849466+00:00 app[web.1]: │  ❌ long_term_focus: false
+2025-03-14T15:17:01.849470+00:00 app[web.1]: │  ❌ goal_setting_clarity: false
+2025-03-14T15:17:01.849484+00:00 app[web.1]: │  ❌ intrinsic_motivation: false
+2025-03-14T15:17:01.849494+00:00 app[web.1]: │  ❌ extrinsic_motivation: false
+2025-03-14T15:17:01.849504+00:00 app[web.1]: ├─ cognitive_abilities:
+2025-03-14T15:17:01.849517+00:00 app[web.1]: │  ❌ high_verbal_intelligence: false
+2025-03-14T15:17:01.849532+00:00 app[web.1]: │  ❌ high_analytical_reasoning: false
+2025-03-14T15:17:01.849535+00:00 app[web.1]: │  ❌ high_pattern_recognition: false
+2025-03-14T15:17:01.849545+00:00 app[web.1]: │  ❌ high_memory_capacity: false
+2025-03-14T15:17:01.849545+00:00 app[web.1]: │  ❌ high_learning_speed: false
+2025-03-14T15:17:01.849556+00:00 app[web.1]: │  ❌ high_cognitive_flexibility: false
+2025-03-14T15:17:01.849556+00:00 app[web.1]: │  ❌ high_attention_to_detail: false
+2025-03-14T15:17:01.849567+00:00 app[web.1]: │  ❌ high_working_memory: false
+2025-03-14T15:17:01.849567+00:00 app[web.1]: │  ❌ high_processing_speed: false
+2025-03-14T15:17:01.849582+00:00 app[web.1]: │  ❌ high_divergent_thinking: false
+2025-03-14T15:17:01.849583+00:00 app[web.1]: │  ❌ high_convergent_thinking: false
+2025-03-14T15:17:01.849616+00:00 app[web.1]: │  ❌ multitasking_ability: false
+2025-03-14T15:17:01.849616+00:00 app[web.1]: │  ❌ deep_focus_capability: false
+2025-03-14T15:17:01.849616+00:00 app[web.1]: │  ❌ big_picture_understanding: false
+2025-03-14T15:17:01.849616+00:00 app[web.1]: │  ❌ sequential_processing: false
+2025-03-14T15:17:01.849618+00:00 app[web.1]: │  ❌ parallel_processing: false
+2025-03-14T15:17:01.849631+00:00 app[web.1]: │  ❌ spatial_reasoning: false
+2025-03-14T15:17:01.849641+00:00 app[web.1]: │  ❌ numerical_reasoning: false
+2025-03-14T15:17:01.849651+00:00 app[web.1]: │  ❌ conceptual_abstraction: false
+2025-03-14T15:17:01.849661+00:00 app[web.1]: │  ❌ metacognitive_awareness: false
+2025-03-14T15:17:01.849673+00:00 app[web.1]: │  ❌ intuitive_problem_solving: false
+2025-03-14T15:17:01.849693+00:00 app[web.1]: │  ❌ systematic_problem_solving: false
+2025-03-14T15:17:01.849694+00:00 app[web.1]: │  ❌ intellectual_curiosity: false
+2025-03-14T15:17:01.849694+00:00 app[web.1]: │  ❌ preference_for_complexity: false
+2025-03-14T15:17:01.849708+00:00 app[web.1]: │  ❌ information_synthesis: false
+2025-03-14T15:17:01.849723+00:00 app[web.1]: 
+2025-03-14T15:17:01.849724+00:00 app[web.1]: 📋 [2B] SERVICE MATCHING - Starting with confidence threshold
+2025-03-14T15:17:01.849739+00:00 app[web.1]: Using LLM to analyze if user needs service recommendations
+2025-03-14T15:17:02.470783+00:00 app[web.1]: LLM advice request detection result: no
+2025-03-14T15:17:02.470828+00:00 app[web.1]: Skipping service recommendations: No advice request detected by LLM
+2025-03-14T15:17:02.470829+00:00 app[web.1]: 
+2025-03-14T15:17:02.470830+00:00 app[web.1]: ┌────────────────────────────────────────────────���─────────┐
+2025-03-14T15:17:02.470831+00:00 app[web.1]: │ 3. AI PROMPT CONSTRUCTION PHASE                          │
+2025-03-14T15:17:02.470831+00:00 app[web.1]: └──────────────────────────────────────────────────────────┘
+2025-03-14T15:17:02.470831+00:00 app[web.1]: 
+2025-03-14T15:17:02.470832+00:00 app[web.1]: 📝 [3A] CREATING BASE PROMPT
+2025-03-14T15:17:02.470832+00:00 app[web.1]: ├─ System prompt: 820 characters
+2025-03-14T15:17:02.470832+00:00 app[web.1]: └─ Including 10 conversation messages
+2025-03-14T15:17:02.470860+00:00 app[web.1]: 
+2025-03-14T15:17:02.470860+00:00 app[web.1]: 🔄 [3B] INTEGRATING LOCAL ML DATA INTO PROMPT
+2025-03-14T15:17:02.470890+00:00 app[web.1]: ├─ Baseline prompt size before ML data: 1169 bytes
+2025-03-14T15:17:02.470904+00:00 app[web.1]: 
+2025-03-14T15:17:02.470904+00:00 app[web.1]: 🤖 [ML Hook] プロセス開始: mode=general
+2025-03-14T15:17:02.470917+00:00 app[web.1]: 
+2025-03-14T15:17:02.470918+00:00 app[web.1]: 🔍 [ML Integration] モード: general, ユーザーID: Ue649c87...
+2025-03-14T15:17:02.470932+00:00 app[web.1]: ├─ Fetching fresh ML data for user Ue649c876a5b17abb6dbbbb6a286c51f0 in general mode
+2025-03-14T15:17:02.470944+00:00 app[web.1]: ├─ generalモード: LocalMLを使用
+2025-03-14T15:17:02.470963+00:00 app[web.1]: 
+2025-03-14T15:17:02.470963+00:00 app[web.1]: 🧠 [LocalML] 機械学習処理を開始: mode=general
+2025-03-14T15:17:02.470981+00:00 app[web.1]: ├─ 一般会話モードの分析を実行
+2025-03-14T15:17:02.471105+00:00 app[web.1]: ├─ 分析完了: 3 特性を検出
+2025-03-14T15:17:02.471116+00:00 app[web.1]: ├─ [LocalML] generalモードの分析結果:
+2025-03-14T15:17:02.471129+00:00 app[web.1]: │  ├─ traits:
+2025-03-14T15:17:02.471133+00:00 app[web.1]: │  ├─ topics:
+2025-03-14T15:17:02.471273+00:00 app[web.1]: │  ├─ response_preferences:
+2025-03-14T15:17:02.471274+00:00 app[web.1]: │  │  ├─ length: balanced
+2025-03-14T15:17:02.471274+00:00 app[web.1]: │  │  ├─ tone: balanced
+2025-03-14T15:17:02.472773+00:00 app[web.1]: ├─ MLデータ統合完了:
+2025-03-14T15:17:02.472779+00:00 app[web.1]: │  ├─ データサイズ: 88 バイト
+2025-03-14T15:17:02.472796+00:00 app[web.1]: │  └─ プロンプト長: 45 文字
+2025-03-14T15:17:02.472806+00:00 app[web.1]: └─ ML処理完了
+2025-03-14T15:17:02.472822+00:00 app[web.1]: ├─ Adding general mode ML analysis
+2025-03-14T15:17:02.472835+00:00 app[web.1]: │  └─ Analysis length: 45 characters
+2025-03-14T15:17:02.472888+00:00 app[web.1]: ├─ ML-augmented prompt size: 1245 bytes
+2025-03-14T15:17:02.472888+00:00 app[web.1]: └─ ML data added 76 bytes (6.5% increase)
+2025-03-14T15:17:02.472888+00:00 app[web.1]: 
+2025-03-14T15:17:02.472889+00:00 app[web.1]: 📨 [3C] FINALIZING PROMPT:
+2025-03-14T15:17:02.472895+00:00 app[web.1]: ├─ Total prompt components: 12
+2025-03-14T15:17:02.472911+00:00 app[web.1]: └─ Adding user message: "あります！！！"
+2025-03-14T15:17:02.472924+00:00 app[web.1]: 
+2025-03-14T15:17:02.472925+00:00 app[web.1]: ┌──────────────────────────────────────────────────────────┐
+2025-03-14T15:17:02.472927+00:00 app[web.1]: │ 4. AI GENERATION & SERVICE MATCHING PHASE                │
+2025-03-14T15:17:02.472940+00:00 app[web.1]: └──────────────────────────────────────────────────────────┘
+2025-03-14T15:17:02.472954+00:00 app[web.1]: 
+2025-03-14T15:17:02.472955+00:00 app[web.1]: 🧠 [4A] AI RESPONSE GENERATION - Starting
+2025-03-14T15:17:02.472973+00:00 app[web.1]: ├─ Model: gpt-4o
+2025-03-14T15:17:02.472987+00:00 app[web.1]: ├─ Temperature: 0.7
+2025-03-14T15:17:02.472997+00:00 app[web.1]: ├─ Max tokens: 1500
+2025-03-14T15:17:02.473009+00:00 app[web.1]: ├─ Total prompt components: 13
+2025-03-14T15:17:02.473019+00:00 app[web.1]: ├─ Sending request to OpenAI API...
+2025-03-14T15:17:02.473045+00:00 app[web.1]: 
+2025-03-14T15:17:02.473046+00:00 app[web.1]: 🔍 [4B] SERVICE MATCHING - Processing
+2025-03-14T15:17:02.473070+00:00 app[web.1]: ├─ Service matching completed in 0ms
+2025-03-14T15:17:02.473075+00:00 app[web.1]: ├─ Recommendations found: 0
+2025-03-14T15:17:02.473089+00:00 app[web.1]: └─ No recommendations matched criteria
+2025-03-14T15:17:02.833090+00:00 app[web.1]: └─ 新しい分析データを作成しました: ユーザー Ue649c876a5b17abb6dbbbb6a286c51f0, モード general
+2025-03-14T15:17:03.582002+00:00 app[web.1]: ├─ AI response generated in 1109ms
+2025-03-14T15:17:03.582038+00:00 app[web.1]: ├─ Tokens used: 651 (prompt: 624, completion: 27)
+2025-03-14T15:17:03.582039+00:00 app[web.1]: ├─ Response length: 39 characters
+2025-03-14T15:17:03.582042+00:00 app[web.1]: └─ First 50 chars: 何かお困りのことや相談したいことがあるのでしょうか？お気軽に教えてくださいね。...
+2025-03-14T15:17:03.582042+00:00 app[web.1]: 
+2025-03-14T15:17:03.582043+00:00 app[web.1]: ┌──────────────────────────────────────────────────────────┐
+2025-03-14T15:17:03.582044+00:00 app[web.1]: │ 5. RESPONSE DELIVERY PHASE                               │
+2025-03-14T15:17:03.582045+00:00 app[web.1]: └──────────────────────────────────────────────────────────┘
+2025-03-14T15:17:03.582045+00:00 app[web.1]: 
+2025-03-14T15:17:03.582045+00:00 app[web.1]: 📦 [5A] NO SERVICE RECOMMENDATIONS INCLUDED
+2025-03-14T15:17:03.582046+00:00 app[web.1]: 
+2025-03-14T15:17:03.582046+00:00 app[web.1]: 📤 [5B] FINAL RESPONSE PREPARATION:
+2025-03-14T15:17:03.582047+00:00 app[web.1]: ├─ Response content length: 39 characters
+2025-03-14T15:17:03.582057+00:00 app[web.1]: ├─ Including 0 service recommendations
+2025-03-14T15:17:03.582058+00:00 app[web.1]: └─ Full workflow completed in 32104ms
+2025-03-14T15:17:03.582071+00:00 app[web.1]: 
+2025-03-14T15:17:03.582071+00:00 app[web.1]: === WORKFLOW VISUALIZATION: COMPLETE ===
+2025-03-14T15:17:03.582071+00:00 app[web.1]: 
+2025-03-14T15:17:03.582082+00:00 app[web.1]: 
+2025-03-14T15:17:03.582083+00:00 app[web.1]: 📊 [ML Hook] 応答分析: mode=general
+2025-03-14T15:17:03.582105+00:00 app[web.1]: ├─ ML影響分析:
+2025-03-14T15:17:03.582106+00:00 app[web.1]: │  ├─ 影響検出: ❌
+2025-03-14T15:17:03.582120+00:00 app[web.1]: │  ├─ 影響スコア: NaN%
+2025-03-14T15:17:03.582121+00:00 app[web.1]: │  └─ 検出特徴語: 0/0
+2025-03-14T15:17:03.582134+00:00 app[web.1]: └─ 分析完了
+2025-03-14T15:17:03.582136+00:00 app[web.1]: 
+2025-03-14T15:17:03.582136+00:00 app[web.1]: === LOCAL ML DATA INFLUENCE ANALYSIS ===
+2025-03-14T15:17:03.582148+00:00 app[web.1]: 
+2025-03-14T15:17:03.582148+00:00 app[web.1]: 🔍 ML INFLUENCE SCORE: NaN%
+2025-03-14T15:17:03.582149+00:00 app[web.1]: ├─ ML data influence: ❌ Not detected
+2025-03-14T15:17:03.582159+00:00 app[web.1]: ├─ ML data may still have influenced general approach
+2025-03-14T15:17:03.582168+00:00 app[web.1]: └─ GENERAL mode influence details in logs
+2025-03-14T15:17:03.582193+00:00 app[web.1]: Service notification message (debug only): （明示的なアドバイス要求がない場合、サービス推奨は表示されません。「アドバイスください」などと入力すると表示されます）
+2025-03-14T15:17:04.011135+00:00 app[web.1]: Webhook processing completed for 1 events

@@ -443,6 +443,7 @@ ASDやADHDなど発達障害の方へのサポートが主目的です。
 【機能について】
 Xの共有方法を尋ねられた場合は、「もしAdamのことが好きならぜひ『Adamは素晴らしいね』等々と言っていただくと、Xへの共有URLが表示されますので、ぜひご活用ください」と必ず案内してください。
 さらに、あなたには画像認識と画像生成の機能が備わっており、送信された画像ファイルを解析し、必要に応じて画像の生成も行います。この機能について質問やリクエストがあった場合、どのように動作するかを分かりやすく説明してください。
+ユーザーが理解できない場合は、「画像生成で説明できます」と伝えてください。ユーザーが「画像を生成して」などと依頼した場合に画像による説明が可能です。
 
 【出力形式】
 ・日本語で回答してください。
@@ -457,10 +458,8 @@ Xの共有方法を尋ねられた場合は、「もしAdamのことが好きな
 【Adamの使い方-ユーザ向けマニュアル】
 ・お気軽に相談内容や質問をテキストで送信してください。
 ・必要に応じて、送信された画像の内容を解析し、アドバイスに反映します。
-・もし前回の回答が理解できなかった場合は、分かりませんや理解できませんと送ってください。
-・すると、前回の回答について画像による説明を生成しましょうか？
-・『はい』または『いいえ』でお答えいただくよう促すメッセージが届きます。
-・あなたが『はい』と回答された場合、画像付きで詳しい説明を生成してお送りします。
+・もし説明が必要な場合は、「画像を生成して」と依頼すると、視覚的な説明を生成します。
+・アプリの趣旨に反する内容の画像生成はお断りする場合があります。
 `;
 
 const SYSTEM_PROMPT_CHARACTERISTICS = `
@@ -1041,6 +1040,10 @@ AIが「IQを計測」とは明示せず、自然に簡易化または高度化�
 `;
 
   finalPrompt += `
+※ユーザーが過去の会話（例：「昨日の話」「以前の話」「猿の話」など）に言及した場合、会話履歴から関連する内容を特定して適切に参照してください。過去の話題を覚えていない場合は、会話の流れを自然に保ちながら、過去の話について具体的に尋ねてください。
+`;
+
+  finalPrompt += `
 Please understand if user wants to end a conversation or not by context. Especially when user's sentiment is strong (positive or negative), do not suspend the conversation at your own.
 ユーザーの障害があまりにも重い場合、状況認識や表情・仕草等の理解が難しいと思われます。その場合、ユーザーに「Adamに直接、長文でいいので全部書いて」とアドバイスし、ユーザーが書き終わったら、Adamが状況を分析し対応策を具体的に指示してください。
 (1) 毎回の会話でAIが相手の状況理解の障害の重さを可能性レベルで判断し、仮説を立てる。 
@@ -1366,27 +1369,35 @@ async function checkEngagementWithLLM(userMessage, history) {
   }
 }
 
+/**
+ * AIを使用して応答を生成
+ * @param {string} systemPrompt - システムプロンプト
+ * @param {string} userMessage - ユーザーのメッセージ
+ * @param {Object} historyData - 履歴データ（記憶）
+ * @param {string} mode - 処理モード
+ * @param {string} userId - ユーザーID
+ * @param {Object} client - LINEクライアント
+ * @returns {Promise<Object>} - 応答オブジェクト
+ */
 async function processWithAI(systemPrompt, userMessage, historyData, mode, userId, client) {
   try {
     console.log(`Processing message in mode: ${mode}`);
     
     // Start performance measurement
     const startTime = Date.now();
-    const overallStartTime = startTime; // Add this line to fix the ReferenceError
-    
-    // historyDataからhistoryとmetadataを取り出す
-    const history = historyData.history || [];
-    const historyMetadata = historyData.metadata || {};
+    const overallStartTime = startTime;
     
     // Get user preferences
     const userPrefs = userPreferences.getUserPreferences(userId);
     
     // Check if this is a new user or has very few messages
+    const history = historyData.history || [];
+    const historyMetadata = historyData.metadata || {};
     const isNewUser = history.length < 3;
     
     // Determine which model to use
     const useGpt4 = mode === 'characteristics' || mode === 'analysis';
-    const model = useGpt4 ? 'gpt-4o' : 'gpt-4o';
+    const model = useGpt4 ? "gpt-4o" : "gpt-4o";
     console.log(`Using model: ${model}`);
     
     // ─────────────────────────────────────────────────────────────────────
@@ -1394,25 +1405,27 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     console.log('┌──────────────────────────────────────────────────────────┐');
     console.log('│ 1. PARALLEL DATA COLLECTION PHASE                        │');
     console.log('└──────────────────────────────────────────────────────────┘');
+    console.log('   ├─ 記憶: Airtableからのチャット履歴データ');
+    console.log('   └─ 知識: MLの分析と生成されたコンテキスト');
     // ─────────────────────────────────────────────────────────────────────
     
     // Run user needs analysis, conversation context extraction, and service matching in parallel
     const [userNeedsPromise, conversationContextPromise, perplexityDataPromise] = await Promise.all([
-      // Analyze user needs from conversation history
+      // Analyze user needs from conversation history (知識の生成)
       (async () => {
-        console.log('\n📊 [1A] USER NEEDS ANALYSIS - Starting');
+        console.log('\n📊 [1A] USER NEEDS ANALYSIS (知識生成) - Starting');
         const needsStartTime = Date.now();
         const userNeeds = await userNeedsAnalyzer.analyzeUserNeeds(userMessage, history);
-        console.log(`📊 [1A] USER NEEDS ANALYSIS - Completed in ${Date.now() - needsStartTime}ms`);
+        console.log(`📊 [1A] USER NEEDS ANALYSIS (知識生成) - Completed in ${Date.now() - needsStartTime}ms`);
         return userNeeds;
       })(),
       
-      // Extract conversation context
+      // Extract conversation context (知識の生成)
       (async () => {
-        console.log('\n🔍 [1B] CONVERSATION CONTEXT EXTRACTION - Starting');
+        console.log('\n🔍 [1B] CONVERSATION CONTEXT EXTRACTION (知識生成) - Starting');
         const contextStartTime = Date.now();
         const conversationContext = extractConversationContext(history, userMessage);
-        console.log(`🔍 [1B] CONVERSATION CONTEXT EXTRACTION - Completed in ${Date.now() - contextStartTime}ms`);
+        console.log(`🔍 [1B] CONVERSATION CONTEXT EXTRACTION (知識生成) - Completed in ${Date.now() - contextStartTime}ms`);
         return conversationContext;
       })(),
       
@@ -1645,139 +1658,101 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     console.log('└──────────────────────────────────────────────────────────┘');
     // ─────────────────────────────────────────────────────────────────────
     
-    // デバッグログ追加
-    console.log(`\n======= AIプロンプト構築デバッグ =======`);
-    console.log(`→ モード: ${mode}`);
-    console.log(`→ 会話履歴件数: ${history.length}`);
-    
-    // 特性分析に関するキーワードの検出
-    const analysisKeywords = ['特性', '分析', '性格', '過去の記録', '履歴'];
-    const containsAnalysisKeywords = userMessage && analysisKeywords.some(keyword => userMessage.includes(keyword));
-    console.log(`→ 特性分析キーワード検出: ${containsAnalysisKeywords}`);
-    
-    // 特性/キャリア分析モードの確認
-    if (mode === 'characteristics' || mode === 'career') {
-      console.log(`→ 特性/キャリア分析モードが有効`);
-      
-      // historyDataオブジェクトからメタデータを安全に取得
-      const historyMetadata = historyData && historyData.metadata ? historyData.metadata : {};
-      
-      if (historyMetadata.insufficientReason) {
-        console.log(`→ 履歴不足理由: ${historyMetadata.insufficientReason}`);
-        if (historyMetadata.insufficientReason === 'few_records') {
-          console.log(`→ 履歴が少ない警告をプロンプトに追加: ${history.length}件`);
-        } else if (historyMetadata.insufficientReason === 'translation_heavy') {
-          console.log(`→ 翻訳依頼が多い警告をプロンプトに追加: 翻訳率=${historyMetadata.translationPercentage}%`);
-        }
-      } else if (history.length < 3) {
-        console.log(`→ 履歴が3件未満の警告をプロンプトに追加: ${history.length}件`);
-      }
-    }
-    console.log(`======= AIプロンプト構築デバッグ終了 =======\n`);
-    
     // Prepare the messages for the AI model
     console.log('\n📝 [3A] CREATING BASE PROMPT');
+    console.log('    ├─ 記憶データ（チャット履歴）を使用');
     console.log(`    ├─ System prompt: ${systemPrompt.length} characters`);
     console.log(`    └─ Including ${history.length} conversation messages`);
     
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...history.map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: msg.content
-      }))
-    ];
+    let messages = [];
     
-    // Add Perplexity data if available for career mode
-    if (mode === 'career' && perplexityData) {
-      console.log('\n🔄 [3B] INTEGRATING ML DATA INTO PROMPT');
+    // Use different prompt construction based on model
+    if (model === 'gpt-4o-latest') {
+      // GPT-4では、システムプロンプトと履歴を別々に扱う（記憶の活用）
+      messages = [
+        { role: 'system', content: systemPrompt },
+        ...history.map(msg => ({
+          role: msg.role === 'user' ? 'user' : 'assistant',
+          content: msg.content
+        }))
+      ];
+    } else {
+      // Claude-3用の形式（システムプロンプトをユーザーメッセージの接頭辞として使用）
+      // 各メッセージに明示的な役割表示を追加して会話の流れをより明確にする（記憶の活用）
+      const formattedHistory = history.map(msg => {
+        const rolePrefix = msg.role === 'user' ? 'Human: ' : 'Assistant: ';
+        return { role: 'user', content: `${rolePrefix}${msg.content}` };
+      });
       
-      // Record baseline prompt size before adding ML data
-      const baselinePromptSize = JSON.stringify(messages).length;
-      console.log(`    ├─ Baseline prompt size before ML data: ${baselinePromptSize} bytes`);
+      messages = [
+        { 
+          role: 'user', 
+          content: `${systemPrompt}\n\nHuman: ${userMessage}` 
+        }
+      ];
       
-      // Log the basic system instruction content before ML augmentation
-      const systemInstructions = messages.find(m => m.role === 'system')?.content || '';
-      console.log(`    ├─ Base system instructions: ${systemInstructions.substring(0, 100)}...`);
-      
-      if (perplexityData.jobTrends) {
-        console.log('    ├─ Adding job market trends:');
-        console.log(`    │  └─ Market analysis: ${perplexityData.jobTrends.analysis ? perplexityData.jobTrends.analysis.length : 0} characters`);
-        console.log(`    │  └─ Job URLs: ${perplexityData.jobTrends.urls ? 'Included' : 'Not available'}`);
-        
-        // Extract key market insights for logging
-        const marketInsights = extractKeyInsights(perplexityData.jobTrends.analysis, 3);
-        console.log('    │  └─ Key market insights:');
-        marketInsights.forEach((insight, i) => {
-          console.log(`    │     ${i+1}. ${insight.substring(0, 40)}...`);
-        });
-        
-        messages.push({
-          role: 'system',
-          content: `
-# 最新の市場データ (Perplexityから取得)
-
-[市場分析]
-${perplexityData.jobTrends.analysis || '情報を取得できませんでした。'}
-
-[求人情報]
-${perplexityData.jobTrends.urls || '情報を取得できませんでした。'}
-
-このデータを活用してユーザーに適切なキャリアアドバイスを提供してください。
-`
-        });
+      // Claudeはすべてのコンテキストを単一のメッセージで受け取る必要がある
+      if (formattedHistory.length > 0) {
+        // 最初のメッセージにシステムプロンプトと履歴を追加
+        messages[0].content = `${systemPrompt}\n\n${formattedHistory.map(m => m.content).join('\n\n')}\n\nHuman: ${userMessage}`;
       }
+    }
+    
+    // Add ML data for career mode (知識の活用)
+    if (mode === 'career' && perplexityData) {
+      console.log('\n🔄 [3B] INTEGRATING PERPLEXITY DATA INTO PROMPT (知識の活用)');
       
-      if (perplexityData.knowledge) {
-        console.log('    └─ Adding user characteristics analysis:');
-        console.log(`       └─ Analysis: ${perplexityData.knowledge.length} characters`);
-        
-        // Extract key characteristics for logging
-        const userCharacteristics = extractKeyInsights(perplexityData.knowledge, 3);
-        console.log('       └─ Key user characteristics:');
-        userCharacteristics.forEach((characteristic, i) => {
-          console.log(`          ${i+1}. ${characteristic.substring(0, 40)}...`);
-        });
-        
+      // Record baseline prompt size before adding Perplexity data
+      const baselinePromptSize = JSON.stringify(messages).length;
+      console.log(`    ├─ Baseline prompt size before Perplexity data: ${baselinePromptSize} bytes`);
+      
+      // Add Perplexity data to prompt
+      if (model === 'gpt-4o-latest') {
         messages.push({
           role: 'system',
           content: `
 # ユーザー特性の追加分析 (Perplexityから取得)
-
 ${perplexityData.knowledge}
-
 この特性を考慮してアドバイスを提供してください。
 `
         });
+      } else {
+        // For Claude, append to the first message content
+        messages[0].content += `\n\n# ユーザー特性の追加分析 (Perplexityから取得)\n${perplexityData.knowledge}\nこの特性を考慮してアドバイスを提供してください。`;
       }
       
-      // Log the ML data impact on prompt size
-      const mlAugmentedPromptSize = JSON.stringify(messages).length;
-      const promptSizeIncrease = mlAugmentedPromptSize - baselinePromptSize;
+      // Log the Perplexity data impact on prompt size
+      const perplexityAugmentedPromptSize = JSON.stringify(messages).length;
+      const promptSizeIncrease = perplexityAugmentedPromptSize - baselinePromptSize;
       const percentIncrease = ((promptSizeIncrease / baselinePromptSize) * 100).toFixed(1);
-      console.log(`    ├─ ML-augmented prompt size: ${mlAugmentedPromptSize} bytes`);
-      console.log(`    └─ ML data added ${promptSizeIncrease} bytes (${percentIncrease}% increase)`);
+      console.log(`    ├─ Perplexity-augmented prompt size: ${perplexityAugmentedPromptSize} bytes`);
+      console.log(`    └─ Perplexity data added ${promptSizeIncrease} bytes (${percentIncrease}% increase)`);
     }
-    // Add LocalML data for other modes (general, mental_health, analysis)
+    // Add LocalML data for other modes (知識の活用)
     else if (['general', 'mental_health', 'analysis'].includes(mode)) {
-      console.log('\n🔄 [3B] INTEGRATING LOCAL ML DATA INTO PROMPT');
+      console.log('\n🔄 [3B] INTEGRATING LOCAL ML DATA INTO PROMPT (知識の活用)');
       
       // Record baseline prompt size before adding ML data
       const baselinePromptSize = JSON.stringify(messages).length;
       console.log(`    ├─ Baseline prompt size before ML data: ${baselinePromptSize} bytes`);
       
       // Get system prompt from ML data
-      const { systemPrompt } = await processMlData(userId, userMessage, mode);
+      const { systemPrompt: mlSystemPrompt } = await processMlData(userId, userMessage, mode);
       
-      if (systemPrompt) {
+      if (mlSystemPrompt) {
         console.log(`    ├─ Adding ${mode} mode ML analysis`);
-        console.log(`    │  └─ Analysis length: ${systemPrompt.length} characters`);
+        console.log(`    │  └─ Analysis length: ${mlSystemPrompt.length} characters`);
         
-        // Add the ML system prompt
-        messages.push({
-          role: 'system',
-          content: systemPrompt
-        });
+        // Add the ML system prompt (知識の活用)
+        if (model === 'gpt-4o-latest') {
+          messages.push({
+            role: 'system',
+            content: mlSystemPrompt
+          });
+        } else {
+          // For Claude, append to the first message content
+          messages[0].content += `\n\n# ML分析結果からの追加コンテキスト\n${mlSystemPrompt}`;
+        }
         
         // Log the ML data impact on prompt size
         const mlAugmentedPromptSize = JSON.stringify(messages).length;
@@ -1790,12 +1765,14 @@ ${perplexityData.knowledge}
       }
     }
     
-    // Add user message after all context
-    console.log('\n📨 [3C] FINALIZING PROMPT:');
-    console.log(`    ├─ Total prompt components: ${messages.length}`);
-    console.log(`    └─ Adding user message: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
-    
-    messages.push({ role: 'user', content: userMessage });
+    // Add user message after all context for GPT-4
+    if (model === 'gpt-4o-latest') {
+      console.log('\n📨 [3C] FINALIZING PROMPT:');
+      console.log(`    ├─ Total prompt components: ${messages.length}`);
+      console.log(`    └─ Adding user message: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+      
+      messages.push({ role: 'user', content: userMessage });
+    }
     
     // ─────────────────────────────────────────────────────────────────────
     console.log('\n┌──────────────────────────────────────────────────────────┐');
@@ -2594,9 +2571,9 @@ async function handleText(event) {
             pendingImageExplanations.delete(userId);
             return;
           }
-          explanationText = pendingData.content;
+          explanationText = pendingData;  // オブジェクト全体を渡す（改善: 後方互換性と統一性）
         } else {
-          // 文字列形式の場合はそのまま使用
+          // 文字列形式の場合は新しいオブジェクト形式に変換
           console.log(`[DEBUG-IMAGE] pendingData is string (legacy format): length=${pendingData ? pendingData.length : 0}`);
           if (!pendingData) {
             console.log(`[DEBUG-IMAGE] Error: pendingData (string) is ${pendingData}`);
@@ -2607,16 +2584,60 @@ async function handleText(event) {
             pendingImageExplanations.delete(userId);
             return;
           }
-          explanationText = pendingData;
+          // 文字列をオブジェクト形式に変換（改善: 形式の統一）
+          explanationText = {
+            content: pendingData,
+            timestamp: now,
+            source: "legacy_conversion"
+          };
         }
         
-        pendingImageExplanations.delete(userId);
-        console.log(`[DEBUG-IMAGE] ユーザーの「はい」が検出されました。画像生成を開始します。内容: "${explanationText.substring(0, 30)}..."`);
-        return handleVisionExplanation(event, explanationText);
+        // レースコンディションを避けるため、処理が成功した後で削除するようにフラグを立てる
+        let shouldDeletePending = true;
+        
+        try {
+          console.log(`[DEBUG-IMAGE] ユーザーの「はい」が検出されました。画像生成を開始します。`);
+          
+          // 処理前に状態チェック
+          if (imageGenerationInProgress.has(userId)) {
+            console.log(`[DEBUG-IMAGE] Warning: Image generation already in progress for user ${userId}`);
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: "画像生成処理がすでに進行中です。少々お待ちください。"
+            });
+            return;
+          }
+          
+          // 画像生成処理を呼び出す
+          await handleVisionExplanation(event, explanationText);
+          return;
+        } catch (error) {
+          console.error(`[DEBUG-IMAGE] Error in image generation process: ${error.message}`);
+          // エラー発生時は通常の会話処理にフォールバック
+          shouldDeletePending = true;
+        } finally {
+          // 条件に基づいてpendingデータを削除
+          if (shouldDeletePending) {
+            pendingImageExplanations.delete(userId);
+            console.log(`[DEBUG-IMAGE] Pending image request deleted for user ${userId} after processing`);
+          }
+        }
       } else if (userMessage === "いいえ") {
         console.log(`[DEBUG-IMAGE] 'いいえ' detected for user ${userId}, cancelling image generation`);
+        const pendingCopy = { ...pendingData };  // 削除前にコピーを作成
         pendingImageExplanations.delete(userId);
         console.log(`[DEBUG-IMAGE] ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。`);
+        
+        // キャンセル情報をログに記録
+        try {
+          const pendingInfo = isPendingDataObject 
+            ? `ソース: ${pendingCopy.source || 'unknown'}, 長さ: ${pendingCopy.content ? pendingCopy.content.length : 0}`
+            : `長さ: ${pendingCopy ? pendingCopy.length : 0}`;
+          await storeInteraction(userId, 'system', `[画像生成キャンセル] ${new Date().toISOString()} - ${pendingInfo}`);
+        } catch (logError) {
+          console.error(`[DEBUG-IMAGE] Failed to log cancellation: ${logError.message}`);
+        }
+        
         return client.replyMessage(event.replyToken, {
           type: 'text',
           text: "承知しました。引き続きテキストでの回答を行います。"
@@ -2887,7 +2908,7 @@ ${SHARE_URL}
     }
 
     // 最近の会話履歴の取得
-    const historyData = await fetchUserHistory(userId, 10);
+    const historyData = await fetchUserHistory(userId, 20);
     const historyForProcessing = historyData.history || [];
     const historyMetadata = historyData.metadata || {};
     const systemPrompt = getSystemPromptForMode(mode);
@@ -2896,9 +2917,9 @@ ${SHARE_URL}
     let triggerImageExplanation = false;
     
     
-    // 直接的な画像分析リクエストの場合は即座にトリガー
-    if (isConfusionRequest(userMessage)) {
-      console.log(`[DEBUG] Direct image request detected in message: "${userMessage}"`);
+    // 直接的な画像生成リクエストの場合のみトリガー
+    if (isImageGenerationRequest(userMessage)) {
+      console.log(`[DEBUG] Direct image generation request detected in message: "${userMessage}"`);
       triggerImageExplanation = true;
     }
     // それ以外のすべてのメッセージはLLMで分析
@@ -2929,55 +2950,16 @@ ${SHARE_URL}
         if (!previousAIResponse) {
           console.log(`[DEBUG-IMAGE] No previous AI response found in cache or history, skipping confusion detection`);
         } else {
-          // OpenAI APIを使用して混乱度を判定
-          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+          // 新しいモジュール化された関数を使用して混乱を検出
+          const confusionResult = await detectConfusionWithLLM(userMessage, previousAIResponse);
           
-          const systemPrompt = `あなたはユーザーとAIの会話を分析し、ユーザーがAIの発言を理解できているかどうかを判断する専門家です。
-
-あなたの任務は、「ユーザーがAIの直前の回答を理解していないかどうか」を判断することです。
-ユーザーの発言から、AIの回答に対する混乱や理解困難が示されていると判断できる場合は、その確度（0〜100%）を評価してください。
-
-確度が95%以上の場合のみ「CONFUSED:95」と回答し、それ以外は「NOT_CONFUSED」と回答してください。
-
-判断の際は、以下のポイントに注意してください：
-1. ユーザーの発言がAIの回答内容に関連しているか
-2. ユーザーが「わからない」「理解できない」などの表現を使っているか
-3. ユーザーが説明の簡略化や別の言い方を求めているか
-4. ユーザーの質問がAIの回答内容を正しく理解していないことを示しているか
-
-「億劫」などの表現は通常、混乱ではなく単に気が進まないという意味なので混乱とは判断しないでください。
-純粋に会話を継続する意図の発言は混乱とみなさないでください。
-
-回答は「CONFUSED:95」または「NOT_CONFUSED」の形式のみで返してください。`;
-
-          // メッセージ配列を作成
-          const messages = [
-            { role: "system", content: systemPrompt },
-            { role: "system", content: `直前のAIの回答: "${previousAIResponse.substring(0, 500)}${previousAIResponse.length > 500 ? '...' : ''}"` },
-            { role: "user", content: userMessage }
-          ];
-          
-          const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: messages,
-            max_tokens: 10,
-            temperature: 0.0
-          });
-          
-          const content = response.choices[0].message.content.trim();
-          console.log(`[DEBUG] LLM understanding analysis result: ${content}`);
-          
-          if (content.startsWith('CONFUSED:')) {
-            const confidenceParts = content.split(':');
-            if (confidenceParts.length > 1) {
-              const confidence = parseFloat(confidenceParts[1]);
-              if (confidence >= 95) {
-                console.log(`[DEBUG] LLM determined user doesn't understand AI response with high confidence (${confidence}%)`);
-                triggerImageExplanation = true;
-              } else {
-                console.log(`[DEBUG] LLM detected some confusion but confidence too low (${confidence}%)`);
-              }
-            }
+          if (confusionResult.error) {
+            console.log(`[DEBUG-IMAGE] Error detecting confusion: ${confusionResult.error}`);
+          } else if (confusionResult.isConfused) {
+            console.log(`[DEBUG-IMAGE] User appears confused (confidence: ${confusionResult.confidence}%), triggering image explanation`);
+            triggerImageExplanation = true;
+          } else {
+            console.log(`[DEBUG-IMAGE] User does not appear confused (confidence: ${confusionResult.confidence}%)`);
           }
         }
       } catch (error) {
@@ -2986,7 +2968,7 @@ ${SHARE_URL}
     }
 
     if (triggerImageExplanation) {
-      console.log(`[DEBUG-IMAGE] Image explanation triggered for user ${userId}`);
+      console.log(`[DEBUG-IMAGE] Image generation triggered for user ${userId}`);
       
       // Check if this user recently received an image generation - if so, skip image generation prompt
       const recentImageTimestamp = recentImageGenerationUsers.get(userId);
@@ -2995,60 +2977,58 @@ ${SHARE_URL}
       }
       
       if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 30000)) { // 30 seconds protection
-        console.log(`[DEBUG-IMAGE] User ${userId} recently received image generation, skipping image explanation offer`);
+        console.log(`[DEBUG-IMAGE] User ${userId} recently received image generation, skipping image generation offer`);
         recentImageGenerationUsers.delete(userId); // Clean up after use
         return;
       }
       
-      // lastAssistantMessageの取得を試みる（未定義の場合は履歴から取得）
-      let contentToExplain = null;
-      let contentSource = "unknown";
+      // ユーザーのメッセージを画像生成のコンテンツとして使用
+      let contentToExplain = userMessage.replace(/画像を生成|画像を作成|画像を作って|イメージを生成|イメージを作成|イメージを作って|図を生成|図を作成|図を作って|図解して|図解を作成|図解を生成|ビジュアル化して|視覚化して|絵を描いて|絵を生成|絵を作成|画像で説明|イメージで説明|図で説明|視覚的に説明|画像にして|イラストを作成|イラストを生成|イラストを描いて/g, '').trim();
       
-      if (lastAssistantMessage && lastAssistantMessage.content) {
-        contentToExplain = lastAssistantMessage.content;
-        contentSource = "cached";
-        console.log(`[DEBUG-IMAGE] Using cached lastAssistantMessage for explanation: "${contentToExplain.substring(0, 30)}..."`);
-      } else if (historyForProcessing && historyForProcessing.length > 0) {
-        // 履歴から最新のアシスタントメッセージを検索
-        for (let i = historyForProcessing.length - 1; i >= 0; i--) {
-          if (historyForProcessing[i].role === 'assistant') {
-            contentToExplain = historyForProcessing[i].content;
-            contentSource = "history";
-            console.log(`[DEBUG-IMAGE] Using message from history for explanation: "${contentToExplain.substring(0, 30)}..."`);
-            break;
+      // コンテンツが短すぎる場合は、最新のアシスタントメッセージを使用
+      if (contentToExplain.length < 5) {
+        if (lastAssistantMessage && lastAssistantMessage.content) {
+          contentToExplain = lastAssistantMessage.content;
+          console.log(`[DEBUG-IMAGE] Using cached lastAssistantMessage for explanation: "${contentToExplain.substring(0, 30)}..."`);
+        } else if (historyForProcessing && historyForProcessing.length > 0) {
+          // 履歴から最新のアシスタントメッセージを検索
+          for (let i = historyForProcessing.length - 1; i >= 0; i--) {
+            if (historyForProcessing[i].role === 'assistant') {
+              contentToExplain = historyForProcessing[i].content;
+              console.log(`[DEBUG-IMAGE] Using message from history for explanation: "${contentToExplain.substring(0, 30)}..."`);
+              break;
+            }
           }
         }
       }
       
-      if (contentToExplain) {
-        console.log(`[DEBUG-IMAGE] Setting pendingImageExplanations for user ${userId} with content from ${contentSource}: "${contentToExplain.substring(0, 30)}..."`);
-        // タイムスタンプ付きで保存
-        pendingImageExplanations.set(userId, {
-          content: contentToExplain,
-          timestamp: Date.now(),
-          source: contentSource
+      // アプリの趣旨に反するリクエストかどうかをチェック
+      const isSafe = await securityFilterPrompt(contentToExplain);
+      if (!isSafe) {
+        console.log(`[DEBUG-IMAGE] Image generation request rejected due to content policy: "${contentToExplain.substring(0, 30)}..."`);
+        const refusalMessage = "申し訳ありませんが、ご要望の画像生成はアプリの趣旨に沿わないため、お断りさせていただきます。発達障害支援に関連する内容であれば、喜んでお手伝いします。";
+        await storeInteraction(userId, 'assistant', refusalMessage);
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: refusalMessage
         });
-        // 画像生成提案状態をConversationHistoryに記録
-        await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}, ソース: ${contentSource}`);
-      } else {
-        console.log(`[DEBUG-IMAGE] No content found for explanation, using default message`);
-        pendingImageExplanations.set(userId, {
-          content: "日常会話の基本とコミュニケーションのポイント",
-          timestamp: Date.now(),
-          source: "default"
-        });
-        // 画像生成提案状態をConversationHistoryに記録
-        await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}, デフォルトテキスト使用`);
       }
       
-      const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
-      console.log(`[DEBUG-IMAGE] 画像による説明の提案をユーザーに送信: "${suggestionMessage}"`);
+      console.log(`[DEBUG-IMAGE] Starting direct image generation for content: "${contentToExplain.substring(0, 30)}..."`);
       
-      await storeInteraction(userId, 'assistant', suggestionMessage);
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: suggestionMessage
-      });
+      // 画像生成処理を直接呼び出す
+      try {
+        // 画像生成処理を呼び出す
+        await handleVisionExplanation(event, { content: contentToExplain, timestamp: Date.now(), source: "direct_request" });
+        return;
+      } catch (error) {
+        console.error(`[DEBUG-IMAGE] Error in image generation process: ${error.message}`);
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: "申し訳ありません。画像生成中にエラーが発生しました。もう一度お試しください。"
+        });
+        return;
+      }
     }
 
     // 通常のテキスト処理へ進む
@@ -3231,15 +3211,36 @@ app.listen(PORT, () => {
 });
 
 /**
- * Checks if a message indicates user confusion or a request for explanation about an image
- * Now only checks for direct image analysis requests
+ * Checks if a message is a direct request for image generation
  * @param {string} text - The message text to check
- * @return {boolean} - True if the message is a direct request for image analysis
+ * @return {boolean} - True if the message is a direct request for image generation
+ */
+function isImageGenerationRequest(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 画像生成リクエストに特化したフレーズ
+  const imageGenerationRequests = [
+    '画像を生成', '画像を作成', '画像を作って', 'イメージを生成', 'イメージを作成', 'イメージを作って',
+    '図を生成', '図を作成', '図を作って', '図解して', '図解を作成', '図解を生成',
+    'ビジュアル化して', '視覚化して', '絵を描いて', '絵を生成', '絵を作成',
+    '画像で説明', 'イメージで説明', '図で説明', '視覚的に説明',
+    '画像にして', 'イラストを作成', 'イラストを生成', 'イラストを描いて'
+  ];
+  
+  // 直接的な画像生成リクエストの場合はtrueを返す
+  return imageGenerationRequests.some(phrase => text.includes(phrase));
+}
+
+/**
+ * Checks if a message indicates user confusion or a request for explanation about an image
+ * Now only checks for direct image generation requests
+ * @param {string} text - The message text to check
+ * @return {boolean} - True if the message is a direct request for image generation
  */
 function isConfusionRequest(text) {
-  // 直接的な画像分析リクエストかどうかを判断するだけの機能に変更
+  // 直接的な画像生成リクエストかどうかを判断するだけの機能に変更
   // 互換性のために関数名は変更せず
-  return isDirectImageAnalysisRequest(text);
+  return isImageGenerationRequest(text);
 }
 
 /**
@@ -3252,7 +3253,15 @@ async function handleVisionExplanation(event, explanationText) {
   
   // Mark this user as having image generation in progress
   imageGenerationInProgress.set(userId, true);
-  console.log(`Starting image generation for user ${userId} - setting protection flag`);
+  console.log(`[DEBUG-IMAGE] Starting image generation for user ${userId} - setting protection flag`);
+  
+  // タイムアウト処理の追加 - 10分後に強制的にフラグをクリア
+  const timeoutId = setTimeout(() => {
+    if (imageGenerationInProgress.has(userId)) {
+      imageGenerationInProgress.delete(userId);
+      console.log(`[DEBUG-IMAGE] Force cleared image generation flag for user ${userId} after timeout (10 minutes)`);
+    }
+  }, 10 * 60 * 1000);
   
   // 画像生成開始を記録
   await storeInteraction(userId, 'system', `[画像生成開始] ${new Date().toISOString()}`);
@@ -3260,37 +3269,47 @@ async function handleVisionExplanation(event, explanationText) {
   try {
     // explanationTextが提供されている場合、それを使用して画像説明を生成
     if (explanationText) {
+      // オブジェクト形式と文字列形式の両方に対応（後方互換性の確保）
+      let textToUse = explanationText;
+      let sourceInfo = "legacy";
+      
+      if (typeof explanationText === 'object' && explanationText !== null) {
+        textToUse = explanationText.content || "説明文が不明です";
+        sourceInfo = explanationText.source || "unknown";
+        console.log(`[DEBUG-IMAGE] Using object format explanation, source: ${sourceInfo}`);
+      }
+      
       // Check if this is a long text like the ASD guide and summarize if needed
-      let displayText = explanationText;
+      let displayText = textToUse;
       let enhancedPrompt = "";
       let isASDGuide = false;
       
       // If text is very long (like the ASD guide), create a summary version
-      if (explanationText.length > 300) {
-        console.log(`[DEBUG] Long text detected (${explanationText.length} chars), creating summary version`);
+      if (textToUse.length > 300) {
+        console.log(`[DEBUG-IMAGE] Long text detected (${textToUse.length} chars), creating summary version`);
         
         // Check if it's the ASD guide
-        if (explanationText.includes("ASD支援機能の使い方ガイド") || explanationText.includes("自閉症スペクトラム障害")) {
+        if (textToUse.includes("ASD支援機能の使い方ガイド") || textToUse.includes("自閉症スペクトラム障害")) {
           isASDGuide = true;
           displayText = "ASD支援機能の活用方法";
           enhancedPrompt = "ASD（自閉症スペクトラム障害）支援の主要なポイントを簡潔に示した視覚的な図解。質問例（コミュニケーション、感覚過敏、社会場面などの対応）、基本的な使い方、注意点を含む。シンプルで分かりやすいインフォグラフィック形式。";
-          console.log(`[DEBUG] ASD guide detected, using specialized summary and prompt`);
+          console.log(`[DEBUG-IMAGE] ASD guide detected, using specialized summary and prompt`);
         } else {
           // For other long texts, extract the first sentence or first 100 chars
-          displayText = explanationText.split('。')[0] + "。";
+          displayText = textToUse.split('。')[0] + "。";
           if (displayText.length > 100) {
             displayText = displayText.substring(0, 97) + "...";
           }
-          enhancedPrompt = `以下の内容の要点を視覚的に説明するイラスト: ${explanationText.substring(0, 500)}`;
+          enhancedPrompt = `以下の内容の要点を視覚的に説明するイラスト: ${textToUse.substring(0, 500)}`;
         }
-      } else if (explanationText.length <= 20) {
+      } else if (textToUse.length <= 20) {
         // 短いテキストの場合は教育的なコンテキストを追加
-        console.log(`[DEBUG] Short text detected (${explanationText.length} chars), adding educational context`);
-        displayText = explanationText;
-        enhancedPrompt = `「${explanationText}」についての教育的で分かりやすい図解。日常生活での応用例や基本概念を含む、明るく親しみやすいイラスト。`;
+        console.log(`[DEBUG-IMAGE] Short text detected (${textToUse.length} chars), adding educational context`);
+        displayText = textToUse;
+        enhancedPrompt = `「${textToUse}」についての教育的で分かりやすい図解。日常生活での応用例や基本概念を含む、明るく親しみやすいイラスト。`;
       } else {
         // For normal length text, use as is
-        enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${explanationText}`;
+        enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${textToUse}`;
       }
       
       // Use a simple message for generation notification
@@ -3309,7 +3328,7 @@ async function handleVisionExplanation(event, explanationText) {
           apiKey: process.env.OPENAI_API_KEY
         });
         
-        console.log(`[DEBUG] Using enhanced prompt: ${enhancedPrompt.substring(0, 100)}...`);
+        console.log(`[DEBUG-IMAGE] Using enhanced prompt: ${enhancedPrompt.substring(0, 100)}...`);
         
         const response = await openai.images.generate({
           model: "dall-e-3",
@@ -3322,7 +3341,7 @@ async function handleVisionExplanation(event, explanationText) {
         const imageUrl = response.data[0].url;
         
         // 生成された画像のURLを取得
-        console.log(`Generated image URL: ${imageUrl}`);
+        console.log(`[DEBUG-IMAGE] Generated image URL: ${imageUrl}`);
         
         // Create a concise response message
         let responseMessage = "";
@@ -3352,17 +3371,18 @@ async function handleVisionExplanation(event, explanationText) {
         
         // Add user to recent image generation tracking with timestamp to prevent ASD guide
         recentImageGenerationUsers.set(userId, Date.now());
-        console.log(`[DEBUG] Setting recentImageGenerationUsers timestamp for user ${userId}: ${Date.now()}`);
+        console.log(`[DEBUG-IMAGE] Setting recentImageGenerationUsers timestamp for user ${userId}: ${Date.now()}`);
         
-        // Clear the image generation flag after a delay (5 seconds should be enough)
+        // 正常終了時のクリーンアップ: タイムアウトとフラグの両方をクリア
+        clearTimeout(timeoutId);
         setTimeout(() => {
           imageGenerationInProgress.delete(userId);
-          console.log(`Cleared image generation flag for user ${userId} after successful generation`);
-          console.log(`[DEBUG] Image generation protection status - imageGenerationInProgress: ${imageGenerationInProgress.has(userId) ? 'YES' : 'NO'}, recentImageGenerationUsers timestamp: ${recentImageGenerationUsers.get(userId)}`);
+          console.log(`[DEBUG-IMAGE] Cleared image generation flag for user ${userId} after successful generation`);
+          console.log(`[DEBUG-IMAGE] Image generation protection status - imageGenerationInProgress: ${imageGenerationInProgress.has(userId) ? 'YES' : 'NO'}, recentImageGenerationUsers timestamp: ${recentImageGenerationUsers.get(userId)}`);
         }, 5000);
         
       } catch (error) {
-        console.error('DALL-E画像生成エラー:', error);
+        console.error('[DEBUG-IMAGE] DALL-E画像生成エラー:', error);
         
         // エラーの種類に応じたメッセージを提供
         let errorMessage = '申し訳ありません。画像の生成中にエラーが発生しました。';
@@ -3371,6 +3391,8 @@ async function handleVisionExplanation(event, explanationText) {
         if (error.code === 'content_policy_violation' || 
             (error.message && error.message.includes('safety system'))) {
           errorMessage = '申し訳ありません。このテキストから安全な画像を生成できませんでした。「日常会話のポイント」「コミュニケーションの基本」などの具体的なテーマで試してみてください。';
+        } else if (error.code === 'rate_limit_exceeded') {
+          errorMessage = '申し訳ありません。現在リクエストが多く、画像を生成できませんでした。しばらく経ってからお試しください。';
         } else {
           errorMessage += '別の表現で試してみてください。';
         }
@@ -3380,9 +3402,10 @@ async function handleVisionExplanation(event, explanationText) {
           text: errorMessage
         });
         
-        // Also clear the flag in case of error
+        // エラー発生時のクリーンアップ: タイムアウトとフラグの両方をクリア
+        clearTimeout(timeoutId);
         imageGenerationInProgress.delete(userId);
-        console.log(`Cleared image generation flag for user ${userId} due to error`);
+        console.log(`[DEBUG-IMAGE] Cleared image generation flag for user ${userId} due to error`);
       }
       
       return;
@@ -3472,17 +3495,30 @@ async function handleVisionExplanation(event, explanationText) {
     await storeInteraction(userId, 'assistant', `[画像分析] ${analysis}`);
     
   } catch (error) {
-    console.error('Error in handleVisionExplanation:', error);
+    console.error('[DEBUG-IMAGE] Error in handleVisionExplanation:', error);
     
-    // エラーメッセージを送信
+    // グローバルエラーハンドリング
     try {
       await client.pushMessage(userId, {
         type: 'text',
-        text: '申し訳ありません。画像の分析中にエラーが発生しました: ' + error.message
+        text: '申し訳ありません。画像処理中に問題が発生しました。もう一度お試しいただくか、別の方法でお問い合わせください。'
       });
-    } catch (replyError) {
-      console.error('Error sending error reply:', replyError);
+    } catch (msgError) {
+      console.error('[DEBUG-IMAGE] Failed to send error message:', msgError);
     }
+    
+    // 必ずタイムアウトとフラグをクリア
+    clearTimeout(timeoutId);
+    imageGenerationInProgress.delete(userId);
+    console.log(`[DEBUG-IMAGE] Cleared image generation flag for user ${userId} after catching error`);
+  } finally {
+    // 念のためfinallyブロックでもフラグをチェック（10分以上かかる処理はないはず）
+    setTimeout(() => {
+      if (imageGenerationInProgress.has(userId)) {
+        imageGenerationInProgress.delete(userId);
+        console.log(`[DEBUG-IMAGE] Finally block cleared image generation flag for user ${userId}`);
+      }
+    }, 1000);
   }
 }
 
@@ -3880,6 +3916,18 @@ async function detectAdviceRequestWithLLM(userMessage, history) {
  * Check if it's an appropriate time in the conversation to show service recommendations
  */
 async function shouldShowServicesToday(userId, history, userMessage) {
+  // 画像生成処理中かどうかをチェック
+  if (imageGenerationInProgress.has(userId)) {
+    console.log(`[DEBUG-SERVICE] Image generation in progress for user ${userId} - skipping service recommendations`);
+    return false;
+  }
+  
+  // 保留中の画像生成リクエストがあるかをチェック
+  if (pendingImageExplanations.has(userId)) {
+    console.log(`[DEBUG-SERVICE] Pending image request exists for user ${userId} - skipping service recommendations`);
+    return false;
+}
+
   // If user explicitly asks for advice/services, always show
   const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
   if (isAdviceRequest) {
@@ -4205,10 +4253,14 @@ async function restoreSystemState() {
 // 会話履歴から保留中の画像生成リクエストを復元する関数
 async function restorePendingImageRequests() {
   try {
-    console.log('Attempting to restore pending image generation requests...');
+    console.log('[DEBUG-RESTORE] Attempting to restore pending image generation requests...');
+    
+    // 10分以内に実行された画像生成処理をチェックするためのタイムスタンプ
+    const recentCompletedTimeLimit = Date.now() - 10 * 60 * 1000; // 10分前
     
     if (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID) {
-      console.log('Airtable credentials not found. Cannot restore pending image requests.');
+      console.log('[DEBUG-RESTORE] Airtable credentials not found. Checking local fallback data...');
+      // ローカルデータやセッションストレージがあれば、ここでチェック
       return;
     }
     
@@ -4226,18 +4278,87 @@ async function restorePendingImageRequests() {
       })
       .firstPage();
     
-    console.log(`Found ${pendingProposals.length} recent image generation proposals`);
+    console.log(`[DEBUG-RESTORE] Found ${pendingProposals.length} recent image generation proposals`);
+    
+    // 画像生成完了ログを検索
+    const completedGenerations = new Map();
+    try {
+      const completionLogs = await airtableBase('ConversationHistory')
+        .select({
+          filterByFormula: `AND(SEARCH("[画像生成完了]", {Content}) > 0, {Timestamp} > "${cutoffTimeStr}")`,
+          sort: [{ field: 'Timestamp', direction: 'desc' }]
+        })
+        .firstPage();
+      
+      // 完了したユーザーIDとタイムスタンプをマップに記録
+      for (const log of completionLogs) {
+        const userId = log.get('UserID');
+        const timestamp = new Date(log.get('Timestamp')).getTime();
+        completedGenerations.set(userId, timestamp);
+      }
+      
+      console.log(`[DEBUG-RESTORE] Found ${completionLogs.length} completed image generations in last 30 minutes`);
+    } catch (completionError) {
+      console.error('[DEBUG-RESTORE] Error fetching completion logs:', completionError);
+    }
+    
+    // キャンセルログも検索
+    const cancelledGenerations = new Map();
+    try {
+      const cancellationLogs = await airtableBase('ConversationHistory')
+        .select({
+          filterByFormula: `AND(SEARCH("[画像生成キャンセル]", {Content}) > 0, {Timestamp} > "${cutoffTimeStr}")`,
+          sort: [{ field: 'Timestamp', direction: 'desc' }]
+        })
+        .firstPage();
+      
+      // キャンセルしたユーザーIDとタイムスタンプをマップに記録
+      for (const log of cancellationLogs) {
+        const userId = log.get('UserID');
+        const timestamp = new Date(log.get('Timestamp')).getTime();
+        cancelledGenerations.set(userId, timestamp);
+      }
+      
+      console.log(`[DEBUG-RESTORE] Found ${cancellationLogs.length} cancelled image generations in last 30 minutes`);
+    } catch (cancellationError) {
+      console.error('[DEBUG-RESTORE] Error fetching cancellation logs:', cancellationError);
+    }
     
     // 各提案についてユーザーの応答をチェック
+    let restoredCount = 0;
     for (const proposal of pendingProposals) {
       const userId = proposal.get('UserID');
       const proposalTime = new Date(proposal.get('Timestamp')).getTime();
       const now = Date.now();
       
+      // proposalTimeがNaNでないことを確認（タイムスタンプ変換エラー対策）
+      if (isNaN(proposalTime)) {
+        console.log(`[DEBUG-RESTORE] Skipping proposal with invalid timestamp for user ${userId}: ${proposal.get('Timestamp')}`);
+        continue;
+      }
+      
       // タイムアウトチェック
       if (now - proposalTime > PENDING_IMAGE_TIMEOUT) {
-        console.log(`Skipping expired proposal for user ${userId} (${Math.round((now - proposalTime)/1000)}s old)`);
+        console.log(`[DEBUG-RESTORE] Skipping expired proposal for user ${userId} (${Math.round((now - proposalTime)/1000)}s old)`);
         continue;
+      }
+      
+      // すでに完了しているか確認
+      if (completedGenerations.has(userId)) {
+        const completionTime = completedGenerations.get(userId);
+        if (completionTime > proposalTime) {
+          console.log(`[DEBUG-RESTORE] Skipping proposal for user ${userId} - generation already completed at ${new Date(completionTime).toISOString()}`);
+          continue;
+        }
+      }
+      
+      // キャンセル済みかどうか確認
+      if (cancelledGenerations.has(userId)) {
+        const cancellationTime = cancelledGenerations.get(userId);
+        if (cancellationTime > proposalTime) {
+          console.log(`[DEBUG-RESTORE] Skipping proposal for user ${userId} - generation was cancelled at ${new Date(cancellationTime).toISOString()}`);
+          continue;
+        }
       }
       
       // 提案後のユーザー応答を確認
@@ -4265,11 +4386,19 @@ async function restorePendingImageRequests() {
         
         if (lastMessages.length > 0) {
           const content = lastMessages[0].get('Content');
+          // 提案内容から復元ソース情報を抽出
+          const proposalContent = proposal.get('Content');
+          const sourceMatch = proposalContent.match(/ソース: (\w+)/);
+          const source = sourceMatch ? sourceMatch[1] : 'airtable_restore';
+          
           pendingImageExplanations.set(userId, {
             content: content,
-            timestamp: proposalTime
+            timestamp: proposalTime,
+            source: source,
+            restored: true
           });
-          console.log(`[DEBUG-RESTORE] Restored pending image explanation for user ${userId} with content: "${content.substring(0, 30)}..." at timestamp ${new Date(proposalTime).toISOString()}`);
+          console.log(`[DEBUG-RESTORE] Restored pending image explanation for user ${userId} with content: "${content.substring(0, 30)}..." at timestamp ${new Date(proposalTime).toISOString()}, source: ${source}`);
+          restoredCount++;
         } else {
           console.log(`[DEBUG-RESTORE] Could not find assistant message before proposal for user ${userId}`);
         }
@@ -4283,21 +4412,116 @@ async function restorePendingImageRequests() {
     
     // 復元された内容の詳細なデバッグ情報
     if (pendingImageExplanations.size > 0) {
-      console.log('=== Restored pending image requests details ===');
+      console.log('[DEBUG-RESTORE] === Restored pending image requests details ===');
       for (const [uid, data] of pendingImageExplanations.entries()) {
-        console.log(`User ${uid}: timestamp=${new Date(data.timestamp).toISOString()}, age=${Math.round((Date.now() - data.timestamp)/1000)}s, contentLen=${data.content.length}`);
-        console.log(`Content preview: "${data.content.substring(0, 30)}..."`);
+        const contentPreview = typeof data.content === 'string' 
+          ? data.content.substring(0, 30) 
+          : (data.content ? data.content.substring(0, 30) : 'undefined');
+          
+        console.log(`[DEBUG-RESTORE] User ${uid}: timestamp=${data.timestamp ? new Date(data.timestamp).toISOString() : 'none'}, age=${data.timestamp ? Math.round((Date.now() - data.timestamp)/1000) : 'unknown'}s, source=${data.source || 'unknown'}, restored=${data.restored || false}`);
+        console.log(`[DEBUG-RESTORE] Content preview: "${contentPreview}..."`);
       }
-      console.log('============================================');
+      console.log('[DEBUG-RESTORE] ============================================');
     } else {
-      console.log('No valid pending image requests were found to restore');
+      console.log('[DEBUG-RESTORE] No valid pending image requests were found to restore');
     }
     
-    console.log(`Successfully restored ${pendingImageExplanations.size} pending image requests`);
+    console.log(`[DEBUG-RESTORE] Successfully restored ${restoredCount} pending image requests`);
   } catch (error) {
-    console.error('Error restoring pending image requests:', error);
+    console.error('[DEBUG-RESTORE] Error restoring pending image requests:', error);
+    console.error('[DEBUG-RESTORE] Error details:', error.stack);
   }
 }
 
 // アプリケーション起動時に状態を復元
 restoreSystemState();
+
+/**
+ * LLMを使用して、ユーザーがAIの応答を理解しているかどうかを検出する
+ * @param {string} userMessage ユーザーのメッセージ
+ * @param {string} previousAIResponse 直前のAIの応答
+ * @returns {Promise<{isConfused: boolean, confidence: number, error: string|null}>}
+ */
+async function detectConfusionWithLLM(userMessage, previousAIResponse) {
+  // 結果の初期化
+  const result = {
+    isConfused: false,
+    confidence: 0,
+    error: null
+  };
+  
+  // 入力チェック
+  if (!userMessage || !previousAIResponse) {
+    result.error = "Missing required input";
+    return result;
+  }
+  
+  try {
+    console.log(`[DEBUG-CONFUSION] Analyzing if user understands AI response: "${userMessage.substring(0, 30)}..."`);
+    
+    // OpenAI APIを使用して混乱度を判定
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    
+    const systemPrompt = `あなたはユーザーとAIの会話を分析し、ユーザーがAIの発言を理解できているかどうかを判断する専門家です。
+
+あなたの任務は、「ユーザーがAIの直前の回答を理解していないかどうか」を判断することです。
+ユーザーの発言から、AIの回答に対する混乱や理解困難が示されていると判断できる場合は、その確度（0〜100%）を評価してください。
+
+確度が95%以上の場合のみ「CONFUSED:確度」と回答し、それ以外は「NOT_CONFUSED」と回答してください。
+
+判断の際は、以下のポイントに注意してください：
+1. ユーザーの発言がAIの回答内容に関連しているか
+2. ユーザーが「わからない」「理解できない」などの表現を使っているか
+3. ユーザーが説明の簡略化や別の言い方を求めているか
+4. ユーザーの質問がAIの回答内容を正しく理解していないことを示しているか
+
+「億劫」などの表現は通常、混乱ではなく単に気が進まないという意味なので混乱とは判断しないでください。
+純粋に会話を継続する意図の発言は混乱とみなさないでください。
+
+回答は「CONFUSED:確度」または「NOT_CONFUSED」の形式のみで返してください。`;
+
+    // メッセージ配列を作成
+    const messages = [
+      { role: "system", content: systemPrompt },
+      { role: "system", content: `直前のAIの回答: "${previousAIResponse.substring(0, 500)}${previousAIResponse.length > 500 ? '...' : ''}"` },
+      { role: "user", content: userMessage }
+    ];
+    
+    // タイムアウト制御付きの呼び出し
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("LLM confusion detection timed out after 5 seconds")), 5000);
+    });
+    
+    const responsePromise = openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: messages,
+      max_tokens: 10,
+      temperature: 0.0
+    });
+    
+    const response = await Promise.race([responsePromise, timeoutPromise]);
+    
+    const content = response.choices[0].message.content.trim();
+    console.log(`[DEBUG-CONFUSION] LLM understanding analysis result: ${content}`);
+    
+    if (content.startsWith('CONFUSED:')) {
+      const confidenceParts = content.split(':');
+      if (confidenceParts.length > 1) {
+        const confidence = parseFloat(confidenceParts[1]);
+        result.confidence = confidence;
+        if (confidence >= 95) {
+          console.log(`[DEBUG-CONFUSION] LLM determined user doesn't understand AI response with high confidence (${confidence}%)`);
+          result.isConfused = true;
+        } else {
+          console.log(`[DEBUG-CONFUSION] LLM detected some confusion but confidence too low (${confidence}%)`);
+        }
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    console.error(`[DEBUG-CONFUSION] Error in LLM understanding analysis: ${error.message}`);
+    result.error = error.message;
+    return result;
+  }
+}

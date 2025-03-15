@@ -1,0 +1,31 @@
+    let messages = [];
+    
+    // Use different prompt construction based on model
+    if (model === 'gpt-4o') {
+      // GPT-4では、システムプロンプトと履歴を別々に扱う（記憶の活用）
+      messages = [
+        { role: 'system', content: systemPrompt },
+        ...history.map(msg => ({
+          role: msg.role === 'user' ? 'user' : 'assistant',
+          content: msg.content
+        }))
+      ];
+    } else {
+      // Claude-3用の形式（システムプロンプトをユーザーメッセージの接頭辞として使用）
+      // 各メッセージに明示的な役割表示を追加して会話の流れをより明確にする（記憶の活用）
+      const formattedHistory = history.map(msg => {
+        const rolePrefix = msg.role === 'user' ? 'Human: ' : 'Assistant: ';
+        return { role: 'user', content: `${rolePrefix}${msg.content}` };
+      });
+      
+      messages = [
+        { 
+          role: 'user', 
+          content: `${systemPrompt}\n\nHuman: ${userMessage}` 
+        }
+      ];
+      
+      // Claudeはすべてのコンテキストを単一のメッセージで受け取る必要がある
+      if (formattedHistory.length > 0) {
+        // 最初のメッセージにシステムプロンプトと履歴を追加
+        messages[0].content = `${systemPrompt}\n\n${formattedHistory.map(m => m.content).join('\n\n')}\n\nHuman: ${userMessage}`;
