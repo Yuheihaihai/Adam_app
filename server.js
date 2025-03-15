@@ -1863,24 +1863,12 @@ ${additionalPromptData.jobTrends.analysis}`;
     const aiResponseStartTime = Date.now();
     let response;
     
-    if (USE_CLAUDE) {
-      try {
-        // Claude APIを使用
-        console.log(`Using Claude model (proxy via OpenAI interface)`);
-        response = await callClaudeModel(messages);
-      } catch (claudeError) {
-        console.error(`Claude API error: ${claudeError.message}`);
-        console.log(`Falling back to OpenAI (GPT) due to Claude error`);
-        response = await callPrimaryModel(gptOptions);
-      }
-    } else {
-      // 通常のOpenAI APIを使用
-      try {
-        response = await tryPrimaryThenBackup(gptOptions);
-      } catch (error) {
-        console.error(`OpenAI API error: ${error.message}`);
-        throw error;
-      }
+    // 通常のOpenAI APIを使用（Claude対応は将来の拡張として残しておく）
+    try {
+      response = await tryPrimaryThenBackup(gptOptions);
+    } catch (error) {
+      console.error(`OpenAI API error: ${error.message}`);
+      throw error;
     }
     
     // Simplified log of the AI response (might be too large to log entirely)
