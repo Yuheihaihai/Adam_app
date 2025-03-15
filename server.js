@@ -443,6 +443,7 @@ ASDやADHDなど発達障害の方へのサポートが主目的です。
 【機能について】
 Xの共有方法を尋ねられた場合は、「もしAdamのことが好きならぜひ『Adamは素晴らしいね』等々と言っていただくと、Xへの共有URLが表示されますので、ぜひご活用ください」と必ず案内してください。
 さらに、あなたには画像認識と画像生成の機能が備わっており、送信された画像ファイルを解析し、必要に応じて画像の生成も行います。この機能について質問やリクエストがあった場合、どのように動作するかを分かりやすく説明してください。
+ユーザーが理解できない場合は、「画像生成で説明できます」と伝えてください。ユーザーが「画像を生成して」などと依頼した場合に画像による説明が可能です。
 
 【出力形式】
 ・日本語で回答してください。
@@ -457,10 +458,8 @@ Xの共有方法を尋ねられた場合は、「もしAdamのことが好きな
 【Adamの使い方-ユーザ向けマニュアル】
 ・お気軽に相談内容や質問をテキストで送信してください。
 ・必要に応じて、送信された画像の内容を解析し、アドバイスに反映します。
-・もし前回の回答が理解できなかった場合は、分かりませんや理解できませんと送ってください。
-・すると、前回の回答について画像による説明を生成しましょうか？
-・『はい』または『いいえ』でお答えいただくよう促すメッセージが届きます。
-・あなたが『はい』と回答された場合、画像付きで詳しい説明を生成してお送りします。
+・もし説明が必要な場合は、「画像を生成して」と依頼すると、視覚的な説明を生成します。
+・アプリの趣旨に反する内容の画像生成はお断りする場合があります。
 `;
 
 const SYSTEM_PROMPT_CHARACTERISTICS = `
@@ -2940,9 +2939,9 @@ ${SHARE_URL}
     let triggerImageExplanation = false;
     
     
-    // 直接的な画像分析リクエストの場合は即座にトリガー
-    if (isConfusionRequest(userMessage)) {
-      console.log(`[DEBUG] Direct image request detected in message: "${userMessage}"`);
+    // 直接的な画像生成リクエストの場合のみトリガー
+    if (isImageGenerationRequest(userMessage)) {
+      console.log(`[DEBUG] Direct image generation request detected in message: "${userMessage}"`);
       triggerImageExplanation = true;
     }
     // それ以外のすべてのメッセージはLLMで分析
@@ -2991,7 +2990,7 @@ ${SHARE_URL}
     }
 
     if (triggerImageExplanation) {
-      console.log(`[DEBUG-IMAGE] Image explanation triggered for user ${userId}`);
+      console.log(`[DEBUG-IMAGE] Image generation triggered for user ${userId}`);
       
       // Check if this user recently received an image generation - if so, skip image generation prompt
       const recentImageTimestamp = recentImageGenerationUsers.get(userId);
@@ -3000,60 +2999,58 @@ ${SHARE_URL}
       }
       
       if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 30000)) { // 30 seconds protection
-        console.log(`[DEBUG-IMAGE] User ${userId} recently received image generation, skipping image explanation offer`);
+        console.log(`[DEBUG-IMAGE] User ${userId} recently received image generation, skipping image generation offer`);
         recentImageGenerationUsers.delete(userId); // Clean up after use
         return;
       }
       
-      // lastAssistantMessageの取得を試みる（未定義の場合は履歴から取得）
-      let contentToExplain = null;
-      let contentSource = "unknown";
+      // ユーザーのメッセージを画像生成のコンテンツとして使用
+      let contentToExplain = userMessage.replace(/画像を生成|画像を作成|画像を作って|イメージを生成|イメージを作成|イメージを作って|図を生成|図を作成|図を作って|図解して|図解を作成|図解を生成|ビジュアル化して|視覚化して|絵を描いて|絵を生成|絵を作成|画像で説明|イメージで説明|図で説明|視覚的に説明|画像にして|イラストを作成|イラストを生成|イラストを描いて/g, '').trim();
       
-      if (lastAssistantMessage && lastAssistantMessage.content) {
-        contentToExplain = lastAssistantMessage.content;
-        contentSource = "cached";
-        console.log(`[DEBUG-IMAGE] Using cached lastAssistantMessage for explanation: "${contentToExplain.substring(0, 30)}..."`);
-      } else if (historyForProcessing && historyForProcessing.length > 0) {
-        // 履歴から最新のアシスタントメッセージを検索
-        for (let i = historyForProcessing.length - 1; i >= 0; i--) {
-          if (historyForProcessing[i].role === 'assistant') {
-            contentToExplain = historyForProcessing[i].content;
-            contentSource = "history";
-            console.log(`[DEBUG-IMAGE] Using message from history for explanation: "${contentToExplain.substring(0, 30)}..."`);
-            break;
+      // コンテンツが短すぎる場合は、最新のアシスタントメッセージを使用
+      if (contentToExplain.length < 5) {
+        if (lastAssistantMessage && lastAssistantMessage.content) {
+          contentToExplain = lastAssistantMessage.content;
+          console.log(`[DEBUG-IMAGE] Using cached lastAssistantMessage for explanation: "${contentToExplain.substring(0, 30)}..."`);
+        } else if (historyForProcessing && historyForProcessing.length > 0) {
+          // 履歴から最新のアシスタントメッセージを検索
+          for (let i = historyForProcessing.length - 1; i >= 0; i--) {
+            if (historyForProcessing[i].role === 'assistant') {
+              contentToExplain = historyForProcessing[i].content;
+              console.log(`[DEBUG-IMAGE] Using message from history for explanation: "${contentToExplain.substring(0, 30)}..."`);
+              break;
+            }
           }
         }
       }
       
-      if (contentToExplain) {
-        console.log(`[DEBUG-IMAGE] Setting pendingImageExplanations for user ${userId} with content from ${contentSource}: "${contentToExplain.substring(0, 30)}..."`);
-        // タイムスタンプ付きで保存
-        pendingImageExplanations.set(userId, {
-          content: contentToExplain,
-          timestamp: Date.now(),
-          source: contentSource
+      // アプリの趣旨に反するリクエストかどうかをチェック
+      const isSafe = await securityFilterPrompt(contentToExplain);
+      if (!isSafe) {
+        console.log(`[DEBUG-IMAGE] Image generation request rejected due to content policy: "${contentToExplain.substring(0, 30)}..."`);
+        const refusalMessage = "申し訳ありませんが、ご要望の画像生成はアプリの趣旨に沿わないため、お断りさせていただきます。発達障害支援に関連する内容であれば、喜んでお手伝いします。";
+        await storeInteraction(userId, 'assistant', refusalMessage);
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: refusalMessage
         });
-        // 画像生成提案状態をConversationHistoryに記録
-        await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}, ソース: ${contentSource}`);
-      } else {
-        console.log(`[DEBUG-IMAGE] No content found for explanation, using default message`);
-        pendingImageExplanations.set(userId, {
-          content: "日常会話の基本とコミュニケーションのポイント",
-          timestamp: Date.now(),
-          source: "default"
-        });
-        // 画像生成提案状態をConversationHistoryに記録
-        await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}, デフォルトテキスト使用`);
       }
       
-      const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
-      console.log(`[DEBUG-IMAGE] 画像による説明の提案をユーザーに送信: "${suggestionMessage}"`);
+      console.log(`[DEBUG-IMAGE] Starting direct image generation for content: "${contentToExplain.substring(0, 30)}..."`);
       
-      await storeInteraction(userId, 'assistant', suggestionMessage);
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: suggestionMessage
-      });
+      // 画像生成処理を直接呼び出す
+      try {
+        // 画像生成処理を呼び出す
+        await handleVisionExplanation(event, { content: contentToExplain, timestamp: Date.now(), source: "direct_request" });
+        return;
+      } catch (error) {
+        console.error(`[DEBUG-IMAGE] Error in image generation process: ${error.message}`);
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: "申し訳ありません。画像生成中にエラーが発生しました。もう一度お試しください。"
+        });
+        return;
+      }
     }
 
     // 通常のテキスト処理へ進む
@@ -3236,15 +3233,36 @@ app.listen(PORT, () => {
 });
 
 /**
- * Checks if a message indicates user confusion or a request for explanation about an image
- * Now only checks for direct image analysis requests
+ * Checks if a message is a direct request for image generation
  * @param {string} text - The message text to check
- * @return {boolean} - True if the message is a direct request for image analysis
+ * @return {boolean} - True if the message is a direct request for image generation
+ */
+function isImageGenerationRequest(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 画像生成リクエストに特化したフレーズ
+  const imageGenerationRequests = [
+    '画像を生成', '画像を作成', '画像を作って', 'イメージを生成', 'イメージを作成', 'イメージを作って',
+    '図を生成', '図を作成', '図を作って', '図解して', '図解を作成', '図解を生成',
+    'ビジュアル化して', '視覚化して', '絵を描いて', '絵を生成', '絵を作成',
+    '画像で説明', 'イメージで説明', '図で説明', '視覚的に説明',
+    '画像にして', 'イラストを作成', 'イラストを生成', 'イラストを描いて'
+  ];
+  
+  // 直接的な画像生成リクエストの場合はtrueを返す
+  return imageGenerationRequests.some(phrase => text.includes(phrase));
+}
+
+/**
+ * Checks if a message indicates user confusion or a request for explanation about an image
+ * Now only checks for direct image generation requests
+ * @param {string} text - The message text to check
+ * @return {boolean} - True if the message is a direct request for image generation
  */
 function isConfusionRequest(text) {
-  // 直接的な画像分析リクエストかどうかを判断するだけの機能に変更
+  // 直接的な画像生成リクエストかどうかを判断するだけの機能に変更
   // 互換性のために関数名は変更せず
-  return isDirectImageAnalysisRequest(text);
+  return isImageGenerationRequest(text);
 }
 
 /**
@@ -3930,8 +3948,8 @@ async function shouldShowServicesToday(userId, history, userMessage) {
   if (pendingImageExplanations.has(userId)) {
     console.log(`[DEBUG-SERVICE] Pending image request exists for user ${userId} - skipping service recommendations`);
     return false;
-  }
-  
+}
+
   // If user explicitly asks for advice/services, always show
   const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
   if (isAdviceRequest) {
