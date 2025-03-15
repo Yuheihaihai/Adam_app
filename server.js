@@ -1888,6 +1888,13 @@ ${additionalPromptData.jobTrends.analysis}`;
       }
     }
     
+    // 応答が空の場合のエラーログ
+    if (!aiResponse || aiResponse.trim() === '') {
+      console.error(`⚠⚠⚠ 重大な警告: AIから空の応答を受け取りました ⚠⚠⚠`);
+      console.error(`→ レスポンス構造: ${JSON.stringify(response, null, 2).substring(0, 300)}...`);
+      // エラーをスローせず、空の応答をそのまま返す（上位関数でフォールバックメッセージが適用される）
+    }
+    
     // 【新規】AIレスポンスのデバッグログ
     console.log(`\n===== AIレスポンス詳細 =====`);
     console.log(`→ レスポンス取得時間: ${aiResponseTime}ms`);
@@ -2797,6 +2804,13 @@ ${SHARE_URL}
     
     // サービス推奨がある場合、それを応答に追加
     let finalResponse = result.response;
+    
+    // 応答が空の場合のフォールバック（LINE APIの400エラー防止）
+    if (!finalResponse || finalResponse.trim() === '') {
+      console.log(`⚠️ 警告: AIから空の応答を受け取りました。フォールバックメッセージを使用します。`);
+      finalResponse = "申し訳ありません、処理中に問題が発生しました。しばらく経ってからもう一度お試しください。";
+    }
+    
     const serviceRecommendations = result.recommendations;
     
     if (serviceRecommendations && serviceRecommendations.length > 0) {
@@ -2945,7 +2959,38 @@ ${SHARE_URL}
       }
     }
     
-    return client.replyMessage(event.replyToken, { type: 'text', text: finalResponse });
+    // LINEのリプライ処理
+    console.log(`Replying to ${event.replyToken} with message: ${finalResponse.substring(0, 50)}...`);
+    
+    // メッセージが空でないことを確認
+    if (!finalResponse || finalResponse.trim() === '') {
+      finalResponse = "申し訳ありません、エラーが発生しました。後でもう一度お試しください。";
+      console.error(`⚠ LINE送信直前に空のメッセージを検出。デフォルトメッセージに置き換えました。`);
+    }
+    
+    try {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: finalResponse
+      });
+    } catch (replyError) {
+      console.error(`LINE応答送信エラー: ${replyError.message}`);
+      console.error(`応答の長さ: ${finalResponse.length}文字`);
+      
+      // メッセージが長すぎる場合は分割して送信を試みる
+      if (finalResponse.length > 5000) {
+        try {
+          const shortenedResponse = finalResponse.substring(0, 4000) + "\n\n(メッセージが長すぎるため省略されました)";
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: shortenedResponse
+          });
+          console.log(`長いメッセージを短縮して送信しました。`);
+        } catch (fallbackError) {
+          console.error(`短縮メッセージの送信にも失敗: ${fallbackError.message}`);
+        }
+      }
+    }
   } catch (error) {
     console.error('Error handling text message:', error);
     return Promise.resolve(null);
