@@ -1397,7 +1397,7 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     
     // Determine which model to use
     const useGpt4 = mode === 'characteristics' || mode === 'analysis';
-    const model = useGpt4 ? 'gpt-4o' : 'gpt-4o';
+    const model = useGpt4 ? 'gpt-4o-latest' : 'gpt-4o';
     console.log(`Using model: ${model}`);
     
     // ─────────────────────────────────────────────────────────────────────
