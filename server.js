@@ -697,6 +697,16 @@ function determineModeAndLimit(userMessage) {
     return { mode: 'career', limit: 200 };
   }
 
+  // 記憶テスト用の特別なモード判定
+  const memoryTestPatterns = [
+    '覚えてる', '覚えていますか', '前の', '過去の', 
+    '前回', '以前', '記憶してる', '思い出せる'
+  ];
+  if (memoryTestPatterns.some(pattern => userMessage.includes(pattern))) {
+    console.log('Setting memory test mode');
+    return { mode: 'memoryTest', limit: 50 }; // より多くの履歴を取得
+  }
+
   // Only check current message for characteristics keywords, not the history
   const lcMsg = userMessage.toLowerCase();
   if (
@@ -745,6 +755,17 @@ function getSystemPromptForMode(mode) {
       return SYSTEM_PROMPT_CAREER;
     case 'memoryRecall':
       return SYSTEM_PROMPT_MEMORY_RECALL;
+    case 'memoryTest':
+      return `あなたは会話履歴を最大限に活用する能力を持つAIアシスタントです。
+
+以下の指示に従ってください：
+1. ユーザーが「前のメッセージを覚えている？」「記憶力はどう？」などの質問をした場合、必ず直近の会話内容を具体的に参照してください
+2. 「覚えていません」「履歴がありません」などのネガティブな表現は絶対に使わないでください
+3. 代わりに、実際の会話履歴から具体的な内容を引用して、記憶していることを示してください
+4. 例えば「前回は〇〇についてお話しましたね」「以前△△とおっしゃっていましたが」などの表現を使ってください
+5. 会話履歴の内容について簡潔に要約し、ユーザーとの継続的な対話を示してください
+
+重要: 自分の記憶力をアピールするのではなく、実際の会話内容を参照することで信頼関係を築いてください。`;
     case 'humanRelationship':
       return SYSTEM_PROMPT_HUMAN_RELATIONSHIP;
     case 'consultant':
@@ -756,8 +777,11 @@ function getSystemPromptForMode(mode) {
 
 async function storeInteraction(userId, role, content) {
   try {
+    // メッセージIDの生成（追跡用）
+    const messageId = Date.now() + Math.floor(Math.random() * 1000);
+    
     console.log(
-      `Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`
+      `Storing interaction => msgId: ${messageId}, userId: ${userId}, role: ${role}, content: ${content}`
     );
     await base(INTERACTIONS_TABLE).create([
       {
@@ -766,12 +790,13 @@ async function storeInteraction(userId, role, content) {
           Role: role,
           Content: content,
           Timestamp: new Date().toISOString(),
+          MessageID: messageId.toString(), // メッセージIDをデータベースに保存
         },
       },
     ]);
     
     // 会話履歴の保存が成功したことをログに記録
-    console.log(`会話履歴の保存成功 => ユーザー: ${userId}, タイプ: ${role}, 長さ: ${content.length}文字`);
+    console.log(`会話履歴の保存成功 => メッセージID: ${messageId}, ユーザー: ${userId}, タイプ: ${role}, 長さ: ${content.length}文字`);
     return true;
   } catch (err) {
     console.error('Error storing interaction:', err);
@@ -786,6 +811,9 @@ async function storeInteraction(userId, role, content) {
 async function fetchUserHistory(userId, limit) {
   try {
     console.log(`Fetching history for user ${userId}, limit: ${limit}`);
+    
+    // Airtable接続の検証ログ
+    console.log(`[接続検証] Airtable認証情報 => API_KEY存在: ${!!process.env.AIRTABLE_API_KEY}, BASE_ID存在: ${!!process.env.AIRTABLE_BASE_ID}`);
     
     // 履歴分析用のメタデータオブジェクトを初期化
     const historyMetadata = {
@@ -817,6 +845,16 @@ async function fetchUserHistory(userId, limit) {
               role: r.get('Role') === 'assistant' ? 'assistant' : 'user',
               content: r.get('Content') || '',
             }));
+            
+            // より詳細な履歴ログ（データ取得の成功確認用）
+            console.log(`[履歴取得詳細] ConversationHistoryテーブルから ${history.length} 件のメッセージを取得:`);
+            const sampleSize = Math.min(3, history.length);
+            if (sampleSize > 0) {
+              console.log(`サンプル（最新 ${sampleSize} 件）:`);
+              for (let i = history.length - sampleSize; i < history.length; i++) {
+                console.log(`  [${i+1}/${history.length}] ${history[i].role}: ${history[i].content.substring(0, 40)}${history[i].content.length > 40 ? '...' : ''}`);
+              }
+            }
             
             // 履歴の内容を分析
             historyMetadata.totalRecords += conversationRecords.length;
@@ -1402,6 +1440,22 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     console.log(`→ 履歴メッセージ数: ${history.length}件`);
     if (history.length > 0) {
       console.log(`→ 最新の履歴メッセージ: ${history[history.length-1].role}: ${history[history.length-1].content.substring(0, 50)}${history[history.length-1].content.length > 50 ? '...' : ''}`);
+      
+      // 履歴のサンプルを表示（最大3件）
+      console.log(`→ 履歴サンプル（最大3件）:`);
+      const startIdx = Math.max(0, history.length - 3);
+      for (let i = startIdx; i < history.length; i++) {
+        console.log(`   [${i - startIdx + 1}/${history.length - startIdx}] ${history[i].role}: ${history[i].content.substring(0, 30)}${history[i].content.length > 30 ? '...' : ''}`);
+      }
+      
+      // モードがmemoryTestの場合は履歴をより詳細に表示
+      if (mode === 'memoryTest') {
+        console.log(`→ [記憶テストモード] 履歴詳細表示（最大10件）:`);
+        const detailStartIdx = Math.max(0, history.length - 10);
+        for (let i = detailStartIdx; i < history.length; i++) {
+          console.log(`   [${i - detailStartIdx + 1}/${history.length - detailStartIdx}] ${history[i].role}: ${history[i].content.substring(0, 100)}${history[i].content.length > 100 ? '...' : ''}`);
+        }
+      }
     } else {
       console.log(`→ 警告: 履歴が空です。fetchUserHistoryでの取得に問題がある可能性があります。`);
     }
