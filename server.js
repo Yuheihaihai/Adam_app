@@ -877,11 +877,19 @@ async function fetchUserHistory(userId, limit) {
           .base(process.env.AIRTABLE_BASE_ID);
           
         try {
+          console.log(`ConversationHistory テーブルからユーザー ${userId} の履歴を取得中...`);
+          
+          // すべてのフィールドを確実に取得するためのカラム指定
+          const columns = ['UserID', 'Role', 'Content', 'Timestamp', 'Mode', 'MessageType'];
+          
+          // filterByFormulaとsortを設定
           const conversationRecords = await airtableBase('ConversationHistory')
             .select({
               filterByFormula: `{UserID} = "${userId}"`,
               sort: [{ field: 'Timestamp', direction: 'asc' }],
-              maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
+              fields: columns,  // 明示的にフィールドを指定
+              maxRecords: limit * 2, // userとassistantのやり取りがあるため、2倍のレコード数を取得
+              view: 'Grid' // 明示的にGridビューを指定
             })
             .all();
             
@@ -911,10 +919,21 @@ async function fetchUserHistory(userId, limit) {
             // テーブル構造確認用のログ
             console.log(`→ テーブル構造確認:`);
             const fullSample = conversationRecords[0];
-            console.log(`  レコード構造: ${JSON.stringify(fullSample._rawJson || {})}`);
+            if (fullSample) {
+              console.log(`  レコード完全構造: ${JSON.stringify(fullSample, null, 2)}`);
+              console.log(`  レコードキー: ${Object.keys(fullSample).join(', ')}`);
+              if (fullSample.fields) {
+                console.log(`  fieldsキー: ${Object.keys(fullSample.fields).join(', ')}`);
+              }
+              if (fullSample._rawJson) {
+                console.log(`  _rawJson構造: ${JSON.stringify(fullSample._rawJson, null, 2)}`);
+              }
+            }
             
             for (const record of conversationRecords) {
               try {
+                console.log(`レコードID: ${record.id}, 完全レコード: ${JSON.stringify(record, null, 2)}`);
+                
                 // 【修正】フィールド名を正確に一致させる
                 let role = '';
                 let content = '';
