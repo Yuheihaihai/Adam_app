@@ -915,27 +915,27 @@ async function fetchUserHistory(userId, limit) {
             
             for (const record of conversationRecords) {
               try {
-                // 【修正】フィールド値取得の簡素化と信頼性向上
+                // 【修正】フィールド名を正確に一致させる
                 let role = '';
                 let content = '';
                 
                 // 最も信頼性の高い方法でフィールド値を取得
                 if (record.fields) {
                   // 基本的な方法: フィールドから直接取得
-                  role = record.fields["Role"] || '';
-                  content = record.fields["Content"] || '';
+                  role = record.fields['Role'] || '';
+                  content = record.fields['Content'] || '';
                   
                   console.log(`  データ取得方法: fields直接アクセス, Role: ${role}, Content長さ: ${content.length}`);
                 } else if (record.get) {
                   // 代替方法: getメソッド
-                  role = record.get("Role") || '';
-                  content = record.get("Content") || '';
+                  role = record.get('Role') || '';
+                  content = record.get('Content') || '';
                   
                   console.log(`  データ取得方法: get()メソッド, Role: ${role}, Content長さ: ${content.length}`);
                 } else if (record._rawJson && record._rawJson.fields) {
                   // フォールバック方法: _rawJson
-                  role = record._rawJson.fields["Role"] || '';
-                  content = record._rawJson.fields["Content"] || '';
+                  role = record._rawJson.fields['Role'] || '';
+                  content = record._rawJson.fields['Content'] || '';
                   
                   console.log(`  データ取得方法: _rawJsonフォールバック, Role: ${role}, Content長さ: ${content.length}`);
                 }
