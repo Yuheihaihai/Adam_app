@@ -2551,26 +2551,64 @@ async function handleText(event) {
   try {
     const userId = event.source.userId;
     const messageText = event.message.text;
-    
+    const userMessage = messageText.trim(); // 一貫した変数名を使用
+
     // デバッグ: 初期状態でのpendingImageExplanationsの状態確認
-    console.log(`[DEBUG-IMAGE] Message received for user ${userId}: "${messageText.substring(0, 20)}${messageText.length > 20 ? '...' : ''}"`);
+    console.log(`[DEBUG-IMAGE] Message received for user ${userId}: "${userMessage.substring(0, 20)}${userMessage.length > 20 ? '...' : ''}"`);
     console.log(`[DEBUG-IMAGE] pendingImageExplanations state: has(${userId})=${pendingImageExplanations.has(userId)}`);
+    
+    // はい/いいえの応答を最初に確認して画像生成を優先処理
     if (pendingImageExplanations.has(userId)) {
       const pendingData = pendingImageExplanations.get(userId);
       console.log(`[DEBUG-IMAGE] Pending data: timestamp=${pendingData.timestamp}, age=${Date.now() - pendingData.timestamp}ms, contentLen=${pendingData.content ? pendingData.content.length : 0}`);
+      
+      const now = Date.now();
+      if (pendingData.timestamp && (now - pendingData.timestamp > 5 * 60 * 1000)) { // 5分でタイムアウト
+        console.log(`[DEBUG-IMAGE] Pending image request expired for ${userId} - ${Math.round((now - pendingData.timestamp)/1000)}s elapsed (max: 300s)`);
+        pendingImageExplanations.delete(userId);
+        // 通常の処理を続行
+      } else if (userMessage === "はい") {
+        console.log(`[DEBUG-IMAGE] 'はい' detected for user ${userId}, proceeding with image generation`);
+        console.log(`[DEBUG-IMAGE] pendingData details: timestamp=${new Date(pendingData.timestamp).toISOString()}, contentLength=${pendingData.content ? pendingData.content.length : 0}`);
+        
+        // contentが存在するか確認
+        if (!pendingData.content) {
+          console.log(`[DEBUG-IMAGE] Error: pendingData.content is ${pendingData.content}`);
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: "申し訳ありません。画像生成に必要な情報が見つかりませんでした。もう一度お試しください。"
+          });
+          pendingImageExplanations.delete(userId);
+          return;
+        }
+        
+        const explanationText = pendingData.content;
+        pendingImageExplanations.delete(userId);
+        console.log(`[DEBUG-IMAGE] ユーザーの「はい」が検出されました。画像生成を開始します。内容: "${explanationText.substring(0, 30)}..."`);
+        return handleVisionExplanation(event, explanationText);
+      } else if (userMessage === "いいえ") {
+        console.log(`[DEBUG-IMAGE] 'いいえ' detected for user ${userId}, cancelling image generation`);
+        pendingImageExplanations.delete(userId);
+        console.log(`[DEBUG-IMAGE] ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。`);
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: "承知しました。引き続きテキストでの回答を行います。"
+        });
+      }
+      // どちらでもない場合は通常の処理を続行
     }
     
     // 特性分析に関連するメッセージかどうかを検出
-    if (messageText && (
-      messageText.includes('特性') || 
-      messageText.includes('分析') || 
-      messageText.includes('性格') || 
-      messageText.includes('過去の記録') || 
-      messageText.includes('履歴')
+    if (userMessage && (
+      userMessage.includes('特性') || 
+      userMessage.includes('分析') || 
+      userMessage.includes('性格') || 
+      userMessage.includes('過去の記録') || 
+      userMessage.includes('履歴')
     )) {
       console.log(`\n======= 特性分析リクエスト検出 =======`);
       console.log(`→ ユーザーID: ${userId}`);
-      console.log(`→ メッセージ: ${messageText}`);
+      console.log(`→ メッセージ: ${userMessage}`);
       console.log(`======= 特性分析リクエスト検出終了 =======\n`);
     }
     
@@ -2581,9 +2619,9 @@ async function handleText(event) {
     };
     
     // Check for general help request
-    if (messageText.toLowerCase() === 'ヘルプ' || 
-        messageText.toLowerCase() === 'help' || 
-        messageText.toLowerCase() === 'へるぷ') {
+    if (userMessage.toLowerCase() === 'ヘルプ' || 
+        userMessage.toLowerCase() === 'help' || 
+        userMessage.toLowerCase() === 'へるぷ') {
       // Return the general help message
       await client.replyMessage(event.replyToken, {
         type: 'text',
@@ -2591,8 +2629,6 @@ async function handleText(event) {
       });
       return;
     }
-    
-    const userMessage = event.message.text.trim();
     
     // Get user preferences to check for recently shown services
     const preferences = userPreferences.getUserPreferences(userId);
@@ -2760,13 +2796,11 @@ ${SHARE_URL}
       return;
     }
     
-    // pendingImageExplanations のチェック（はい/いいえ 判定）
+    // pendingImageExplanations のチェック（はい/いいえ 判定）は冒頭で実施済み
+    // 以下の重複するコードを削除
+    /*
     if (pendingImageExplanations.has(userId)) {
-      console.log(`[DEBUG-IMAGE] Checking 'はい'/'いいえ' response for user ${userId}`);
-      console.log(`[DEBUG-IMAGE] Pending explanation exists: ${pendingImageExplanations.has(userId)}`);
       const pendingData = pendingImageExplanations.get(userId);
-      
-      // 有効期限チェック
       const now = Date.now();
       if (pendingData.timestamp && (now - pendingData.timestamp > 5 * 60 * 1000)) { // 5分でタイムアウト
         console.log(`[DEBUG-IMAGE] Pending image request expired for ${userId} - ${Math.round((now - pendingData.timestamp)/1000)}s elapsed (max: 300s)`);
@@ -2799,10 +2833,9 @@ ${SHARE_URL}
           type: 'text',
           text: "承知しました。引き続きテキストでの回答を行います。"
         });
-      } else {
-        console.log(`[DEBUG-IMAGE] User ${userId} responded with "${userMessage}" while image proposal was pending`);
       }
     }
+    */
 
     // Add prevention check for users who just received image generation (prevents ASD guide sending)
     const recentImageTimestamp = recentImageGenerationUsers.get(userId);
