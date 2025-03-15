@@ -859,7 +859,7 @@ async function fetchUserHistory(userId, limit) {
   try {
     console.log(`Fetching history for user ${userId}, limit: ${limit}`);
     
-    // Airtable接続の検証ログ
+    // API認証情報の検証（デバッグ用）
     console.log(`[接続検証] Airtable認証情報 => API_KEY存在: ${!!process.env.AIRTABLE_API_KEY}, BASE_ID存在: ${!!process.env.AIRTABLE_BASE_ID}`);
     
     // 履歴分析用のメタデータオブジェクトを初期化
@@ -870,280 +870,171 @@ async function fetchUserHistory(userId, limit) {
       insufficientReason: null
     };
     
-    // 1. まずConversationHistoryテーブルからの取得を試みる（新機能）
+    // ConversationHistoryテーブルからの取得を試みる
     try {
-      if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
-        const airtableBase = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
-          .base(process.env.AIRTABLE_BASE_ID);
-          
-        try {
-          console.log(`ConversationHistory テーブルからユーザー ${userId} の履歴を取得中...`);
-          
-          // すべてのフィールドを確実に取得するためのカラム指定
-          const columns = ['UserID', 'Role', 'Content', 'Timestamp', 'Mode', 'MessageType'];
-          
-          // filterByFormulaとsortを設定
-          const conversationRecords = await airtableBase('ConversationHistory')
-            .select({
-              filterByFormula: `{UserID} = "${userId}"`,
-              sort: [{ field: 'Timestamp', direction: 'asc' }],
-              fields: columns,  // 明示的にフィールドを指定
-              maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
-              // view: 'Grid' ビュー指定を削除
-            })
-            .all();
-            
-          if (conversationRecords && conversationRecords.length > 0) {
-            console.log(`Found ${conversationRecords.length} conversation history records in ConversationHistory table`);
-            
-            // 【新規】取得した履歴データの詳細ログ
-            console.log(`\n===== ConversationHistoryテーブルの詳細データ =====`);
-            console.log(`→ 取得レコード数: ${conversationRecords.length}件`);
-            
-            // ConversationHistoryテーブルから取得したレコードの詳細をログに記録（デバッグ用）
-            console.log(`→ 変換前の生データサンプル:`);
-            if (conversationRecords.length > 0) {
-              const sampleRecord = conversationRecords[0];
-              console.log(`  サンプルレコードID: ${sampleRecord.id}`);
-              console.log(`  Role: "${sampleRecord.get('Role')}"`);
-              console.log(`  Content: "${sampleRecord.get('Content')}"`);
-              console.log(`  ContentのType: ${typeof sampleRecord.get('Content')}`);
-              
-              // フィールド名を確認
-              console.log(`  利用可能なフィールド: ${Object.keys(sampleRecord.fields).join(', ')}`);
-            }
-            
-            // 修正：Airtableから取得したレコードを適切な形式に変換
-            const history = [];
-
-            // テーブル構造確認用のログ
-            console.log(`→ テーブル構造確認:`);
-            const fullSample = conversationRecords[0];
-            if (fullSample) {
-              console.log(`  レコード完全構造: ${JSON.stringify(fullSample, null, 2)}`);
-              console.log(`  レコードキー: ${Object.keys(fullSample).join(', ')}`);
-              if (fullSample.fields) {
-                console.log(`  fieldsキー: ${Object.keys(fullSample.fields).join(', ')}`);
-              }
-              if (fullSample._rawJson) {
-                console.log(`  _rawJson構造: ${JSON.stringify(fullSample._rawJson, null, 2)}`);
-              }
-            }
-            
-            for (const record of conversationRecords) {
-              try {
-                console.log(`レコードID: ${record.id}, 完全レコード: ${JSON.stringify(record, null, 2)}`);
-                
-                // 【修正】フィールド名を正確に一致させる
-                let role = '';
-                let content = '';
-                
-                // 最も信頼性の高い方法でフィールド値を取得
-                if (record.fields) {
-                  // 基本的な方法: フィールドから直接取得
-                  role = record.fields['Role'] || '';
-                  content = record.fields['Content'] || '';
-                  
-                  console.log(`  データ取得方法: fields直接アクセス, Role: ${role}, Content長さ: ${content.length}`);
-                } else if (record.get) {
-                  // 代替方法: getメソッド
-                  role = record.get('Role') || '';
-                  content = record.get('Content') || '';
-                  
-                  console.log(`  データ取得方法: get()メソッド, Role: ${role}, Content長さ: ${content.length}`);
-                } else if (record._rawJson && record._rawJson.fields) {
-                  // フォールバック方法: _rawJson
-                  role = record._rawJson.fields['Role'] || '';
-                  content = record._rawJson.fields['Content'] || '';
-                  
-                  console.log(`  データ取得方法: _rawJsonフォールバック, Role: ${role}, Content長さ: ${content.length}`);
-                }
-                
-                // roleの正規化
-                const normalizedRole = role.toLowerCase() === 'assistant' ? 'assistant' : 'user';
-                
-                // 確実に文字列として扱う
-                if (typeof content !== 'string') {
-                  content = String(content || '');
-                }
-                
-                // デバッグ情報
-                console.log(`  レコードID: ${record.id}, Role: ${role}, Content抽出成功: ${content.length > 0}`);
-                
-                // 空でないcontentの場合のみ追加
-                if (content && content.trim()) {
-                  history.push({
-                    role: normalizedRole,
-                    content: content
-                  });
-                  console.log(`  ✅ レコード追加成功: ${normalizedRole}, 内容長: ${content.length}文字`);
-                } else {
-                  console.log(`  ⚠ 警告: 空のcontentを持つレコードをスキップしました (ID: ${record.id})`);
-                }
-              } catch (err) {
-                console.error(`  ⚠ レコード変換エラー: ${err.message}`);
-              }
-            }
-            
-            // 会話履歴が空の場合の処理
+      console.log(`ConversationHistory テーブルからユーザー ${userId} の履歴を取得中...`);
+      
+      // すべてのフィールドを確実に取得するためのカラム指定
+      const columns = ['UserID', 'Role', 'Content', 'Timestamp', 'Mode', 'MessageType'];
+      
+      // filterByFormulaとsortを設定
+      const conversationRecords = await airtableBase('ConversationHistory')
+        .select({
+          filterByFormula: `{UserID} = "${userId}"`,
+          sort: [{ field: 'Timestamp', direction: 'asc' }],
+          fields: columns,  // 明示的にフィールドを指定
+          maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
+        })
+        .all();
+        
+      if (conversationRecords && conversationRecords.length > 0) {
+        console.log(`Found ${conversationRecords.length} records for user in ConversationHistory table`);
+        
+        // 取得したデータを変換
+        const history = [];
+        
+        for (const record of conversationRecords) {
+          try {
+            // デバッグを追加
             if (history.length === 0) {
-              console.log(`⚠ 警告: 全てのレコードがスキップされ、会話履歴が空になりました`);
-              console.log(`⚠ 問題診断: Airtableテーブル'ConversationHistory'の構造を確認してください`);
-              
-              // テーブル構造の問題がある場合の代替処理
-              console.log(`⚠ 代替処理: 代替メソッドを使用して会話履歴を構築します`);
-              
-              // レコードから直接、最小限の情報を抽出
-              for (const record of conversationRecords) {
-                try {
-                  // レコードの全データをログに出力
-                  console.log(`  レコード診断 (ID: ${record.id}):`);
-                  console.log(`  - 全フィールド: ${JSON.stringify(record.fields || {})}`);
-                  
-                  // どんなデータでも取得できるよう試行
-                  let foundContent = false;
-                  
-                  // 1. オブジェクトの全フィールドをチェック
-                  if (record.fields) {
-                    Object.keys(record.fields).forEach(key => {
-                      const value = record.fields[key];
-                      if (typeof value === 'string' && value.trim().length > 0 && key !== 'UserID' && key !== 'Timestamp') {
-                        console.log(`  - 使用可能な内容を見つけました: ${key}: ${value.substring(0, 30)}...`);
-                        
-                        // 役割の推定を試みる
-                        const isUser = key.toLowerCase().includes('user') || 
-                                       record.fields['Role']?.toLowerCase() === 'user';
-                        
-                        history.push({
-                          role: isUser ? 'user' : 'assistant',
-                          content: value
-                        });
-                        
-                        foundContent = true;
-                      }
-                    });
-                  }
-                  
-                  if (!foundContent) {
-                    console.log(`  - 使用可能なコンテンツが見つかりませんでした`);
-                  }
-                } catch (e) {
-                  console.error(`  代替処理エラー: ${e.message}`);
-                }
-              }
+              console.log(`\n===== レコード構造サンプル =====`);
+              console.log(`  レコードID: ${record.id}`);
+              console.log(`  フィールド: ${JSON.stringify(record.fields)}`);
+              console.log(`===== レコード構造サンプル終了 =====\n`);
             }
             
-            console.log(`→ 変換後の会話履歴数: ${history.length}件`);
+            // フィールドから直接データを取得（最も一般的な方法）
+            const role = record.fields.Role || '';
+            const content = record.fields.Content || '';
             
-            // 最新の3件を表示
-            if (history.length > 0) {
-              console.log(`→ 最新の会話内容サンプル:`);
-              const sampleCount = Math.min(3, history.length);
-              for (let i = 1; i <= sampleCount; i++) {
-                const msg = history[history.length - i];
-                console.log(`  [${history.length - i + 1}/${history.length}] ${msg.role}: ${msg.content.substring(0, 50)}${msg.content.length > 50 ? '...' : ''}`);
-              }
+            // データのチェック
+            if (!content || content.trim() === '') {
+              console.log(`⚠ 警告: レコード ${record.id} のContent (${content}) が空です。スキップします。`);
+              continue;
             }
-            console.log(`===== ConversationHistoryテーブルの詳細データ終了 =====\n`);
             
-            // 履歴の内容を分析
-            historyMetadata.totalRecords += history.length;
-            analyzeHistoryContent(history, historyMetadata);
+            // 正規化して追加
+            const normalizedRole = role.toLowerCase() === 'assistant' ? 'assistant' : 'user';
+            history.push({
+              role: normalizedRole,
+              content: content
+            });
             
-            // 最新のlimit件を返す
-            if (history.length > limit) {
-              return { history: history.slice(-limit), metadata: historyMetadata };
-            }
-            return { history, metadata: historyMetadata };
+          } catch (recordErr) {
+            console.error(`レコード処理エラー: ${recordErr.message}`);
           }
-        } catch (tableErr) {
-          // ConversationHistoryテーブルが存在しない場合は無視して次の方法を試す
-          console.log(`ConversationHistory table not found or error: ${tableErr.message}. Falling back to UserAnalysis.`);
         }
         
-        // 2. 次にUserAnalysisテーブルの会話データを試す（代替方法）
-        try {
-          const userAnalysisRecords = await airtableBase('UserAnalysis')
-            .select({
-              filterByFormula: `AND({UserID} = "${userId}", {Mode} = "conversation")`,
-              maxRecords: 1
-            })
-            .all();
-            
-          if (userAnalysisRecords && userAnalysisRecords.length > 0) {
-            const rawData = userAnalysisRecords[0].get('AnalysisData');
-            if (rawData) {
+        // 履歴の内容を分析
+        historyMetadata.totalRecords += history.length;
+        analyzeHistoryContent(history, historyMetadata);
+        
+        // 最新のlimit件を取得
+        if (history.length > limit) {
+          return { history: history.slice(-limit), metadata: historyMetadata };
+        }
+        return { history, metadata: historyMetadata };
+      } else {
+        console.log(`No records found for user ${userId} in ConversationHistory table`);
+      }
+    } catch (tableErr) {
+      console.error(`ConversationHistory table not found or error: ${tableErr.message}. Falling back to UserAnalysis.`);
+    }
+    
+    // ConversationHistoryが使えないかデータがない場合は旧テーブルからの取得を試みる
+    try {
+      const records = await airtableBase('UserAnalysis')
+        .select({
+          filterByFormula: `{UserID} = "${userId}"`,
+          maxRecords: 100
+        })
+        .all();
+        
+      if (records && records.length > 0) {
+        console.log(`Found ${records.length} records for user in original INTERACTIONS_TABLE`);
+        
+        // まず会話履歴として明示的に保存されたものを探す
+        const conversationRecord = records.find(r => r.get('Mode') === 'conversation');
+        if (conversationRecord) {
+          try {
+            const analysisData = conversationRecord.get('AnalysisData');
+            if (analysisData) {
+              let data;
               try {
-                const data = JSON.parse(rawData);
-                if (data.conversation && Array.isArray(data.conversation)) {
-                  console.log(`Found ${data.conversation.length} messages in UserAnalysis conversation data`);
-                  
-                  const history = data.conversation.map(msg => ({
-                    role: msg.role || 'user',
-                    content: msg.content || msg.message || '',
-                  }));
+                data = JSON.parse(analysisData);
+                if (data && data.conversation && Array.isArray(data.conversation)) {
+                  const history = data.conversation;
                   
                   // 履歴の内容を分析
-                  historyMetadata.totalRecords += data.conversation.length;
+                  historyMetadata.totalRecords += history.length;
                   analyzeHistoryContent(history, historyMetadata);
                   
-                  // 最新のlimit件を返す
+                  // 最新のlimit件を取得
                   if (history.length > limit) {
                     return { history: history.slice(-limit), metadata: historyMetadata };
                   }
                   return { history, metadata: historyMetadata };
                 }
               } catch (jsonErr) {
-                console.error('Error parsing conversation data from UserAnalysis:', jsonErr);
+                console.error(`JSON parse error in AnalysisData: ${jsonErr.message}`);
               }
             }
+          } catch (getErr) {
+            console.error(`Error getting AnalysisData: ${getErr.message}`);
           }
-        } catch (analysisErr) {
-          // UserAnalysisテーブルのアクセスエラーは無視して次の方法を試す
-          console.log(`UserAnalysis table not found or error: ${analysisErr.message}. Falling back to original method.`);
         }
+        
+        // 履歴レコードが見つからない場合は、テキストフィールドから最小限の情報を抽出
+        const history = [];
+        
+        for (const record of records) {
+          try {
+            const userMessage = record.get('UserMessage');
+            const aiResponse = record.get('AIResponse');
+            
+            if (userMessage && userMessage.trim() !== '') {
+              history.push({
+                role: 'user',
+                content: userMessage
+              });
+            }
+            
+            if (aiResponse && aiResponse.trim() !== '') {
+              history.push({
+                role: 'assistant',
+                content: aiResponse
+              });
+            }
+          } catch (recordErr) {
+            // エラーは無視して次のレコードを処理
+          }
+        }
+        
+        // 履歴の内容を分析
+        historyMetadata.totalRecords += history.length;
+        analyzeHistoryContent(history, historyMetadata);
+        
+        // 時間順に並べ替え (最も古いものから新しいものへ)
+        history.sort((a, b) => {
+          const timestampA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const timestampB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return timestampA - timestampB;
+        });
+        
+        // 最新のlimit件を取得
+        if (history.length > limit) {
+          return { history: history.slice(-limit), metadata: historyMetadata };
+        }
+        return { history, metadata: historyMetadata };
       }
-    } catch (airtableErr) {
-      console.error('Error accessing Airtable for conversation history:', airtableErr);
+    } catch (tableErr) {
+      console.error(`UserAnalysis table error: ${tableErr.message}`);
     }
     
-    // 3. 最後に既存の方法でデータを取得（元のコード）
-    const records = await base(INTERACTIONS_TABLE)
-      .select({
-        filterByFormula: `{UserID} = "${userId}"`,
-        sort: [{ field: 'Timestamp', direction: 'desc' }],
-        maxRecords: limit,
-      })
-      .all();
-    console.log(`Found ${records.length} records for user in original INTERACTIONS_TABLE`);
-
-    const reversed = records.reverse();
-    const history = reversed.map((r) => ({
-      role: r.get('Role') === 'assistant' ? 'assistant' : 'user',
-      content: r.get('Content') || '',
-    }));
-    
-    // 履歴の内容を分析
-    historyMetadata.totalRecords += records.length;
-    analyzeHistoryContent(history, historyMetadata);
-    
-    // 履歴が少ない場合の理由を設定
-    if (history.length < 3) {
-      historyMetadata.insufficientReason = 'few_records';
-    }
-    
-    return { history, metadata: historyMetadata };
-  } catch (error) {
-    console.error('Error fetching history:', error);
-    // エラーの詳細情報を出力（会話履歴の取得問題を診断するため）
-    console.error(`会話履歴取得エラーの詳細情報 => ユーザーID: ${userId}`);
-    console.error(`エラータイプ: ${error.name || 'Unknown'}`);
-    console.error(`エラーメッセージ: ${error.message || 'No message'}`);
-    if (error.stack) {
-      console.error(`スタックトレース: ${error.stack}`);
-    }
-    
-    // 空の履歴を返す
+    // どちらのテーブルからも取得できなかった場合は空配列を返す
+    return { history: [], metadata: historyMetadata };
+  } catch (err) {
+    console.error(`Error fetching user history: ${err.message}`);
     return { history: [], metadata: { totalRecords: 0, insufficientReason: 'error' } };
   }
 }
