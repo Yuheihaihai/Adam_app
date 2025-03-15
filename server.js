@@ -939,7 +939,7 @@ function analyzeHistoryContent(history, metadata) {
   if (history.length < 3) {
     metadata.insufficientReason = 'few_records';
     console.log(`→ 結論: 履歴が少ない (${history.length}件)`);
-  } else {
+  
     console.log(`→ 結論: 分析に十分な履歴あり`);
   }
   
@@ -1514,7 +1514,7 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
                   console.log(`    │       - ${factor}: ${value}`);
                 });
               }
-            } else {
+            
               console.log('    ├─ [1C.3] ML DATA RESULTS:');
               console.log('    │  ❌ No ML data available for this conversation');
             }
@@ -1570,13 +1570,13 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     if (!userPrefs.showServiceRecommendations) {
       serviceNotificationReason = 'disabled';
       console.log('⚠️ Skipping service recommendations: User preferences disabled');
-    } else {
+    
       // detectAdviceRequestが非同期関数になったため、awaitで結果を取得
       const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
       if (!isAdviceRequest) {
       serviceNotificationReason = 'no_request';
         console.log('⚠️ Skipping service recommendations: No advice request detected by LLM');
-    } else {
+    
       // Check timing constraints
         const shouldShow = await shouldShowServicesToday(userId, history, userMessage);
         
@@ -1605,7 +1605,7 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
           serviceNotificationReason = 'daily_limit';
             console.log('⚠️ Not showing services: Daily limit reached');
             console.log(`📝 [SERVICE DEBUG] Service count today: ${servicesToday}/9`);
-        } else {
+        
           serviceNotificationReason = 'cooldown';
             const minutesSinceLastShown = lastServiceTime ? Math.round((now - lastServiceTime) / 60000) : null;
             console.log(`⚠️ Not showing services: Cooldown period (Last shown: ${lastServiceTime ? minutesSinceLastShown + ' minutes ago' : 'never'})`);
@@ -1613,7 +1613,7 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
         }
         
           console.log(`Service recommendations skipped: ${serviceNotificationReason}`);
-      } else {
+      
           console.log('✅ Starting service recommendation process - constraints passed');
           console.log(`📝 [SERVICE DEBUG] Recommendation process starting for user message: "${userMessage.substring(0, 50)}..."`);
           
@@ -1666,37 +1666,14 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     
     let messages = [];
     
-    // Use different prompt construction based on model
-    if (model === 'gpt-4o-latest') {
-      // GPT-4では、システムプロンプトと履歴を別々に扱う（記憶の活用）
-      messages = [
-        { role: 'system', content: systemPrompt },
-        ...history.map(msg => ({
-          role: msg.role === 'user' ? 'user' : 'assistant',
-          content: msg.content
-        }))
-      ];
-    } else {
-      // Claude-3用の形式（システムプロンプトをユーザーメッセージの接頭辞として使用）
-      // 各メッセージに明示的な役割表示を追加して会話の流れをより明確にする（記憶の活用）
-      const formattedHistory = history.map(msg => {
-        const rolePrefix = msg.role === 'user' ? 'Human: ' : 'Assistant: ';
-        return { role: 'user', content: `${rolePrefix}${msg.content}` };
-      });
-      
-      messages = [
-        { 
-          role: 'user', 
-          content: `${systemPrompt}\n\nHuman: ${userMessage}` 
-        }
-      ];
-      
-      // Claudeはすべてのコンテキストを単一のメッセージで受け取る必要がある
-      if (formattedHistory.length > 0) {
-        // 最初のメッセージにシステムプロンプトと履歴を追加
-        messages[0].content = `${systemPrompt}\n\n${formattedHistory.map(m => m.content).join('\n\n')}\n\nHuman: ${userMessage}`;
-      }
-    }
+    // GPT-4では、システムプロンプトと履歴を別々に扱う（記憶の活用）
+    messages = [
+      { role: 'system', content: systemPrompt },
+      ...history.map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content
+      }))
+    ];
     
     // Add ML data for career mode (知識の活用)
     if (mode === 'career' && perplexityData) {
@@ -1707,7 +1684,7 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
       console.log(`    ├─ Baseline prompt size before Perplexity data: ${baselinePromptSize} bytes`);
       
       // Add Perplexity data to prompt
-      if (model === 'gpt-4o-latest') {
+      
         messages.push({
           role: 'system',
           content: `
@@ -1716,7 +1693,7 @@ ${perplexityData.knowledge}
 この特性を考慮してアドバイスを提供してください。
 `
         });
-      } else {
+      
         // For Claude, append to the first message content
         messages[0].content += `\n\n# ユーザー特性の追加分析 (Perplexityから取得)\n${perplexityData.knowledge}\nこの特性を考慮してアドバイスを提供してください。`;
       }
@@ -1744,12 +1721,12 @@ ${perplexityData.knowledge}
         console.log(`    │  └─ Analysis length: ${mlSystemPrompt.length} characters`);
         
         // Add the ML system prompt (知識の活用)
-        if (model === 'gpt-4o-latest') {
+        
           messages.push({
             role: 'system',
             content: mlSystemPrompt
           });
-        } else {
+        
           // For Claude, append to the first message content
           messages[0].content += `\n\n# ML分析結果からの追加コンテキスト\n${mlSystemPrompt}`;
         }
@@ -1760,13 +1737,13 @@ ${perplexityData.knowledge}
         const percentIncrease = ((promptSizeIncrease / baselinePromptSize) * 100).toFixed(1);
         console.log(`    ├─ ML-augmented prompt size: ${mlAugmentedPromptSize} bytes`);
         console.log(`    └─ ML data added ${promptSizeIncrease} bytes (${percentIncrease}% increase)`);
-      } else {
+      
         console.log(`    └─ No ML data available to integrate`);
       }
     }
     
     // Add user message after all context for GPT-4
-    if (model === 'gpt-4o-latest') {
+    
       console.log('\n📨 [3C] FINALIZING PROMPT:');
       console.log(`    ├─ Total prompt components: ${messages.length}`);
       console.log(`    └─ Adding user message: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
@@ -1942,7 +1919,7 @@ ${perplexityData.knowledge}
           
           if (recommendations.length > 0) {
             console.log('    └─ Top recommendation: ' + recommendations[0].serviceName);
-          } else {
+          
             console.log('    └─ No recommendations matched criteria');
           }
           
@@ -1976,14 +1953,14 @@ ${perplexityData.knowledge}
             serviceName = rec.serviceName;
           } else if (rec.id) {
             serviceName = rec.id;
-          } else {
+          
             serviceName = JSON.stringify(rec).substring(0, 30); // 長すぎる場合は切り詰める
           }
           
           console.log(`    ├─ [${index + 1}] ${serviceName}: ${confidenceStr}`);
         }
       });
-    } else {
+    
       console.log('\n📦 [5A] NO SERVICE RECOMMENDATIONS INCLUDED');
     }
     
@@ -2027,7 +2004,7 @@ ${perplexityData.knowledge}
               console.log(`   │     - "${phrase.substring(0, 30)}..."`)
             }
           });
-        } else {
+        
           console.log('   │  ⚠️ No direct market data phrases detected in response');
           console.log('   │     (Data may still have influenced general reasoning)');
         }
@@ -2068,7 +2045,7 @@ ${perplexityData.knowledge}
               console.log(`   │     - "${insight.substring(0, 30)}..."`)
             }
           });
-        } else {
+        
           console.log('   │  ⚠️ No direct user trait phrases detected in response');
           console.log('   │     (Characteristics may still have guided overall approach)');
         }
@@ -2205,7 +2182,7 @@ ${perplexityData.knowledge}
               console.log(`   │  ${i+1}. ${term}`);
             });
           }
-        } else {
+        
           console.log('   ├─ ML data influence: ❌ Not detected');
           console.log('   ├─ ML data may still have influenced general approach');
         }
@@ -2543,7 +2520,7 @@ async function handleText(event) {
       // デバッグログを追加
       if (isPendingDataObject) {
         console.log(`[DEBUG-IMAGE] Pending data (object): timestamp=${pendingData.timestamp}, age=${Date.now() - pendingData.timestamp}ms, contentLen=${pendingData.content ? pendingData.content.length : 0}`);
-      } else {
+      
         console.log(`[DEBUG-IMAGE] Pending data (string): length=${pendingData ? pendingData.length : 0}`);
       }
       
@@ -2572,7 +2549,7 @@ async function handleText(event) {
             return;
           }
           explanationText = pendingData;  // オブジェクト全体を渡す（改善: 後方互換性と統一性）
-        } else {
+        
           // 文字列形式の場合は新しいオブジェクト形式に変換
           console.log(`[DEBUG-IMAGE] pendingData is string (legacy format): length=${pendingData ? pendingData.length : 0}`);
           if (!pendingData) {
@@ -2708,7 +2685,7 @@ ${SHARE_URL}
         });
         await storeInteraction(userId, 'assistant', shareMessage);
         return;
-      } else {
+      
         console.log(`LLM did not confirm high engagement despite keywords, processing as normal message`);
       }
     }
@@ -2778,10 +2755,10 @@ ${SHARE_URL}
             if (isPositiveFeedback) {
               // Friendly response for positive feedback
               responseMessage = `ありがとうございます！今後も役立つサービスをご紹介します。`;
-            } else {
+            
               responseMessage = `サービス表示をオンにしました。お役立ちそうなサービスがあれば、会話の中でご紹介します。`;
             }
-          } else {
+          
             // Check if this was triggered by negative feedback
             const lowerMessage = userMessage.toLowerCase();
             const isNegativeFeedback = FEEDBACK_PATTERNS.negative.some(pattern => lowerMessage.includes(pattern));
@@ -2789,19 +2766,19 @@ ${SHARE_URL}
             if (isNegativeFeedback) {
               // Minimal response for negative feedback
               responseMessage = `わかりました。`;
-            } else {
+            
               responseMessage = `サービス表示をオフにしました。`;
             }
           }
         } else if (updatedPreferences.maxRecommendations !== undefined) {
           if (updatedPreferences.maxRecommendations === 0) {
             responseMessage = `サービスを表示しない設定にしました。`;
-          } else {
+          
             responseMessage = `表示するサービスの数を${updatedPreferences.maxRecommendations}件に設定しました。`;
           }
         } else if (updatedPreferences.minConfidenceScore !== undefined) {
           responseMessage = `信頼度${Math.round(updatedPreferences.minConfidenceScore * 100)}%以上のサービスのみ表示するように設定しました。`;
-        } else {
+        
           // Fallback to current settings if we can't determine what changed
           responseMessage = userPreferences.getCurrentSettingsMessage(userId);
         }
@@ -2949,7 +2926,7 @@ ${SHARE_URL}
         // 直前のAI回答がない場合はスキップ
         if (!previousAIResponse) {
           console.log(`[DEBUG-IMAGE] No previous AI response found in cache or history, skipping confusion detection`);
-        } else {
+        
           // 新しいモジュール化された関数を使用して混乱を検出
           const confusionResult = await detectConfusionWithLLM(userMessage, previousAIResponse);
           
@@ -2958,7 +2935,7 @@ ${SHARE_URL}
           } else if (confusionResult.isConfused) {
             console.log(`[DEBUG-IMAGE] User appears confused (confidence: ${confusionResult.confidence}%), triggering image explanation`);
             triggerImageExplanation = true;
-          } else {
+          
             console.log(`[DEBUG-IMAGE] User does not appear confused (confidence: ${confusionResult.confidence}%)`);
           }
         }
@@ -3080,7 +3057,7 @@ ${SHARE_URL}
             serviceName = serviceInfo.name;
             serviceDescription = serviceInfo.description;
             serviceUrl = serviceInfo.url;
-          } else {
+          
             serviceName = service;
           }
         } else if (service.name) {
@@ -3098,7 +3075,7 @@ ${SHARE_URL}
             serviceName = serviceInfo.name;
             serviceDescription = serviceInfo.description;
             serviceUrl = serviceInfo.url;
-          } else {
+          
             serviceName = service.id;
           }
         }
@@ -3117,7 +3094,7 @@ ${SHARE_URL}
             const lastSentenceEnd = serviceDescription.substring(0, maxDescLength).lastIndexOf('。');
             if (lastSentenceEnd > maxDescLength * 0.7) { // 70%以上の位置にある場合
               trimmedDesc = serviceDescription.substring(0, lastSentenceEnd + 1) + '...';
-            } else {
+            
               trimmedDesc = serviceDescription.substring(0, maxDescLength) + '...';
             }
           }
@@ -3294,7 +3271,7 @@ async function handleVisionExplanation(event, explanationText) {
           displayText = "ASD支援機能の活用方法";
           enhancedPrompt = "ASD（自閉症スペクトラム障害）支援の主要なポイントを簡潔に示した視覚的な図解。質問例（コミュニケーション、感覚過敏、社会場面などの対応）、基本的な使い方、注意点を含む。シンプルで分かりやすいインフォグラフィック形式。";
           console.log(`[DEBUG-IMAGE] ASD guide detected, using specialized summary and prompt`);
-        } else {
+        
           // For other long texts, extract the first sentence or first 100 chars
           displayText = textToUse.split('。')[0] + "。";
           if (displayText.length > 100) {
@@ -3307,7 +3284,7 @@ async function handleVisionExplanation(event, explanationText) {
         console.log(`[DEBUG-IMAGE] Short text detected (${textToUse.length} chars), adding educational context`);
         displayText = textToUse;
         enhancedPrompt = `「${textToUse}」についての教育的で分かりやすい図解。日常生活での応用例や基本概念を含む、明るく親しみやすいイラスト。`;
-      } else {
+      
         // For normal length text, use as is
         enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${textToUse}`;
       }
@@ -3347,7 +3324,7 @@ async function handleVisionExplanation(event, explanationText) {
         let responseMessage = "";
         if (isASDGuide) {
           responseMessage = "ASD支援機能の主なポイントをまとめた画像です。この視覚的な説明は理解の助けになりましたか？";
-        } else {
+        
           responseMessage = `「${displayText}」の要点を視覚化しました。この画像は参考になりましたか？`;
         }
         
@@ -3393,7 +3370,7 @@ async function handleVisionExplanation(event, explanationText) {
           errorMessage = '申し訳ありません。このテキストから安全な画像を生成できませんでした。「日常会話のポイント」「コミュニケーションの基本」などの具体的なテーマで試してみてください。';
         } else if (error.code === 'rate_limit_exceeded') {
           errorMessage = '申し訳ありません。現在リクエストが多く、画像を生成できませんでした。しばらく経ってからお試しください。';
-        } else {
+        
           errorMessage += '別の表現で試してみてください。';
         }
         
@@ -3899,7 +3876,7 @@ async function detectAdviceRequestWithLLM(userMessage, history) {
     // 詳細なログを追加
     if (result === 'yes') {
       console.log(`✅ Advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
-    } else {
+    
       console.log(`❌ No advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
     }
     
@@ -4177,7 +4154,7 @@ ${userMessages.join('\n\n')}`
       console.log(`→ レスポンスが「過去の記録がない」を含むか: ${response.choices[0].message.content.includes('過去の記録がない') || response.choices[0].message.content.includes('会話履歴がない')}`);
       console.log(`======= 特性分析詳細ログ終了 =======\n`);
       return response.choices[0].message.content;
-    } else {
+    
       console.log(`→ 分析に利用可能なメッセージなし`);
       console.log(`======= 特性分析詳細ログ終了 =======\n`);
       // 会話履歴が不足している場合でも、否定的な表現は避ける
@@ -4399,10 +4376,10 @@ async function restorePendingImageRequests() {
           });
           console.log(`[DEBUG-RESTORE] Restored pending image explanation for user ${userId} with content: "${content.substring(0, 30)}..." at timestamp ${new Date(proposalTime).toISOString()}, source: ${source}`);
           restoredCount++;
-        } else {
+        
           console.log(`[DEBUG-RESTORE] Could not find assistant message before proposal for user ${userId}`);
         }
-      } else {
+      
         console.log(`[DEBUG-RESTORE] User ${userId} already responded after proposal, not restoring`);
         if (userResponses.length > 0) {
           console.log(`[DEBUG-RESTORE] First response: "${userResponses[0].get('Content')}" at ${userResponses[0].get('Timestamp')}`);
@@ -4422,7 +4399,7 @@ async function restorePendingImageRequests() {
         console.log(`[DEBUG-RESTORE] Content preview: "${contentPreview}..."`);
       }
       console.log('[DEBUG-RESTORE] ============================================');
-    } else {
+    
       console.log('[DEBUG-RESTORE] No valid pending image requests were found to restore');
     }
     
@@ -4512,7 +4489,7 @@ async function detectConfusionWithLLM(userMessage, previousAIResponse) {
         if (confidence >= 95) {
           console.log(`[DEBUG-CONFUSION] LLM determined user doesn't understand AI response with high confidence (${confidence}%)`);
           result.isConfused = true;
-        } else {
+        
           console.log(`[DEBUG-CONFUSION] LLM detected some confusion but confidence too low (${confidence}%)`);
         }
       }
