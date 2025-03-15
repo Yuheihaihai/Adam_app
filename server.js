@@ -1040,6 +1040,10 @@ AIが「IQを計測」とは明示せず、自然に簡易化または高度化�
 `;
 
   finalPrompt += `
+※ユーザーが過去の会話（例：「昨日の話」「以前の話」「猿の話」など）に言及した場合、会話履歴から関連する内容を特定して適切に参照してください。過去の話題を覚えていない場合は、会話の流れを自然に保ちながら、過去の話について具体的に尋ねてください。
+`;
+
+  finalPrompt += `
 Please understand if user wants to end a conversation or not by context. Especially when user's sentiment is strong (positive or negative), do not suspend the conversation at your own.
 ユーザーの障害があまりにも重い場合、状況認識や表情・仕草等の理解が難しいと思われます。その場合、ユーザーに「Adamに直接、長文でいいので全部書いて」とアドバイスし、ユーザーが書き終わったら、Adamが状況を分析し対応策を具体的に指示してください。
 (1) 毎回の会話でAIが相手の状況理解の障害の重さを可能性レベルで判断し、仮説を立てる。 
@@ -2904,7 +2908,7 @@ ${SHARE_URL}
     }
 
     // 最近の会話履歴の取得
-    const historyData = await fetchUserHistory(userId, 10);
+    const historyData = await fetchUserHistory(userId, 20);
     const historyForProcessing = historyData.history || [];
     const historyMetadata = historyData.metadata || {};
     const systemPrompt = getSystemPromptForMode(mode);
