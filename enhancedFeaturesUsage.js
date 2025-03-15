@@ -116,9 +116,19 @@ async function handleTextExample(event) {
     if (triggerImageExplanation) {
       // Image generation logic (existing code)
       if (lastAssistantMessage) {
-        pendingImageExplanations.set(userId, lastAssistantMessage.content);
+        // 文字列からオブジェクト形式に変更
+        pendingImageExplanations.set(userId, {
+          content: lastAssistantMessage.content,
+          timestamp: Date.now(),
+          source: 'confusion_detection'
+        });
       } else {
-        pendingImageExplanations.set(userId, "説明がありません。");
+        // 文字列からオブジェクト形式に変更
+        pendingImageExplanations.set(userId, {
+          content: "説明がありません。",
+          timestamp: Date.now(),
+          source: 'default'
+        });
       }
       const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
       console.log("画像による説明の提案をユーザーに送信:", suggestionMessage);

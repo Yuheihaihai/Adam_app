@@ -2560,29 +2560,56 @@ async function handleText(event) {
     // はい/いいえの応答を最初に確認して画像生成を優先処理
     if (pendingImageExplanations.has(userId)) {
       const pendingData = pendingImageExplanations.get(userId);
-      console.log(`[DEBUG-IMAGE] Pending data: timestamp=${pendingData.timestamp}, age=${Date.now() - pendingData.timestamp}ms, contentLen=${pendingData.content ? pendingData.content.length : 0}`);
+      // 互換性のため、pendingDataが文字列の場合もオブジェクトの場合も処理できるようにする
+      const isPendingDataObject = typeof pendingData === 'object' && pendingData !== null;
+      
+      // デバッグログを追加
+      if (isPendingDataObject) {
+        console.log(`[DEBUG-IMAGE] Pending data (object): timestamp=${pendingData.timestamp}, age=${Date.now() - pendingData.timestamp}ms, contentLen=${pendingData.content ? pendingData.content.length : 0}`);
+      } else {
+        console.log(`[DEBUG-IMAGE] Pending data (string): length=${pendingData ? pendingData.length : 0}`);
+      }
       
       const now = Date.now();
-      if (pendingData.timestamp && (now - pendingData.timestamp > 5 * 60 * 1000)) { // 5分でタイムアウト
+      // タイムスタンプチェックはオブジェクトの場合のみ
+      if (isPendingDataObject && pendingData.timestamp && (now - pendingData.timestamp > 5 * 60 * 1000)) { // 5分でタイムアウト
         console.log(`[DEBUG-IMAGE] Pending image request expired for ${userId} - ${Math.round((now - pendingData.timestamp)/1000)}s elapsed (max: 300s)`);
         pendingImageExplanations.delete(userId);
         // 通常の処理を続行
       } else if (userMessage === "はい") {
         console.log(`[DEBUG-IMAGE] 'はい' detected for user ${userId}, proceeding with image generation`);
-        console.log(`[DEBUG-IMAGE] pendingData details: timestamp=${new Date(pendingData.timestamp).toISOString()}, contentLength=${pendingData.content ? pendingData.content.length : 0}`);
         
-        // contentが存在するか確認
-        if (!pendingData.content) {
-          console.log(`[DEBUG-IMAGE] Error: pendingData.content is ${pendingData.content}`);
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: "申し訳ありません。画像生成に必要な情報が見つかりませんでした。もう一度お試しください。"
-          });
-          pendingImageExplanations.delete(userId);
-          return;
+        // pendingDataがオブジェクトか文字列かに応じて処理を分岐
+        let explanationText;
+        if (isPendingDataObject) {
+          console.log(`[DEBUG-IMAGE] pendingData details: timestamp=${new Date(pendingData.timestamp).toISOString()}, contentLength=${pendingData.content ? pendingData.content.length : 0}`);
+          
+          // オブジェクト形式の場合はcontentプロパティから取得
+          if (!pendingData.content) {
+            console.log(`[DEBUG-IMAGE] Error: pendingData.content is ${pendingData.content}`);
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: "申し訳ありません。画像生成に必要な情報が見つかりませんでした。もう一度お試しください。"
+            });
+            pendingImageExplanations.delete(userId);
+            return;
+          }
+          explanationText = pendingData.content;
+        } else {
+          // 文字列形式の場合はそのまま使用
+          console.log(`[DEBUG-IMAGE] pendingData is string (legacy format): length=${pendingData ? pendingData.length : 0}`);
+          if (!pendingData) {
+            console.log(`[DEBUG-IMAGE] Error: pendingData (string) is ${pendingData}`);
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: "申し訳ありません。画像生成に必要な情報が見つかりませんでした。もう一度お試しください。"
+            });
+            pendingImageExplanations.delete(userId);
+            return;
+          }
+          explanationText = pendingData;
         }
         
-        const explanationText = pendingData.content;
         pendingImageExplanations.delete(userId);
         console.log(`[DEBUG-IMAGE] ユーザーの「はい」が検出されました。画像生成を開始します。内容: "${explanationText.substring(0, 30)}..."`);
         return handleVisionExplanation(event, explanationText);
