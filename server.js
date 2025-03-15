@@ -812,16 +812,16 @@ async function storeInteraction(userId, role, content) {
         console.error(`エラーメッセージ: ${airtableErr.message || 'No message'}`);
         
         // ConversationHistoryに保存できない場合は、元のINTERACTIONS_TABLEにフォールバック
-        await base(INTERACTIONS_TABLE).create([
-          {
-            fields: {
-              UserID: userId,
-              Role: role,
-              Content: content,
-              Timestamp: new Date().toISOString(),
-            },
-          },
-        ]);
+    await base(INTERACTIONS_TABLE).create([
+      {
+        fields: {
+          UserID: userId,
+          Role: role,
+          Content: content,
+          Timestamp: new Date().toISOString(),
+        },
+      },
+    ]);
         console.log(`会話履歴のフォールバック保存成功 => INTERACTIONS_TABLEに保存`);
         return true;
       }
@@ -1274,36 +1274,10 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+// callPrimaryModel関数を元のシンプルな実装に戻す
 async function callPrimaryModel(gptOptions) {
   const resp = await openai.chat.completions.create(gptOptions);
-  
-  // レスポンスを詳細にログ出力
-  console.log(`→ OpenAI APIレスポンス構造: ${JSON.stringify(resp).substring(0, 200)}...`);
-  
-  // レスポンスからコンテンツを抽出する処理を強化
-  let content = '';
-  
-  if (resp && resp.choices && resp.choices.length > 0) {
-    const choice = resp.choices[0];
-    
-    if (choice.message && choice.message.content) {
-      content = choice.message.content;
-      console.log(`→ 通常のOpenAI API形式でコンテンツを抽出: ${content.substring(0, 50)}...`);
-    } else if (choice.text) {
-      // 古いAPI形式
-      content = choice.text;
-      console.log(`→ 旧OpenAI API形式でコンテンツを抽出: ${content.substring(0, 50)}...`);
-    } else {
-      // 変換不能な形式の場合、オブジェクト全体をJSONとして返す
-      console.log(`→ 未知のレスポンス形式: ${JSON.stringify(choice)}`);
-      content = '申し訳ありません、APIからの応答形式に問題がありました。もう一度お試しください。';
-    }
-  } else {
-    console.error(`→ OpenAI APIから有効なレスポンスが返されませんでした: ${JSON.stringify(resp)}`);
-    content = '申し訳ありません、AIからの応答を取得できませんでした。もう一度お試しください。';
-  }
-  
-  return content;
+  return resp.choices && resp.choices[0] && resp.choices[0].message ? resp.choices[0].message.content : '';
 }
 
 async function callClaudeModel(messages) {
@@ -1987,7 +1961,7 @@ ${additionalPromptData.jobTrends.analysis}`;
       messages: messages,
       temperature: temperature,
       max_tokens: maxTokens,
-      top_p: 1,
+            top_p: 1,
       frequency_penalty: 0,
       presence_penalty: 0,
     };
@@ -2018,14 +1992,12 @@ ${additionalPromptData.jobTrends.analysis}`;
     // Extract the content of the response
     let aiResponse = '';
     
-    if (response.choices && response.choices[0]) {
-      if (response.choices[0].message) {
-        // OpenAI API format
-        aiResponse = response.choices[0].message.content;
-      } else if (response.choices[0].text) {
-        // Older API format
-        aiResponse = response.choices[0].text;
-      }
+    if (typeof response === 'string') {
+      // 文字列形式の応答の場合はそのまま使用
+      aiResponse = response;
+    } else if (response.choices && response.choices[0] && response.choices[0].message) {
+      // OpenAI API format
+      aiResponse = response.choices[0].message.content || '';
     }
     
     // レスポンス構造を詳細にログに出力
@@ -2075,9 +2047,15 @@ ${additionalPromptData.jobTrends.analysis}`;
       // それでも空の場合はデフォルトメッセージを設定（上位関数でのフォールバック用）
       if (!aiResponse || aiResponse.trim() === '') {
         console.log(`→ すべての抽出方法を試行しましたが、有効なコンテンツを見つけられませんでした`);
-      } else {
+          } else {
         console.log(`→ 代替抽出方法でコンテンツを復旧しました: ${aiResponse.substring(0, 50)}...`);
       }
+    }
+    
+    // 応答が空の場合のエラーログ
+    if (!aiResponse || aiResponse.trim() === '') {
+      console.error(`⚠⚠⚠ 重大な警告: AIから空の応答を受け取りました ⚠⚠⚠`);
+      // エラーをスローせず、空の応答をそのまま返す（上位関数でフォールバックメッセージが適用される）
     }
     
     // 【新規】AIレスポンスのデバッグログ
@@ -2239,7 +2217,7 @@ async function fetchAndAnalyzeHistory(userId) {
   const startTime = Date.now();
   console.log(`📚 Fetching chat history for user ${userId}`);
   console.log(`\n======= 特性分析デバッグログ: 履歴取得開始 =======`);
-    console.log(`→ ユーザーID: ${userId}`);
+  console.log(`→ ユーザーID: ${userId}`);
   
   try {
     // PostgreSQLから最大200件のメッセージを取得
@@ -2482,7 +2460,7 @@ async function handleText(event) {
       // デバッグログを追加
       if (isPendingDataObject) {
         console.log(`[DEBUG-IMAGE] Pending data (object): timestamp=${pendingData.timestamp}, age=${Date.now() - pendingData.timestamp}ms, contentLen=${pendingData.content ? pendingData.content.length : 0}`);
-    } else {
+      } else {
         console.log(`[DEBUG-IMAGE] Pending data (string): length=${pendingData ? pendingData.length : 0}`);
       }
       
@@ -2980,7 +2958,7 @@ ${SHARE_URL}
     console.log(`[会話履歴診断] ユーザー: ${userId}, モード: ${mode}, 取得履歴数: ${historyForAIProcessing.history?.length || 0}件`);
     
     // systemPrompt is already defined above
-
+    
     // サービス表示の判断
     const showServices = await shouldShowServicesToday(userId, historyForAIProcessing, userMessage);
 
