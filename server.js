@@ -734,7 +734,7 @@ function determineModeAndLimit(userMessage) {
     return { mode: 'share', limit: 10 };
   }
   
-  return { mode: 'general', limit: 10 };
+  return { mode: 'general', limit: 30 };  // 10から30に変更: 会話履歴の記憶問題を修正
 }
 
 function getSystemPromptForMode(mode) {
@@ -769,8 +769,17 @@ async function storeInteraction(userId, role, content) {
         },
       },
     ]);
+    
+    // 会話履歴の保存が成功したことをログに記録
+    console.log(`会話履歴の保存成功 => ユーザー: ${userId}, タイプ: ${role}, 長さ: ${content.length}文字`);
+    return true;
   } catch (err) {
     console.error('Error storing interaction:', err);
+    // 詳細なエラー情報をログに出力（会話保存の失敗原因特定のため）
+    console.error(`会話保存エラーの詳細 => ユーザー: ${userId}`); 
+    console.error(`エラータイプ: ${err.name || 'Unknown'}`);
+    console.error(`エラーメッセージ: ${err.message || 'No message'}`);
+    return false;
   }
 }
 
@@ -898,6 +907,15 @@ async function fetchUserHistory(userId, limit) {
     return { history, metadata: historyMetadata };
   } catch (error) {
     console.error('Error fetching history:', error);
+    // エラーの詳細情報を出力（会話履歴の取得問題を診断するため）
+    console.error(`会話履歴取得エラーの詳細情報 => ユーザーID: ${userId}`);
+    console.error(`エラータイプ: ${error.name || 'Unknown'}`);
+    console.error(`エラーメッセージ: ${error.message || 'No message'}`);
+    if (error.stack) {
+      console.error(`スタックトレース: ${error.stack}`);
+    }
+    
+    // 空の履歴を返す
     return { history: [], metadata: { totalRecords: 0, insufficientReason: 'error' } };
   }
 }
@@ -1377,6 +1395,16 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     // historyDataからhistoryとmetadataを取り出す
     const history = historyData.history || [];
     const historyMetadata = historyData.metadata || {};
+    
+    // 会話履歴のデバッグ情報を出力（記憶問題のトラブルシューティング用）
+    console.log(`\n==== 会話履歴デバッグ情報 ====`);
+    console.log(`→ ユーザーID: ${userId}`);
+    console.log(`→ 履歴メッセージ数: ${history.length}件`);
+    if (history.length > 0) {
+      console.log(`→ 最新の履歴メッセージ: ${history[history.length-1].role}: ${history[history.length-1].content.substring(0, 50)}${history[history.length-1].content.length > 50 ? '...' : ''}`);
+    } else {
+      console.log(`→ 警告: 履歴が空です。fetchUserHistoryでの取得に問題がある可能性があります。`);
+    }
     
     // Get user preferences
     const userPrefs = userPreferences.getUserPreferences(userId);
@@ -2323,7 +2351,7 @@ async function fetchAndAnalyzeHistory(userId) {
   const startTime = Date.now();
   console.log(`📚 Fetching chat history for user ${userId}`);
   console.log(`\n======= 特性分析デバッグログ: 履歴取得開始 =======`);
-  console.log(`→ ユーザーID: ${userId}`);
+    console.log(`→ ユーザーID: ${userId}`);
   
   try {
     // PostgreSQLから最大200件のメッセージを取得
@@ -2566,7 +2594,7 @@ async function handleText(event) {
       // デバッグログを追加
       if (isPendingDataObject) {
         console.log(`[DEBUG-IMAGE] Pending data (object): timestamp=${pendingData.timestamp}, age=${Date.now() - pendingData.timestamp}ms, contentLen=${pendingData.content ? pendingData.content.length : 0}`);
-      } else {
+    } else {
         console.log(`[DEBUG-IMAGE] Pending data (string): length=${pendingData ? pendingData.length : 0}`);
       }
       
@@ -3060,6 +3088,11 @@ ${SHARE_URL}
     // アドバイス要求の検出（非同期処理に対応）
     const adviceRequested = await detectAdviceRequestWithLLM(userMessage, historyForAIProcessing);
     
+    // 会話履歴取得のデバッグログ
+    console.log(`[会話履歴診断] ユーザー: ${userId}, モード: ${mode}, 取得履歴数: ${historyForAIProcessing.history?.length || 0}件`);
+    
+    // systemPrompt is already defined above
+
     // サービス表示の判断
     const showServices = await shouldShowServicesToday(userId, historyForAIProcessing, userMessage);
 
