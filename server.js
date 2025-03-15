@@ -888,8 +888,8 @@ async function fetchUserHistory(userId, limit) {
               filterByFormula: `{UserID} = "${userId}"`,
               sort: [{ field: 'Timestamp', direction: 'asc' }],
               fields: columns,  // 明示的にフィールドを指定
-              maxRecords: limit * 2, // userとassistantのやり取りがあるため、2倍のレコード数を取得
-              view: 'Grid' // 明示的にGridビューを指定
+              maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
+              // view: 'Grid' ビュー指定を削除
             })
             .all();
             
