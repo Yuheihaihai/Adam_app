@@ -96,12 +96,12 @@ const userPreferences = {
     const isPositiveFeedback = hasPositiveFeedback && !hasNegativeFeedback;
     
     if (isPositiveFeedback && recentServices && recentServices.length > 0) {
-    console.log(`Detected positive feedback from user ${userId}: "${userMessage}"`);
+      console.log(`Detected positive feedback from user ${userId}: "${userMessage}"`);
       
       // If user gave positive feedback, ensure service recommendations are turned on
       if (!prefs.showServiceRecommendations) {
         prefs.showServiceRecommendations = true;
-      console.log(`Enabled service recommendations for user ${userId} due to positive feedback`);
+        console.log(`Enabled service recommendations for user ${userId} due to positive feedback`);
         
         // Store the updated preferences
         this.updateUserPreferences(userId, prefs);
@@ -360,7 +360,7 @@ app.post('/webhook', rawBodyParser, line.middleware(config), (req, res) => {
       });
       }));
       
-    console.log(`Webhook processing completed for ${results.filter(r => r !== null).length} events`);
+      console.log(`Webhook processing completed for ${results.filter(r => r !== null).length} events`);
     } catch (err) {
       console.error('Webhook background processing error:', err);
     }
@@ -801,7 +801,7 @@ async function fetchUserHistory(userId, limit) {
             .all();
             
           if (conversationRecords && conversationRecords.length > 0) {
-          console.log(`Found ${conversationRecords.length} conversation history records in ConversationHistory table`);
+            console.log(`Found ${conversationRecords.length} conversation history records in ConversationHistory table`);
             
             const history = conversationRecords.map((r) => ({
               role: r.get('Role') === 'assistant' ? 'assistant' : 'user',
@@ -820,7 +820,7 @@ async function fetchUserHistory(userId, limit) {
           }
         } catch (tableErr) {
           // ConversationHistoryテーブルが存在しない場合は無視して次の方法を試す
-        console.log(`ConversationHistory table not found or error: ${tableErr.message}. Falling back to UserAnalysis.`);
+          console.log(`ConversationHistory table not found or error: ${tableErr.message}. Falling back to UserAnalysis.`);
         }
         
         // 2. 次にUserAnalysisテーブルの会話データを試す（代替方法）
@@ -838,7 +838,7 @@ async function fetchUserHistory(userId, limit) {
               try {
                 const data = JSON.parse(rawData);
                 if (data.conversation && Array.isArray(data.conversation)) {
-                console.log(`Found ${data.conversation.length} messages in UserAnalysis conversation data`);
+                  console.log(`Found ${data.conversation.length} messages in UserAnalysis conversation data`);
                   
                   const history = data.conversation.map(msg => ({
                     role: msg.role || 'user',
@@ -862,7 +862,7 @@ async function fetchUserHistory(userId, limit) {
           }
         } catch (analysisErr) {
           // UserAnalysisテーブルのアクセスエラーは無視して次の方法を試す
-        console.log(`UserAnalysis table not found or error: ${analysisErr.message}. Falling back to original method.`);
+          console.log(`UserAnalysis table not found or error: ${analysisErr.message}. Falling back to original method.`);
         }
       }
     } catch (airtableErr) {
@@ -939,7 +939,7 @@ function analyzeHistoryContent(history, metadata) {
   if (history.length < 3) {
     metadata.insufficientReason = 'few_records';
     console.log(`→ 結論: 履歴が少ない (${history.length}件)`);
-  
+  } else {
     console.log(`→ 結論: 分析に十分な履歴あり`);
   }
   
@@ -1239,7 +1239,7 @@ ${pastAiReturns}
     
     // Reattach service recommendations if they were present
     if (serviceRecommendationSection) {
-    console.log('Reattaching service recommendations to critic output');
+      console.log('Reattaching service recommendations to critic output');
       criticOutput = criticOutput.trim() + '\n\n' + serviceRecommendationSection;
     }
     
@@ -1413,19 +1413,19 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     const [userNeedsPromise, conversationContextPromise, perplexityDataPromise] = await Promise.all([
       // Analyze user needs from conversation history (知識の生成)
       (async () => {
-      console.log('\n📊 [1A] USER NEEDS ANALYSIS (知識生成) - Starting');
+        console.log('\n📊 [1A] USER NEEDS ANALYSIS (知識生成) - Starting');
         const needsStartTime = Date.now();
         const userNeeds = await userNeedsAnalyzer.analyzeUserNeeds(userMessage, history);
-      console.log(`📊 [1A] USER NEEDS ANALYSIS (知識生成) - Completed in ${Date.now() - needsStartTime}ms`);
+        console.log(`📊 [1A] USER NEEDS ANALYSIS (知識生成) - Completed in ${Date.now() - needsStartTime}ms`);
         return userNeeds;
       })(),
       
       // Extract conversation context (知識の生成)
       (async () => {
-      console.log('\n🔍 [1B] CONVERSATION CONTEXT EXTRACTION (知識生成) - Starting');
+        console.log('\n🔍 [1B] CONVERSATION CONTEXT EXTRACTION (知識生成) - Starting');
         const contextStartTime = Date.now();
         const conversationContext = extractConversationContext(history, userMessage);
-      console.log(`🔍 [1B] CONVERSATION CONTEXT EXTRACTION (知識生成) - Completed in ${Date.now() - contextStartTime}ms`);
+        console.log(`🔍 [1B] CONVERSATION CONTEXT EXTRACTION (知識生成) - Completed in ${Date.now() - contextStartTime}ms`);
         return conversationContext;
       })(),
       
@@ -1433,10 +1433,10 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
       (async () => {
         if (mode === 'career') {
           try {
-          console.log('\n🤖 [1C] ML AUGMENTATION: PERPLEXITY DATA - Starting');
+            console.log('\n🤖 [1C] ML AUGMENTATION: PERPLEXITY DATA - Starting');
             const perplexityStartTime = Date.now();
             
-          console.log('    ├─ [1C.1] Initiating parallel API calls to Perplexity');
+            console.log('    ├─ [1C.1] Initiating parallel API calls to Perplexity');
             // Run both knowledge enhancement and job trends in parallel
             const [knowledgeData, jobTrendsData] = await Promise.all([
               perplexity.enhanceKnowledge(history, userMessage).catch(err => {
@@ -1450,24 +1450,24 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
             ]);
             
             const perplexityTime = Date.now() - perplexityStartTime;
-          console.log(`    ├─ [1C.2] ML data retrieved in ${perplexityTime}ms`);
+            console.log(`    ├─ [1C.2] ML data retrieved in ${perplexityTime}ms`);
             
             // Log what we got with more details
-          console.log('    ├─ [1C.3] ML DATA RESULTS:');
-          console.log(`    │  ${knowledgeData ? '✅' : '❌'} User characteristics analysis: ${knowledgeData ? 'Retrieved' : 'Failed'}`);
+            console.log('    ├─ [1C.3] ML DATA RESULTS:');
+            console.log(`    │  ${knowledgeData ? '✅' : '❌'} User characteristics analysis: ${knowledgeData ? 'Retrieved' : 'Failed'}`);
             if (knowledgeData) {
-              console.log('    │    └─ Length: ' + knowledgeData.length + ' characters');
-              console.log('    │    └─ Sample: ' + knowledgeData.substring(0, 50) + '...');
+                console.log('    │    └─ Length: ' + knowledgeData.length + ' characters');
+                console.log('    │    └─ Sample: ' + knowledgeData.substring(0, 50) + '...');
             }
             
-          console.log(`    │  ${jobTrendsData ? '✅' : '❌'} Job market trends: ${jobTrendsData ? 'Retrieved' : 'Failed'}`);
+            console.log(`    │  ${jobTrendsData ? '✅' : '❌'} Job market trends: ${jobTrendsData ? 'Retrieved' : 'Failed'}`);
             if (jobTrendsData && jobTrendsData.analysis) {
-              console.log('    │    └─ Analysis length: ' + jobTrendsData.analysis.length + ' characters');
-              console.log('    │    └─ Sample: ' + jobTrendsData.analysis.substring(0, 50) + '...');
-              console.log('    │    └─ URLs provided: ' + (jobTrendsData.urls ? 'Yes' : 'No'));
+                console.log('    │    └─ Analysis length: ' + jobTrendsData.analysis.length + ' characters');
+                console.log('    │    └─ Sample: ' + jobTrendsData.analysis.substring(0, 50) + '...');
+                console.log('    │    └─ URLs provided: ' + (jobTrendsData.urls ? 'Yes' : 'No'));
             }
             
-          console.log('    └─ [1C.4] ML AUGMENTATION: PERPLEXITY DATA - Completed');
+            console.log('    └─ [1C.4] ML AUGMENTATION: PERPLEXITY DATA - Completed');
             
             return {
               knowledge: knowledgeData,
@@ -1475,56 +1475,56 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
             };
           } catch (error) {
             console.error('\n❌ Error fetching ML data:', error.message);
-          console.log('   └─ Proceeding without ML augmentation');
+            console.log('   └─ Proceeding without ML augmentation');
             return null;
           }
         }
         // LocalML processing for other modes (general, mental_health, analysis)
         else if (['general', 'mental_health', 'analysis'].includes(mode)) {
           try {
-          console.log('\n🤖 [1C] ML AUGMENTATION: LOCALML DATA - Starting');
+            console.log('\n🤖 [1C] ML AUGMENTATION: LOCALML DATA - Starting');
             const localMlStartTime = Date.now();
             
             // Process ML data through mlHook
             const { mlData } = await processMlData(userId, userMessage, mode);
             
             const localMlTime = Date.now() - localMlStartTime;
-          console.log(`    ├─ [1C.2] ML data processed in ${localMlTime}ms`);
+            console.log(`    ├─ [1C.2] ML data processed in ${localMlTime}ms`);
             
             // Log ML data status
             if (mlData) {
-            console.log('    ├─ [1C.3] ML DATA RESULTS:');
-            console.log(`    │  ✅ User ${mode} analysis: Retrieved`);
-            console.log(`    │    └─ Data size: ${JSON.stringify(mlData).length} bytes`);
+              console.log('    ├─ [1C.3] ML DATA RESULTS:');
+              console.log(`    │  ✅ User ${mode} analysis: Retrieved`);
+              console.log(`    │    └─ Data size: ${JSON.stringify(mlData).length} bytes`);
               
               // Log detected traits or features based on mode
               if (mode === 'general' && mlData.traits) {
-              console.log('    │    └─ Detected traits:');
+                console.log('    │    └─ Detected traits:');
                 Object.entries(mlData.traits).forEach(([trait, value]) => {
-                console.log(`    │       - ${trait}: ${value}`);
+                  console.log(`    │       - ${trait}: ${value}`);
                 });
               } else if (mode === 'mental_health' && mlData.indicators) {
-              console.log('    │    └─ Detected indicators:');
+                console.log('    │    └─ Detected indicators:');
                 Object.entries(mlData.indicators).forEach(([indicator, value]) => {
-                console.log(`    │       - ${indicator}: ${value}`);
+                  console.log(`    │       - ${indicator}: ${value}`);
                 });
               } else if (mode === 'analysis' && mlData.complexity) {
-              console.log('    │    └─ Detected complexity factors:');
+                console.log('    │    └─ Detected complexity factors:');
                 Object.entries(mlData.complexity).forEach(([factor, value]) => {
-                console.log(`    │       - ${factor}: ${value}`);
+                  console.log(`    │       - ${factor}: ${value}`);
                 });
               }
-            
-            console.log('    ├─ [1C.3] ML DATA RESULTS:');
-            console.log('    │  ❌ No ML data available for this conversation');
+            } else {
+              console.log('    ├─ [1C.3] ML DATA RESULTS:');
+              console.log('    │  ❌ No ML data available for this conversation');
             }
             
-          console.log('    └─ [1C.4] ML AUGMENTATION: LOCALML DATA - Completed');
+            console.log('    └─ [1C.4] ML AUGMENTATION: LOCALML DATA - Completed');
             
             return mlData;
           } catch (error) {
             console.error('\n❌ Error processing LocalML data:', error.message);
-          console.log('   └─ Proceeding without ML augmentation');
+            console.log('   └─ Proceeding without ML augmentation');
             return null;
           }
         }
@@ -1545,14 +1545,14 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     
     console.log('\n🧩 [2A] USER NEEDS RESULT:');
     Object.keys(userNeeds).forEach(category => {
-      console.log(`    ├─ ${category}:`);
+        console.log(`    ├─ ${category}:`);
         const categoryData = userNeeds[category];
         Object.keys(categoryData).forEach(key => {
             const value = categoryData[key];
             if (typeof value === 'boolean') {
-              console.log(`    │  ${value ? '✅' : '❌'} ${key}: ${value}`);
+                console.log(`    │  ${value ? '✅' : '❌'} ${key}: ${value}`);
             } else if (value !== null && value !== undefined) {
-              console.log(`    │  📝 ${key}: ${value}`);
+                console.log(`    │  📝 ${key}: ${value}`);
             }
         });
     });
@@ -1569,19 +1569,19 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
 
     if (!userPrefs.showServiceRecommendations) {
       serviceNotificationReason = 'disabled';
-    console.log('⚠️ Skipping service recommendations: User preferences disabled');
-    
+      console.log('⚠️ Skipping service recommendations: User preferences disabled');
+    } else {
       // detectAdviceRequestが非同期関数になったため、awaitで結果を取得
       const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
       if (!isAdviceRequest) {
       serviceNotificationReason = 'no_request';
-      console.log('⚠️ Skipping service recommendations: No advice request detected by LLM');
-    
+        console.log('⚠️ Skipping service recommendations: No advice request detected by LLM');
+    } else {
       // Check timing constraints
         const shouldShow = await shouldShowServicesToday(userId, history, userMessage);
         
         // メッセージの詳細ログを追加
-      console.log(`📝 [SERVICE DEBUG] Analyzing user message for service matching: "${userMessage.substring(0, 100)}${userMessage.length > 100 ? '...' : ''}"`);
+        console.log(`📝 [SERVICE DEBUG] Analyzing user message for service matching: "${userMessage.substring(0, 100)}${userMessage.length > 100 ? '...' : ''}"`);
         
       if (!shouldShow) {
         // Check the reason
@@ -1603,19 +1603,19 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
         
         if (servicesToday >= 9) {
           serviceNotificationReason = 'daily_limit';
-          console.log('⚠️ Not showing services: Daily limit reached');
-          console.log(`📝 [SERVICE DEBUG] Service count today: ${servicesToday}/9`);
-        
+            console.log('⚠️ Not showing services: Daily limit reached');
+            console.log(`📝 [SERVICE DEBUG] Service count today: ${servicesToday}/9`);
+        } else {
           serviceNotificationReason = 'cooldown';
             const minutesSinceLastShown = lastServiceTime ? Math.round((now - lastServiceTime) / 60000) : null;
-          console.log(`⚠️ Not showing services: Cooldown period (Last shown: ${lastServiceTime ? minutesSinceLastShown + ' minutes ago' : 'never'})`);
-          console.log(`📝 [SERVICE DEBUG] Cooldown details - Minutes since last recommendation: ${minutesSinceLastShown}, Required cooldown: 45 minutes`);
+            console.log(`⚠️ Not showing services: Cooldown period (Last shown: ${lastServiceTime ? minutesSinceLastShown + ' minutes ago' : 'never'})`);
+            console.log(`📝 [SERVICE DEBUG] Cooldown details - Minutes since last recommendation: ${minutesSinceLastShown}, Required cooldown: 45 minutes`);
         }
         
-        console.log(`Service recommendations skipped: ${serviceNotificationReason}`);
-      
-        console.log('✅ Starting service recommendation process - constraints passed');
-        console.log(`📝 [SERVICE DEBUG] Recommendation process starting for user message: "${userMessage.substring(0, 50)}..."`);
+          console.log(`Service recommendations skipped: ${serviceNotificationReason}`);
+      } else {
+          console.log('✅ Starting service recommendation process - constraints passed');
+          console.log(`📝 [SERVICE DEBUG] Recommendation process starting for user message: "${userMessage.substring(0, 50)}..."`);
           
         // 最終的に表示が決まったら、表示時刻を記録
         userPrefs.lastServiceTime = Date.now();
@@ -1624,22 +1624,22 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
         // Enhance conversationContext with the latest user message
         if (conversationContext.recentMessages) {
           conversationContext.recentMessages.push(userMessage);
-        console.log(`Added message to conversationContext, now has ${conversationContext.recentMessages.length} messages`);
-        console.log(`Latest message: ${conversationContext.recentMessages[conversationContext.recentMessages.length - 1]}`);
+          console.log(`Added message to conversationContext, now has ${conversationContext.recentMessages.length} messages`);
+          console.log(`Latest message: ${conversationContext.recentMessages[conversationContext.recentMessages.length - 1]}`);
             
             // recentTopicsがあれば表示
             if (conversationContext.recentTopics && conversationContext.recentTopics.length > 0) {
-            console.log(`📝 [SERVICE DEBUG] Recent topics detected: ${conversationContext.recentTopics.join(', ')}`);
+              console.log(`📝 [SERVICE DEBUG] Recent topics detected: ${conversationContext.recentTopics.join(', ')}`);
             }
             
             // moodがあれば表示
             if (conversationContext.currentMood) {
-            console.log(`📝 [SERVICE DEBUG] Current mood detected: ${conversationContext.currentMood}`);
+              console.log(`📝 [SERVICE DEBUG] Current mood detected: ${conversationContext.currentMood}`);
             }
             
             // urgencyがあれば表示
             if (conversationContext.urgency !== undefined) {
-            console.log(`📝 [SERVICE DEBUG] Urgency level: ${conversationContext.urgency}`);
+              console.log(`📝 [SERVICE DEBUG] Urgency level: ${conversationContext.urgency}`);
             }
         }
         
@@ -1677,14 +1677,14 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     
     // Add ML data for career mode (知識の活用)
     if (mode === 'career' && perplexityData) {
-    console.log('\n🔄 [3B] INTEGRATING PERPLEXITY DATA INTO PROMPT (知識の活用)');
+      console.log('\n🔄 [3B] INTEGRATING PERPLEXITY DATA INTO PROMPT (知識の活用)');
       
       // Record baseline prompt size before adding Perplexity data
       const baselinePromptSize = JSON.stringify(messages).length;
-    console.log(`    ├─ Baseline prompt size before Perplexity data: ${baselinePromptSize} bytes`);
+      console.log(`    ├─ Baseline prompt size before Perplexity data: ${baselinePromptSize} bytes`);
       
       // Add Perplexity data to prompt
-      
+      if (model === 'gpt-4o-latest') {
         messages.push({
           role: 'system',
           content: `
@@ -1693,58 +1693,59 @@ ${perplexityData.knowledge}
 この特性を考慮してアドバイスを提供してください。
 `
         });
+      } else {
+        // For Claude, append to the first message content
+        messages[0].content += `\n\n# ユーザー特性の追加分析 (Perplexityから取得)\n${perplexityData.knowledge}\nこの特性を考慮してアドバイスを提供してください。`;
+      }
       
       // Log the Perplexity data impact on prompt size
       const perplexityAugmentedPromptSize = JSON.stringify(messages).length;
       const promptSizeIncrease = perplexityAugmentedPromptSize - baselinePromptSize;
       const percentIncrease = ((promptSizeIncrease / baselinePromptSize) * 100).toFixed(1);
-    console.log(`    ├─ Perplexity-augmented prompt size: ${perplexityAugmentedPromptSize} bytes`);
-    console.log(`    └─ Perplexity data added ${promptSizeIncrease} bytes (${percentIncrease}% increase)`);
+      console.log(`    ├─ Perplexity-augmented prompt size: ${perplexityAugmentedPromptSize} bytes`);
+      console.log(`    └─ Perplexity data added ${promptSizeIncrease} bytes (${percentIncrease}% increase)`);
     }
     // Add LocalML data for other modes (知識の活用)
     else if (['general', 'mental_health', 'analysis'].includes(mode)) {
-    console.log('\n🔄 [3B] INTEGRATING LOCAL ML DATA INTO PROMPT (知識の活用)');
+      console.log('\n🔄 [3B] INTEGRATING LOCAL ML DATA INTO PROMPT (知識の活用)');
       
       // Record baseline prompt size before adding ML data
       const baselinePromptSize = JSON.stringify(messages).length;
-    console.log(`    ├─ Baseline prompt size before ML data: ${baselinePromptSize} bytes`);
+      console.log(`    ├─ Baseline prompt size before ML data: ${baselinePromptSize} bytes`);
       
       // Get system prompt from ML data
       const { systemPrompt: mlSystemPrompt } = await processMlData(userId, userMessage, mode);
       
       if (mlSystemPrompt) {
-      console.log(`    ├─ Adding ${mode} mode ML analysis`);
-      console.log(`    │  └─ Analysis length: ${mlSystemPrompt.length} characters`);
+        console.log(`    ├─ Adding ${mode} mode ML analysis`);
+        console.log(`    │  └─ Analysis length: ${mlSystemPrompt.length} characters`);
         
-        // Add the ML system prompt (知識の活用)
-        
-          messages.push({
-            role: 'system',
-            content: mlSystemPrompt
-          });
-        
-          // For Claude, append to the first message content
-          messages[0].content += `\n\n# ML分析結果からの追加コンテキスト\n${mlSystemPrompt}`;
-        }
+        // Add the ML system prompt (知識の活用) - unified approach for all models
+        messages.push({
+          role: 'system',
+          content: mlSystemPrompt
+        });
         
         // Log the ML data impact on prompt size
         const mlAugmentedPromptSize = JSON.stringify(messages).length;
         const promptSizeIncrease = mlAugmentedPromptSize - baselinePromptSize;
         const percentIncrease = ((promptSizeIncrease / baselinePromptSize) * 100).toFixed(1);
-      console.log(`    ├─ ML-augmented prompt size: ${mlAugmentedPromptSize} bytes`);
-      console.log(`    └─ ML data added ${promptSizeIncrease} bytes (${percentIncrease}% increase)`);
-      
-      console.log(`    └─ No ML data available to integrate`);
+        console.log(`    ├─ ML-augmented prompt size: ${mlAugmentedPromptSize} bytes`);
+        console.log(`    └─ ML data added ${promptSizeIncrease} bytes (${percentIncrease}% increase)`);
+      } else {
+        console.log(`    └─ No ML data available to integrate`);
       }
     }
     
-    // Add user message after all context
-    
-    console.log('\n📨 [3C] FINALIZING PROMPT:');
-    console.log(`    ├─ Total prompt components: ${messages.length}`);
-    console.log(`    └─ Adding user message: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
-    messages.push({ role: 'user', content: userMessage });
+    // Add user message after all context for GPT-4
+    if (model === 'gpt-4o-latest') {
+      console.log('\n📨 [3C] FINALIZING PROMPT:');
+      console.log(`    ├─ Total prompt components: ${messages.length}`);
+      console.log(`    └─ Adding user message: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
       
+      messages.push({ role: 'user', content: userMessage });
+    }
+    
     // ─────────────────────────────────────────────────────────────────────
     console.log('\n┌──────────────────────────────────────────────────────────┐');
     console.log('│ 4. AI GENERATION & SERVICE MATCHING PHASE                │');
@@ -1755,7 +1756,7 @@ ${perplexityData.knowledge}
     const [aiResponse, serviceRecommendations] = await Promise.all([
       // Generate AI response
       (async () => {
-      console.log('\n🧠 [4A] AI RESPONSE GENERATION - Starting');
+        console.log('\n🧠 [4A] AI RESPONSE GENERATION - Starting');
         const startTime = Date.now();
         try {
           const requestOptions = {
@@ -1768,81 +1769,81 @@ ${perplexityData.knowledge}
             presence_penalty: 0.5,
           };
 
-        console.log(`    ├─ Model: ${model}`);
-        console.log(`    ├─ Temperature: ${requestOptions.temperature}`);
-        console.log(`    ├─ Max tokens: ${requestOptions.max_tokens}`);
-        console.log(`    ├─ Total prompt components: ${messages.length}`);
+          console.log(`    ├─ Model: ${model}`);
+          console.log(`    ├─ Temperature: ${requestOptions.temperature}`);
+          console.log(`    ├─ Max tokens: ${requestOptions.max_tokens}`);
+          console.log(`    ├─ Total prompt components: ${messages.length}`);
           
           // Pre-response analysis: Show what information we expect the ML data to provide
           if (mode === 'career' && perplexityData) {
-          console.log('    ├─ Expected ML influence on response:');
+            console.log('    ├─ Expected ML influence on response:');
             
             if (perplexityData.jobTrends && perplexityData.jobTrends.analysis) {
               // Extract key job sectors from the market data
               const jobSectors = extractJobSectors(perplexityData.jobTrends.analysis);
-            console.log('    │  └─ Expected job sectors in response:');
+              console.log('    │  └─ Expected job sectors in response:');
               jobSectors.forEach((sector, i) => {
                 if (i < 3) {
-                console.log(`    │     - ${sector}`);
+                  console.log(`    │     - ${sector}`);
                 }
               });
               
               // Add more detailed analysis of job trends data
-            console.log('    │  └─ Market data influence details:');
+              console.log('    │  └─ Market data influence details:');
               // Check for salary information
               const hasSalary = perplexityData.jobTrends.analysis.includes('年収') || 
                                perplexityData.jobTrends.analysis.includes('給与') ||
                                perplexityData.jobTrends.analysis.includes('賃金');
-            console.log(`    │     - Salary information: ${hasSalary ? '含まれる✅' : '含まれない❌'}`);
+              console.log(`    │     - Salary information: ${hasSalary ? '含まれる✅' : '含まれない❌'}`);
               
               // Check for skill requirements
               const hasSkills = perplexityData.jobTrends.analysis.includes('スキル') || 
                                perplexityData.jobTrends.analysis.includes('能力') ||
                                perplexityData.jobTrends.analysis.includes('資格');
-            console.log(`    │     - Skill requirements: ${hasSkills ? '含まれる✅' : '含まれない❌'}`);
+              console.log(`    │     - Skill requirements: ${hasSkills ? '含まれる✅' : '含まれない❌'}`);
               
               // Check for future trends
               const hasFutureTrends = perplexityData.jobTrends.analysis.includes('将来') || 
                                      perplexityData.jobTrends.analysis.includes('今後') ||
                                      perplexityData.jobTrends.analysis.includes('予測');
-            console.log(`    │     - Future predictions: ${hasFutureTrends ? '含まれる✅' : '含まれない❌'}`);
+              console.log(`    │     - Future predictions: ${hasFutureTrends ? '含まれる✅' : '含まれない❌'}`);
             }
             
             if (perplexityData.knowledge) {
               // Extract personality traits from user characteristics
               const personalityTraits = extractPersonalityTraits(perplexityData.knowledge);
-            console.log('    │  └─ Expected personality traits addressed:');
+              console.log('    │  └─ Expected personality traits addressed:');
               personalityTraits.forEach((trait, i) => {
                 if (i < 3) {
-                console.log(`    │     - ${trait}`);
+                  console.log(`    │     - ${trait}`);
                 }
               });
               
               // Add more detailed analysis of user characteristics data
-            console.log('    │  └─ User characteristics influence details:');
+              console.log('    │  └─ User characteristics influence details:');
               
               // Check for communication style
               const hasCommunication = perplexityData.knowledge.includes('コミュニケーション') || 
                                       perplexityData.knowledge.includes('対話') ||
                                       perplexityData.knowledge.includes('会話');
-            console.log(`    │     - Communication style: ${hasCommunication ? '分析済み✅' : '未分析❌'}`);
+              console.log(`    │     - Communication style: ${hasCommunication ? '分析済み✅' : '未分析❌'}`);
               
               // Check for decision-making patterns
               const hasDecisionMaking = perplexityData.knowledge.includes('決断') || 
                                        perplexityData.knowledge.includes('判断') ||
                                        perplexityData.knowledge.includes('選択');
-            console.log(`    │     - Decision patterns: ${hasDecisionMaking ? '分析済み✅' : '未分析❌'}`);
+              console.log(`    │     - Decision patterns: ${hasDecisionMaking ? '分析済み✅' : '未分析❌'}`);
               
               // Check for values and priorities
               const hasValues = perplexityData.knowledge.includes('価値観') || 
                                perplexityData.knowledge.includes('大切') ||
                                perplexityData.knowledge.includes('重視');
-            console.log(`    │     - Values/priorities: ${hasValues ? '分析済み✅' : '未分析❌'}`);
+              console.log(`    │     - Values/priorities: ${hasValues ? '分析済み✅' : '未分析❌'}`);
             }
           }
           
           // Call OpenAI API
-        console.log('    ├─ Sending request to OpenAI API...');
+          console.log('    ├─ Sending request to OpenAI API...');
           const response = await openai.chat.completions.create(requestOptions);
           
           // 特性分析に関連するキーワードを持つメッセージかどうかを確認
@@ -1852,9 +1853,9 @@ ${perplexityData.knowledge}
           
           // デバッグログ追加
           if (isCharacteristicsRelated) {
-          console.log(`\n======= 特性分析関連レスポンスデバッグ =======`);
-          console.log(`→ AIレスポンス先頭: ${response.choices[0].message.content.substring(0, 50)}...`);
-          console.log(`→ 「過去の記録がない」関連フレーズを含むか: ${
+            console.log(`\n======= 特性分析関連レスポンスデバッグ =======`);
+            console.log(`→ AIレスポンス先頭: ${response.choices[0].message.content.substring(0, 50)}...`);
+            console.log(`→ 「過去の記録がない」関連フレーズを含むか: ${
               response.choices[0].message.content.includes('過去の記録がない') || 
               response.choices[0].message.content.includes('会話履歴がない') ||
               response.choices[0].message.content.includes('過去の会話履歴がない')
@@ -1864,30 +1865,30 @@ ${perplexityData.knowledge}
             if (response.choices[0].message.content.includes('過去の記録がない') || 
                 response.choices[0].message.content.includes('会話履歴がない') ||
                 response.choices[0].message.content.includes('過去の会話履歴がない')) {
-            console.log(`→ モード: ${mode}`);
-            console.log(`→ 会話履歴件数: ${history.length}`);
-            console.log(`→ ユーザーメッセージ: ${userMessage}`);
-            console.log(`→ 使用モデル: ${model}`);
+              console.log(`→ モード: ${mode}`);
+              console.log(`→ 会話履歴件数: ${history.length}`);
+              console.log(`→ ユーザーメッセージ: ${userMessage}`);
+              console.log(`→ 使用モデル: ${model}`);
               
               // システムプロンプト（messages配列の最初の要素）を使用
               const systemPromptContent = messages[0].content;
               
               // 重要な部分の処理確認
-            console.log(`→ プロンプトに「過去の記録がないなどとは言わず」の指示: ${
+              console.log(`→ プロンプトに「過去の記録がないなどとは言わず」の指示: ${
                 systemPromptContent.includes('過去の記録がない」などとは言わず')
               }`);
             }
-          console.log(`======= 特性分析関連レスポンスデバッグ終了 =======\n`);
+            console.log(`======= 特性分析関連レスポンスデバッグ終了 =======\n`);
           }
           
           const timeTaken = Date.now() - startTime;
-        console.log(`    ├─ AI response generated in ${timeTaken}ms`);
-        console.log(`    ├─ Tokens used: ${response.usage.total_tokens} (prompt: ${response.usage.prompt_tokens}, completion: ${response.usage.completion_tokens})`);
+          console.log(`    ├─ AI response generated in ${timeTaken}ms`);
+          console.log(`    ├─ Tokens used: ${response.usage.total_tokens} (prompt: ${response.usage.prompt_tokens}, completion: ${response.usage.completion_tokens})`);
           
           // Get AI response content
           const responseContent = response.choices[0].message.content;
-        console.log(`    ├─ Response length: ${responseContent.length} characters`);
-        console.log(`    └─ First 50 chars: ${responseContent.substring(0, 50)}...`);
+          console.log(`    ├─ Response length: ${responseContent.length} characters`);
+          console.log(`    └─ First 50 chars: ${responseContent.substring(0, 50)}...`);
           
           return responseContent;
         } catch (error) {
@@ -1903,18 +1904,18 @@ ${perplexityData.knowledge}
       // Get service recommendations in parallel
       (async () => {
         try {
-        console.log('\n🔍 [4B] SERVICE MATCHING - Processing');
+          console.log('\n🔍 [4B] SERVICE MATCHING - Processing');
           const startTime = Date.now();
           const recommendations = await serviceRecommendationsPromise;
           const timeTaken = Date.now() - startTime;
           
-        console.log(`    ├─ Service matching completed in ${timeTaken}ms`);
-        console.log(`    ├─ Recommendations found: ${recommendations.length}`);
+          console.log(`    ├─ Service matching completed in ${timeTaken}ms`);
+          console.log(`    ├─ Recommendations found: ${recommendations.length}`);
           
           if (recommendations.length > 0) {
-          console.log('    └─ Top recommendation: ' + recommendations[0].serviceName);
-          
-          console.log('    └─ No recommendations matched criteria');
+            console.log('    └─ Top recommendation: ' + recommendations[0].serviceName);
+          } else {
+            console.log('    └─ No recommendations matched criteria');
           }
           
           return recommendations;
@@ -1933,7 +1934,7 @@ ${perplexityData.knowledge}
 
     // Log the service recommendations if any
     if (serviceRecommendations && serviceRecommendations.length > 0) {
-    console.log('\n📦 [5A] SERVICE RECOMMENDATIONS FOR RESPONSE:');
+      console.log('\n📦 [5A] SERVICE RECOMMENDATIONS FOR RESPONSE:');
       serviceRecommendations.forEach((rec, index) => {
         if (index < 3) { // Just log the top 3 to avoid clutter
           // 安全にconfidenceプロパティにアクセス
@@ -1947,15 +1948,15 @@ ${perplexityData.knowledge}
             serviceName = rec.serviceName;
           } else if (rec.id) {
             serviceName = rec.id;
-          
+          } else {
             serviceName = JSON.stringify(rec).substring(0, 30); // 長すぎる場合は切り詰める
           }
           
-        console.log(`    ├─ [${index + 1}] ${serviceName}: ${confidenceStr}`);
+          console.log(`    ├─ [${index + 1}] ${serviceName}: ${confidenceStr}`);
         }
       });
-    
-    console.log('\n📦 [5A] NO SERVICE RECOMMENDATIONS INCLUDED');
+    } else {
+      console.log('\n📦 [5A] NO SERVICE RECOMMENDATIONS INCLUDED');
     }
     
     // Log final response details
@@ -1968,19 +1969,19 @@ ${perplexityData.knowledge}
     
     // New logging: Analyze how ML data influenced the AI response
     if (mode === 'career' && perplexityData) {
-    console.log('\n=== ML DATA INFLUENCE ANALYSIS ===');
+      console.log('\n=== ML DATA INFLUENCE ANALYSIS ===');
       
       // Analyze job market influence
       if (perplexityData.jobTrends && perplexityData.jobTrends.analysis) {
-      console.log('\n📊 ML INFLUENCE: JOB MARKET DATA');
+        console.log('\n📊 ML INFLUENCE: JOB MARKET DATA');
         
         // Extract key phrases from job trends analysis
         const jobTrendsText = perplexityData.jobTrends.analysis;
         const keyPhrases = extractSignificantPhrases(jobTrendsText);
-      console.log('   ├─ Key market insights from Perplexity:');
+        console.log('   ├─ Key market insights from Perplexity:');
         keyPhrases.forEach((phrase, index) => {
           if (index < 5) { // Limit to top 5 phrases
-          console.log(`   │  ${index + 1}. ${phrase}`);
+            console.log(`   │  ${index + 1}. ${phrase}`);
           }
         });
         
@@ -1990,38 +1991,38 @@ ${perplexityData.knowledge}
           aiResponse.includes(phrase.substring(0, Math.min(phrase.length, 15)))
         );
         
-      console.log('   ├─ Market data influence detection:');
+        console.log('   ├─ Market data influence detection:');
         if (phrasesInResponse.length > 0) {
-        console.log(`   │  ✅ Found ${phrasesInResponse.length} market insights in the response`);
+          console.log(`   │  ✅ Found ${phrasesInResponse.length} market insights in the response`);
           phrasesInResponse.forEach((phrase, index) => {
             if (index < 3) { // Limit to top 3 matches
-            console.log(`   │     - "${phrase.substring(0, 30)}..."`)
+              console.log(`   │     - "${phrase.substring(0, 30)}..."`)
             }
           });
-        
-        console.log('   │  ⚠️ No direct market data phrases detected in response');
-        console.log('   │     (Data may still have influenced general reasoning)');
+        } else {
+          console.log('   │  ⚠️ No direct market data phrases detected in response');
+          console.log('   │     (Data may still have influenced general reasoning)');
         }
         
         // Check for job URLs influence
         if (perplexityData.jobTrends.urls) {
           const urlsIncluded = aiResponse.includes('http') || aiResponse.includes('www') || 
                               aiResponse.includes('求人') || aiResponse.includes('サイト');
-        console.log(`   │  ${urlsIncluded ? '✅' : '❌'} Job URLs influence: ${urlsIncluded ? 'Detected' : 'Not detected'}`);
+          console.log(`   │  ${urlsIncluded ? '✅' : '❌'} Job URLs influence: ${urlsIncluded ? 'Detected' : 'Not detected'}`);
         }
       }
       
       // Analyze user characteristics influence
       if (perplexityData.knowledge) {
-      console.log('\n👤 ML INFLUENCE: USER CHARACTERISTICS');
+        console.log('\n👤 ML INFLUENCE: USER CHARACTERISTICS');
         
         // Extract key insights from user analysis
         const userInsightsText = perplexityData.knowledge;
         const userInsights = extractSignificantPhrases(userInsightsText);
-      console.log('   ├─ Key user insights from Perplexity:');
+        console.log('   ├─ Key user insights from Perplexity:');
         userInsights.forEach((insight, index) => {
           if (index < 5) { // Limit to top 5 insights
-          console.log(`   │  ${index + 1}. ${insight}`);
+            console.log(`   │  ${index + 1}. ${insight}`);
           }
         });
         
@@ -2031,49 +2032,49 @@ ${perplexityData.knowledge}
           aiResponse.includes(insight.substring(0, Math.min(insight.length, 15)))
         );
         
-      console.log('   ├─ User characteristics influence detection:');
+        console.log('   ├─ User characteristics influence detection:');
         if (insightsInResponse.length > 0) {
-        console.log(`   │  ✅ Found ${insightsInResponse.length} user traits in the response`);
+          console.log(`   │  ✅ Found ${insightsInResponse.length} user traits in the response`);
           insightsInResponse.forEach((insight, index) => {
             if (index < 3) { // Limit to top 3 matches
-            console.log(`   │     - "${insight.substring(0, 30)}..."`)
+              console.log(`   │     - "${insight.substring(0, 30)}..."`)
             }
           });
-        
-        console.log('   │  ⚠️ No direct user trait phrases detected in response');
-        console.log('   │     (Characteristics may still have guided overall approach)');
+        } else {
+          console.log('   │  ⚠️ No direct user trait phrases detected in response');
+          console.log('   │     (Characteristics may still have guided overall approach)');
         }
         
         // Look for terms that suggest personality-based recommendations
         const personalTerms = ["あなたの", "あなたは", "personality", "特性", "傾向", "タイプ", "向いています", "合っています"];
         const personalRecommendation = personalTerms.some(term => aiResponse.includes(term));
-      console.log(`   │  ${personalRecommendation ? '✅' : '❌'} Personalized approach: ${personalRecommendation ? 'Detected' : 'Not detected'}`);
+        console.log(`   │  ${personalRecommendation ? '✅' : '❌'} Personalized approach: ${personalRecommendation ? 'Detected' : 'Not detected'}`);
       }
       
       // Overall influence assessment
-    console.log('\n🔄 ML INFLUENCE: OVERALL ASSESSMENT');
+      console.log('\n🔄 ML INFLUENCE: OVERALL ASSESSMENT');
       // Compare response length with and without ML data
       const averageBaseResponseLength = 1000; // Estimated average
       const responseLengthRatio = aiResponse.length / averageBaseResponseLength;
-    console.log(`   ├─ Response richness: ${responseLengthRatio.toFixed(2)}x typical length`);
+      console.log(`   ├─ Response richness: ${responseLengthRatio.toFixed(2)}x typical length`);
       
       // Check for market terminology
       const marketTerms = ["市場", "トレンド", "需要", "業界", "成長", "最新", "現在"];
       const marketTermsCount = marketTerms.filter(term => aiResponse.includes(term)).length;
-    console.log(`   ├─ Market awareness: ${marketTermsCount}/${marketTerms.length} market terms used`);
+      console.log(`   ├─ Market awareness: ${marketTermsCount}/${marketTerms.length} market terms used`);
       
       // Check for specificity
       const specificTerms = ["具体的", "例えば", "たとえば", "特に", "実際に", "現実的"];
       const specificTermsCount = specificTerms.filter(term => aiResponse.includes(term)).length;
-    console.log(`   ├─ Response specificity: ${specificTermsCount}/${specificTerms.length} specificity indicators`);
+      console.log(`   ├─ Response specificity: ${specificTermsCount}/${specificTerms.length} specificity indicators`);
       
       // Time references - check if response discusses current time period
       const timeTerms = ["2023年", "2024年", "2025年", "現在", "最近", "近年", "今日", "将来"];
       const timeTermsCount = timeTerms.filter(term => aiResponse.includes(term)).length;
-    console.log(`   ├─ Temporal relevance: ${timeTermsCount}/${timeTerms.length} time references`);
+      console.log(`   ├─ Temporal relevance: ${timeTermsCount}/${timeTerms.length} time references`);
       
       // Add detailed ML data impact on specific aspects of the response
-    console.log('   ├─ ML データが回答に与えた具体的な影響:');
+      console.log('   ├─ ML データが回答に与えた具体的な影響:');
       
       // 1. Check if the response mentions specific jobs/roles that were in the ML data
       if (perplexityData.jobTrends && perplexityData.jobTrends.analysis) {
@@ -2088,7 +2089,7 @@ ${perplexityData.knowledge}
         
         // Check which job roles from data are mentioned in response
         const jobRolesInResponse = jobRolesInData.filter(role => aiResponse.includes(role));
-      console.log(`   │  ├─ ML データの職種が回答に反映: ${jobRolesInResponse.length}/${jobRolesInData.length > 0 ? jobRolesInData.length : '0'}`);
+        console.log(`   │  ├─ ML データの職種が回答に反映: ${jobRolesInResponse.length}/${jobRolesInData.length > 0 ? jobRolesInData.length : '0'}`);
         jobRolesInResponse.forEach((role, i) => {
           if (i < 3) console.log(`   │  │  └─ ${role}`);
         });
@@ -2107,7 +2108,7 @@ ${perplexityData.knowledge}
         const skillsInData = skillsToCheck.filter(skill => dataText.includes(skill));
         const skillsInResponse = skillsInData.filter(skill => aiResponse.includes(skill));
         
-      console.log(`   │  ├─ ML データのスキルが回答に反映: ${skillsInResponse.length}/${skillsInData.length > 0 ? skillsInData.length : '0'}`);
+        console.log(`   │  ├─ ML データのスキルが回答に反映: ${skillsInResponse.length}/${skillsInData.length > 0 ? skillsInData.length : '0'}`);
         skillsInResponse.forEach((skill, i) => {
           if (i < 3) console.log(`   │  │  └─ ${skill}`);
         });
@@ -2143,7 +2144,7 @@ ${perplexityData.knowledge}
           }
         });
         
-      console.log(`   │  └─ ML データの性格特性が回答に反映: ${traitsReflected}/${traitsInData > 0 ? traitsInData : '0'}`);
+        console.log(`   │  └─ ML データの性格特性が回答に反映: ${traitsReflected}/${traitsInData > 0 ? traitsInData : '0'}`);
         mentionedTraits.forEach((trait, i) => {
           if (i < 3) console.log(`   │     └─ ${trait}`);
         });
@@ -2157,7 +2158,7 @@ ${perplexityData.knowledge}
         Math.min(responseLengthRatio / 2, 1) * 0.2
       ) * 100;
       
-    console.log(`   └─ ML influence score: ${Math.round(influenceScore)}% (estimated impact on response)`);
+      console.log(`   └─ ML influence score: ${Math.round(influenceScore)}% (estimated impact on response)`);
     }
     // LocalML influence analysis for other modes
     else if (['general', 'mental_health', 'analysis'].includes(mode)) {
@@ -2165,24 +2166,24 @@ ${perplexityData.knowledge}
       const mlInfluence = analyzeResponseWithMl(aiResponse, perplexityData, mode);
       
       if (mlInfluence) {
-      console.log('\n=== LOCAL ML DATA INFLUENCE ANALYSIS ===');
-      console.log(`\n🔍 ML INFLUENCE SCORE: ${Math.round(mlInfluence.influence_score)}%`);
+        console.log('\n=== LOCAL ML DATA INFLUENCE ANALYSIS ===');
+        console.log(`\n🔍 ML INFLUENCE SCORE: ${Math.round(mlInfluence.influence_score)}%`);
         
         if (mlInfluence.influence_detected) {
-        console.log('   ├─ ML data influence: ✅ Detected');
+          console.log('   ├─ ML data influence: ✅ Detected');
           if (mlInfluence.influence_details && mlInfluence.influence_details.detected_terms) {
-          console.log(`   ├─ Detected ${mlInfluence.influence_details.detected_terms.length} ML-influenced terms`);
+            console.log(`   ├─ Detected ${mlInfluence.influence_details.detected_terms.length} ML-influenced terms`);
             mlInfluence.influence_details.detected_terms.slice(0, 5).forEach((term, i) => {
-            console.log(`   │  ${i+1}. ${term}`);
+              console.log(`   │  ${i+1}. ${term}`);
             });
           }
-        
-        console.log('   ├─ ML data influence: ❌ Not detected');
-        console.log('   ├─ ML data may still have influenced general approach');
+        } else {
+          console.log('   ├─ ML data influence: ❌ Not detected');
+          console.log('   ├─ ML data may still have influenced general approach');
         }
         
         // Mode-specific analysis
-      console.log(`   └─ ${mode.toUpperCase()} mode influence details in logs`);
+        console.log(`   └─ ${mode.toUpperCase()} mode influence details in logs`);
       }
     }
     
@@ -2193,21 +2194,21 @@ ${perplexityData.knowledge}
     };
   } catch (error) {
     console.error('Error in processWithAI:', error);
-      recommendations: serviceRecommendations
+    return {
+      response: '申し訳ありません。処理中にエラーが発生しました。もう一度お試しください。',
+      recommendations: []
     };
+  }
+}
 
+// Add timeout handling with retries and proper error handling
+const MAX_RETRIES = 3;
+const TIMEOUT_PER_ATTEMPT = 25000; // 25 seconds per attempt
 
-
-
-
-
-
-
-
-
-
-
-
+async function processMessage(userId, messageText) {
+  // ユーザーIDの検証
+  const validatedUserId = validateUserId(userId);
+  if (!validatedUserId) {
     console.error('不正なユーザーIDでのメッセージ処理をスキップします');
     return null;
   }
@@ -2244,16 +2245,16 @@ async function handleChatRecallWithRetries(userId, messageText) {
         timeoutPromise
       ]);
       
-    console.log(`✅ Chat recall succeeded on attempt ${attempt}`);
+      console.log(`✅ Chat recall succeeded on attempt ${attempt}`);
       return result;
       
     } catch (error) {
       lastError = error;
-    console.log(`⚠️ Attempt ${attempt} failed: ${error.message}`);
+      console.log(`⚠️ Attempt ${attempt} failed: ${error.message}`);
       
       // If we have more attempts, wait before retrying
       if (attempt < MAX_RETRIES) {
-      console.log(`Waiting 1 second before attempt ${attempt + 1}...`);
+        console.log(`Waiting 1 second before attempt ${attempt + 1}...`);
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
@@ -2300,7 +2301,7 @@ async function fetchAndAnalyzeHistory(userId) {
           timestamp: record.get('timestamp') || new Date().toISOString()
         }));
         
-      console.log(`📝 Found additional ${airtableHistory.length} records from Airtable`);
+        console.log(`📝 Found additional ${airtableHistory.length} records from Airtable`);
       }
     } catch (airtableError) {
       console.error(`⚠️ Error fetching from Airtable: ${airtableError.message}`);
@@ -2365,7 +2366,7 @@ async function handleEvent(event) {
   try {
     // Handle image messages
     if (event.message.type === 'image') {
-    console.log('Processing image message...');
+      console.log('Processing image message...');
       return handleImage(event);
     }
 
@@ -2406,7 +2407,7 @@ async function handleImage(event) {
     });
 
     try {
-    console.log(`Using image message ID: ${messageId} for analysis`);
+      console.log(`Using image message ID: ${messageId} for analysis`);
 
       // LINE APIを使用して画像コンテンツを取得
       const stream = await client.getMessageContent(messageId);
@@ -2425,7 +2426,7 @@ async function handleImage(event) {
       const isSafeImage = await checkImageSafety(base64Image);
       
       if (!isSafeImage) {
-      console.log('Image did not pass safety check');
+        console.log('Image did not pass safety check');
         await client.pushMessage(userId, {
           type: 'text',
           text: '申し訳ありません。この画像は不適切であるため、分析できません。適切な画像をお送りください。'
@@ -2458,7 +2459,7 @@ async function handleImage(event) {
       });
       
       const analysis = response.choices[0].message.content;
-    console.log(`Image analysis completed for user ${userId}`);
+      console.log(`Image analysis completed for user ${userId}`);
       
       // ユーザーに分析結果を送信
       await client.pushMessage(userId, {
@@ -2513,28 +2514,28 @@ async function handleText(event) {
       
       // デバッグログを追加
       if (isPendingDataObject) {
-      console.log(`[DEBUG-IMAGE] Pending data (object): timestamp=${pendingData.timestamp}, age=${Date.now() - pendingData.timestamp}ms, contentLen=${pendingData.content ? pendingData.content.length : 0}`);
-      
-      console.log(`[DEBUG-IMAGE] Pending data (string): length=${pendingData ? pendingData.length : 0}`);
+        console.log(`[DEBUG-IMAGE] Pending data (object): timestamp=${pendingData.timestamp}, age=${Date.now() - pendingData.timestamp}ms, contentLen=${pendingData.content ? pendingData.content.length : 0}`);
+      } else {
+        console.log(`[DEBUG-IMAGE] Pending data (string): length=${pendingData ? pendingData.length : 0}`);
       }
       
       const now = Date.now();
       // タイムスタンプチェックはオブジェクトの場合のみ
       if (isPendingDataObject && pendingData.timestamp && (now - pendingData.timestamp > 5 * 60 * 1000)) { // 5分でタイムアウト
-      console.log(`[DEBUG-IMAGE] Pending image request expired for ${userId} - ${Math.round((now - pendingData.timestamp)/1000)}s elapsed (max: 300s)`);
+        console.log(`[DEBUG-IMAGE] Pending image request expired for ${userId} - ${Math.round((now - pendingData.timestamp)/1000)}s elapsed (max: 300s)`);
         pendingImageExplanations.delete(userId);
         // 通常の処理を続行
       } else if (userMessage === "はい") {
-      console.log(`[DEBUG-IMAGE] 'はい' detected for user ${userId}, proceeding with image generation`);
+        console.log(`[DEBUG-IMAGE] 'はい' detected for user ${userId}, proceeding with image generation`);
         
         // pendingDataがオブジェクトか文字列かに応じて処理を分岐
         let explanationText;
         if (isPendingDataObject) {
-        console.log(`[DEBUG-IMAGE] pendingData details: timestamp=${new Date(pendingData.timestamp).toISOString()}, contentLength=${pendingData.content ? pendingData.content.length : 0}`);
+          console.log(`[DEBUG-IMAGE] pendingData details: timestamp=${new Date(pendingData.timestamp).toISOString()}, contentLength=${pendingData.content ? pendingData.content.length : 0}`);
           
           // オブジェクト形式の場合はcontentプロパティから取得
           if (!pendingData.content) {
-          console.log(`[DEBUG-IMAGE] Error: pendingData.content is ${pendingData.content}`);
+            console.log(`[DEBUG-IMAGE] Error: pendingData.content is ${pendingData.content}`);
             await client.replyMessage(event.replyToken, {
               type: 'text',
               text: "申し訳ありません。画像生成に必要な情報が見つかりませんでした。もう一度お試しください。"
@@ -2543,11 +2544,11 @@ async function handleText(event) {
             return;
           }
           explanationText = pendingData;  // オブジェクト全体を渡す（改善: 後方互換性と統一性）
-        
+        } else {
           // 文字列形式の場合は新しいオブジェクト形式に変換
-        console.log(`[DEBUG-IMAGE] pendingData is string (legacy format): length=${pendingData ? pendingData.length : 0}`);
+          console.log(`[DEBUG-IMAGE] pendingData is string (legacy format): length=${pendingData ? pendingData.length : 0}`);
           if (!pendingData) {
-          console.log(`[DEBUG-IMAGE] Error: pendingData (string) is ${pendingData}`);
+            console.log(`[DEBUG-IMAGE] Error: pendingData (string) is ${pendingData}`);
             await client.replyMessage(event.replyToken, {
               type: 'text',
               text: "申し訳ありません。画像生成に必要な情報が見つかりませんでした。もう一度お試しください。"
@@ -2567,11 +2568,11 @@ async function handleText(event) {
         let shouldDeletePending = true;
         
         try {
-        console.log(`[DEBUG-IMAGE] ユーザーの「はい」が検出されました。画像生成を開始します。`);
+          console.log(`[DEBUG-IMAGE] ユーザーの「はい」が検出されました。画像生成を開始します。`);
           
           // 処理前に状態チェック
           if (imageGenerationInProgress.has(userId)) {
-          console.log(`[DEBUG-IMAGE] Warning: Image generation already in progress for user ${userId}`);
+            console.log(`[DEBUG-IMAGE] Warning: Image generation already in progress for user ${userId}`);
             await client.replyMessage(event.replyToken, {
               type: 'text',
               text: "画像生成処理がすでに進行中です。少々お待ちください。"
@@ -2590,14 +2591,14 @@ async function handleText(event) {
           // 条件に基づいてpendingデータを削除
           if (shouldDeletePending) {
             pendingImageExplanations.delete(userId);
-          console.log(`[DEBUG-IMAGE] Pending image request deleted for user ${userId} after processing`);
+            console.log(`[DEBUG-IMAGE] Pending image request deleted for user ${userId} after processing`);
           }
         }
       } else if (userMessage === "いいえ") {
-      console.log(`[DEBUG-IMAGE] 'いいえ' detected for user ${userId}, cancelling image generation`);
+        console.log(`[DEBUG-IMAGE] 'いいえ' detected for user ${userId}, cancelling image generation`);
         const pendingCopy = { ...pendingData };  // 削除前にコピーを作成
         pendingImageExplanations.delete(userId);
-      console.log(`[DEBUG-IMAGE] ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。`);
+        console.log(`[DEBUG-IMAGE] ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。`);
         
         // キャンセル情報をログに記録
         try {
@@ -2625,10 +2626,10 @@ async function handleText(event) {
       userMessage.includes('過去の記録') || 
       userMessage.includes('履歴')
     )) {
-    console.log(`\n======= 特性分析リクエスト検出 =======`);
-    console.log(`→ ユーザーID: ${userId}`);
-    console.log(`→ メッセージ: ${userMessage}`);
-    console.log(`======= 特性分析リクエスト検出終了 =======\n`);
+      console.log(`\n======= 特性分析リクエスト検出 =======`);
+      console.log(`→ ユーザーID: ${userId}`);
+      console.log(`→ メッセージ: ${userMessage}`);
+      console.log(`======= 特性分析リクエスト検出終了 =======\n`);
     }
     
     // Define feedback patterns for sentiment detection
@@ -2657,12 +2658,12 @@ async function handleText(event) {
     
     // シェアモードが判定された場合のLLM確認処理
     if (mode === 'share') {
-    console.log(`Share mode triggered by determineModeAndLimit, confirming with LLM...`);
+      console.log(`Share mode triggered by determineModeAndLimit, confirming with LLM...`);
       const history = await fetchUserHistory(userId, 10);
       const isHighEngagement = await checkHighEngagement(userMessage, history);
       
       if (isHighEngagement) {
-      console.log(`High engagement confirmed by LLM, sending sharing URL to user ${userId}`);
+        console.log(`High engagement confirmed by LLM, sending sharing URL to user ${userId}`);
         // Send sharing message with Twitter URL
         await storeInteraction(userId, 'user', userMessage);
         const shareMessage = `お褒めの言葉をいただき、ありがとうございます！😊
@@ -2679,8 +2680,8 @@ ${SHARE_URL}
         });
         await storeInteraction(userId, 'assistant', shareMessage);
         return;
-      
-      console.log(`LLM did not confirm high engagement despite keywords, processing as normal message`);
+      } else {
+        console.log(`LLM did not confirm high engagement despite keywords, processing as normal message`);
       }
     }
     
@@ -2699,7 +2700,7 @@ ${SHARE_URL}
       
       // If there are recent services, track implicit feedback
       if (recentServices.length > 0) {
-      console.log(`Tracking implicit feedback for ${recentServices.length} recently shown services`);
+        console.log(`Tracking implicit feedback for ${recentServices.length} recently shown services`);
         const feedbackResult = userPreferences.trackImplicitFeedback(userId, userMessage, recentServices);
         
         // If positive feedback was detected and preferences were updated, respond accordingly
@@ -2742,16 +2743,17 @@ ${SHARE_URL}
         if (updatedPreferences.showServiceRecommendations !== undefined) {
           if (updatedPreferences.showServiceRecommendations) {
             // Check if this was triggered by positive feedback
-            const isPositiveFeedback = FEEDBACK_PATTERNS.positive.some(pattern => userMessage.toLowerCase().includes(pattern)) && 
-                                      !FEEDBACK_PATTERNS.negative.some(pattern => userMessage.toLowerCase().includes(pattern));
+            const lowerMessage = userMessage.toLowerCase();
+            const isPositiveFeedback = FEEDBACK_PATTERNS.positive.some(pattern => lowerMessage.includes(pattern)) && 
+                                      !FEEDBACK_PATTERNS.negative.some(pattern => lowerMessage.includes(pattern));
             
             if (isPositiveFeedback) {
               // Friendly response for positive feedback
               responseMessage = `ありがとうございます！今後も役立つサービスをご紹介します。`;
-            
+            } else {
               responseMessage = `サービス表示をオンにしました。お役立ちそうなサービスがあれば、会話の中でご紹介します。`;
             }
-          
+          } else {
             // Check if this was triggered by negative feedback
             const lowerMessage = userMessage.toLowerCase();
             const isNegativeFeedback = FEEDBACK_PATTERNS.negative.some(pattern => lowerMessage.includes(pattern));
@@ -2759,19 +2761,19 @@ ${SHARE_URL}
             if (isNegativeFeedback) {
               // Minimal response for negative feedback
               responseMessage = `わかりました。`;
-            
+            } else {
               responseMessage = `サービス表示をオフにしました。`;
             }
           }
         } else if (updatedPreferences.maxRecommendations !== undefined) {
           if (updatedPreferences.maxRecommendations === 0) {
             responseMessage = `サービスを表示しない設定にしました。`;
-          
+          } else {
             responseMessage = `表示するサービスの数を${updatedPreferences.maxRecommendations}件に設定しました。`;
           }
         } else if (updatedPreferences.minConfidenceScore !== undefined) {
           responseMessage = `信頼度${Math.round(updatedPreferences.minConfidenceScore * 100)}%以上のサービスのみ表示するように設定しました。`;
-        
+        } else {
           // Fallback to current settings if we can't determine what changed
           responseMessage = userPreferences.getCurrentSettingsMessage(userId);
         }
@@ -2793,14 +2795,14 @@ ${SHARE_URL}
     if (userMessage.includes("ASD症支援であなたが対応できる具体的な質問例") && userMessage.includes("使い方")) {
       // Check if this user recently received an image generation - if so, skip ASD guide
       const recentImageTimestamp = recentImageGenerationUsers.get(userId);
-    console.log(`[DEBUG] ASD Guide check - User ${userId} has recentImageTimestamp: ${recentImageTimestamp ? 'YES' : 'NO'}`);
+      console.log(`[DEBUG] ASD Guide check - User ${userId} has recentImageTimestamp: ${recentImageTimestamp ? 'YES' : 'NO'}`);
       if (recentImageTimestamp) {
         const timeSinceImage = Date.now() - recentImageTimestamp;
-      console.log(`[DEBUG] ASD Guide check - Time since image generation: ${timeSinceImage}ms, Protection threshold: 30000ms`);
+        console.log(`[DEBUG] ASD Guide check - Time since image generation: ${timeSinceImage}ms, Protection threshold: 30000ms`);
       }
       
       if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 30000)) { // 30 seconds protection
-      console.log(`User ${userId} recently received image generation, skipping ASD guide`);
+        console.log(`User ${userId} recently received image generation, skipping ASD guide`);
         recentImageGenerationUsers.delete(userId); // Clean up after use
         return;
       }
@@ -2810,7 +2812,7 @@ ${SHARE_URL}
     
     // Check if image generation is in progress for this user - if so, skip further processing
     if (imageGenerationInProgress.has(userId)) {
-    console.log(`Image generation in progress for ${userId}, skipping additional message handling`);
+      console.log(`Image generation in progress for ${userId}, skipping additional message handling`);
       return;
     }
     
@@ -2821,16 +2823,16 @@ ${SHARE_URL}
       const pendingData = pendingImageExplanations.get(userId);
       const now = Date.now();
       if (pendingData.timestamp && (now - pendingData.timestamp > 5 * 60 * 1000)) { // 5分でタイムアウト
-      console.log(`[DEBUG-IMAGE] Pending image request expired for ${userId} - ${Math.round((now - pendingData.timestamp)/1000)}s elapsed (max: 300s)`);
+        console.log(`[DEBUG-IMAGE] Pending image request expired for ${userId} - ${Math.round((now - pendingData.timestamp)/1000)}s elapsed (max: 300s)`);
         pendingImageExplanations.delete(userId);
         // 通常の処理を続行
       } else if (userMessage === "はい") {
-      console.log(`[DEBUG-IMAGE] 'はい' detected for user ${userId}, proceeding with image generation`);
-      console.log(`[DEBUG-IMAGE] pendingData details: timestamp=${new Date(pendingData.timestamp).toISOString()}, contentLength=${pendingData.content ? pendingData.content.length : 0}`);
+        console.log(`[DEBUG-IMAGE] 'はい' detected for user ${userId}, proceeding with image generation`);
+        console.log(`[DEBUG-IMAGE] pendingData details: timestamp=${new Date(pendingData.timestamp).toISOString()}, contentLength=${pendingData.content ? pendingData.content.length : 0}`);
         
         // contentが存在するか確認
         if (!pendingData.content) {
-        console.log(`[DEBUG-IMAGE] Error: pendingData.content is ${pendingData.content}`);
+          console.log(`[DEBUG-IMAGE] Error: pendingData.content is ${pendingData.content}`);
           await client.replyMessage(event.replyToken, {
             type: 'text',
             text: "申し訳ありません。画像生成に必要な情報が見つかりませんでした。もう一度お試しください。"
@@ -2841,12 +2843,12 @@ ${SHARE_URL}
         
         const explanationText = pendingData.content;
         pendingImageExplanations.delete(userId);
-      console.log(`[DEBUG-IMAGE] ユーザーの「はい」が検出されました。画像生成を開始します。内容: "${explanationText.substring(0, 30)}..."`);
+        console.log(`[DEBUG-IMAGE] ユーザーの「はい」が検出されました。画像生成を開始します。内容: "${explanationText.substring(0, 30)}..."`);
         return handleVisionExplanation(event, explanationText);
       } else if (userMessage === "いいえ") {
-      console.log(`[DEBUG-IMAGE] 'いいえ' detected for user ${userId}, cancelling image generation`);
+        console.log(`[DEBUG-IMAGE] 'いいえ' detected for user ${userId}, cancelling image generation`);
         pendingImageExplanations.delete(userId);
-      console.log(`[DEBUG-IMAGE] ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。`);
+        console.log(`[DEBUG-IMAGE] ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。`);
         return client.replyMessage(event.replyToken, {
           type: 'text',
           text: "承知しました。引き続きテキストでの回答を行います。"
@@ -2859,11 +2861,11 @@ ${SHARE_URL}
     const recentImageTimestamp = recentImageGenerationUsers.get(userId);
     if (recentImageTimestamp) {
       const timeSinceImage = Date.now() - recentImageTimestamp;
-    console.log(`[DEBUG] Recent image check - User ${userId}, time since image: ${timeSinceImage}ms, threshold: 10000ms`);
+      console.log(`[DEBUG] Recent image check - User ${userId}, time since image: ${timeSinceImage}ms, threshold: 10000ms`);
     }
 
     if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 10000)) {
-    console.log("画像生成直後のため、重複応答を防止します。");
+      console.log("画像生成直後のため、重複応答を防止します。");
       recentImageGenerationUsers.delete(userId);
       return;
     }
@@ -2889,14 +2891,14 @@ ${SHARE_URL}
     
     // 直接的な画像生成リクエストの場合のみトリガー
     if (isImageGenerationRequest(userMessage)) {
-    console.log(`[DEBUG] Direct image generation request detected in message: "${userMessage}"`);
+      console.log(`[DEBUG] Direct image generation request detected in message: "${userMessage}"`);
       triggerImageExplanation = true;
     }
     // それ以外のすべてのメッセージはLLMで分析
     else {
       // LLMを使用して「AIの発言を理解していないか」を判定
       try {
-      console.log(`[DEBUG] Analyzing if user understands AI response: "${userMessage}"`);
+        console.log(`[DEBUG] Analyzing if user understands AI response: "${userMessage}"`);
         
         // 直前のAI回答を取得する
         // lastAssistantMessageが未定義の場合、会話履歴から取得を試みる
@@ -2904,13 +2906,13 @@ ${SHARE_URL}
         
         if (lastAssistantMessage && lastAssistantMessage.content) {
           previousAIResponse = lastAssistantMessage.content;
-        console.log(`[DEBUG-IMAGE] Using cached lastAssistantMessage: "${previousAIResponse.substring(0, 30)}..."`);
+          console.log(`[DEBUG-IMAGE] Using cached lastAssistantMessage: "${previousAIResponse.substring(0, 30)}..."`);
         } else if (historyForProcessing && historyForProcessing.length > 0) {
           // 会話履歴から最新のアシスタントメッセージを検索
           for (let i = historyForProcessing.length - 1; i >= 0; i--) {
             if (historyForProcessing[i].role === 'assistant') {
               previousAIResponse = historyForProcessing[i].content;
-            console.log(`[DEBUG-IMAGE] Found assistant message in history: "${previousAIResponse.substring(0, 30)}..."`);
+              console.log(`[DEBUG-IMAGE] Found assistant message in history: "${previousAIResponse.substring(0, 30)}..."`);
               break;
             }
           }
@@ -2918,18 +2920,18 @@ ${SHARE_URL}
         
         // 直前のAI回答がない場合はスキップ
         if (!previousAIResponse) {
-        console.log(`[DEBUG-IMAGE] No previous AI response found in cache or history, skipping confusion detection`);
-        
+          console.log(`[DEBUG-IMAGE] No previous AI response found in cache or history, skipping confusion detection`);
+        } else {
           // 新しいモジュール化された関数を使用して混乱を検出
           const confusionResult = await detectConfusionWithLLM(userMessage, previousAIResponse);
           
           if (confusionResult.error) {
-          console.log(`[DEBUG-IMAGE] Error detecting confusion: ${confusionResult.error}`);
+            console.log(`[DEBUG-IMAGE] Error detecting confusion: ${confusionResult.error}`);
           } else if (confusionResult.isConfused) {
-          console.log(`[DEBUG-IMAGE] User appears confused (confidence: ${confusionResult.confidence}%), triggering image explanation`);
+            console.log(`[DEBUG-IMAGE] User appears confused (confidence: ${confusionResult.confidence}%), triggering image explanation`);
             triggerImageExplanation = true;
-          
-          console.log(`[DEBUG-IMAGE] User does not appear confused (confidence: ${confusionResult.confidence}%)`);
+          } else {
+            console.log(`[DEBUG-IMAGE] User does not appear confused (confidence: ${confusionResult.confidence}%)`);
           }
         }
       } catch (error) {
@@ -2938,16 +2940,16 @@ ${SHARE_URL}
     }
 
     if (triggerImageExplanation) {
-    console.log(`[DEBUG-IMAGE] Image generation triggered for user ${userId}`);
+      console.log(`[DEBUG-IMAGE] Image generation triggered for user ${userId}`);
       
       // Check if this user recently received an image generation - if so, skip image generation prompt
       const recentImageTimestamp = recentImageGenerationUsers.get(userId);
       if (recentImageTimestamp) {
-      console.log(`[DEBUG-IMAGE] User ${userId} has recent image timestamp: ${recentImageTimestamp}, now: ${Date.now()}, diff: ${Date.now() - recentImageTimestamp}ms`);
+        console.log(`[DEBUG-IMAGE] User ${userId} has recent image timestamp: ${recentImageTimestamp}, now: ${Date.now()}, diff: ${Date.now() - recentImageTimestamp}ms`);
       }
       
       if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 30000)) { // 30 seconds protection
-      console.log(`[DEBUG-IMAGE] User ${userId} recently received image generation, skipping image generation offer`);
+        console.log(`[DEBUG-IMAGE] User ${userId} recently received image generation, skipping image generation offer`);
         recentImageGenerationUsers.delete(userId); // Clean up after use
         return;
       }
@@ -2959,13 +2961,13 @@ ${SHARE_URL}
       if (contentToExplain.length < 5) {
         if (lastAssistantMessage && lastAssistantMessage.content) {
           contentToExplain = lastAssistantMessage.content;
-        console.log(`[DEBUG-IMAGE] Using cached lastAssistantMessage for explanation: "${contentToExplain.substring(0, 30)}..."`);
+          console.log(`[DEBUG-IMAGE] Using cached lastAssistantMessage for explanation: "${contentToExplain.substring(0, 30)}..."`);
         } else if (historyForProcessing && historyForProcessing.length > 0) {
           // 履歴から最新のアシスタントメッセージを検索
           for (let i = historyForProcessing.length - 1; i >= 0; i--) {
             if (historyForProcessing[i].role === 'assistant') {
               contentToExplain = historyForProcessing[i].content;
-            console.log(`[DEBUG-IMAGE] Using message from history for explanation: "${contentToExplain.substring(0, 30)}..."`);
+              console.log(`[DEBUG-IMAGE] Using message from history for explanation: "${contentToExplain.substring(0, 30)}..."`);
               break;
             }
           }
@@ -2975,7 +2977,7 @@ ${SHARE_URL}
       // アプリの趣旨に反するリクエストかどうかをチェック
       const isSafe = await securityFilterPrompt(contentToExplain);
       if (!isSafe) {
-      console.log(`[DEBUG-IMAGE] Image generation request rejected due to content policy: "${contentToExplain.substring(0, 30)}..."`);
+        console.log(`[DEBUG-IMAGE] Image generation request rejected due to content policy: "${contentToExplain.substring(0, 30)}..."`);
         const refusalMessage = "申し訳ありませんが、ご要望の画像生成はアプリの趣旨に沿わないため、お断りさせていただきます。発達障害支援に関連する内容であれば、喜んでお手伝いします。";
         await storeInteraction(userId, 'assistant', refusalMessage);
         return client.replyMessage(event.replyToken, {
@@ -2984,7 +2986,7 @@ ${SHARE_URL}
         });
       }
       
-    console.log(`[DEBUG-IMAGE] Starting direct image generation for content: "${contentToExplain.substring(0, 30)}..."`);
+      console.log(`[DEBUG-IMAGE] Starting direct image generation for content: "${contentToExplain.substring(0, 30)}..."`);
       
       // 画像生成処理を直接呼び出す
       try {
@@ -3021,7 +3023,7 @@ ${SHARE_URL}
     const serviceRecommendations = result.recommendations;
     
     if (serviceRecommendations && serviceRecommendations.length > 0) {
-    console.log(`Adding ${serviceRecommendations.length} service recommendations to response`);
+      console.log(`Adding ${serviceRecommendations.length} service recommendations to response`);
       
       // サービス推奨の表示用カテゴリを決定
       const category = mode === 'mental_health' ? 'mental_health' : 
@@ -3050,7 +3052,7 @@ ${SHARE_URL}
             serviceName = serviceInfo.name;
             serviceDescription = serviceInfo.description;
             serviceUrl = serviceInfo.url;
-          
+          } else {
             serviceName = service;
           }
         } else if (service.name) {
@@ -3068,7 +3070,7 @@ ${SHARE_URL}
             serviceName = serviceInfo.name;
             serviceDescription = serviceInfo.description;
             serviceUrl = serviceInfo.url;
-          
+          } else {
             serviceName = service.id;
           }
         }
@@ -3087,7 +3089,7 @@ ${SHARE_URL}
             const lastSentenceEnd = serviceDescription.substring(0, maxDescLength).lastIndexOf('。');
             if (lastSentenceEnd > maxDescLength * 0.7) { // 70%以上の位置にある場合
               trimmedDesc = serviceDescription.substring(0, lastSentenceEnd + 1) + '...';
-            
+            } else {
               trimmedDesc = serviceDescription.substring(0, maxDescLength) + '...';
             }
           }
@@ -3159,7 +3161,7 @@ ${SHARE_URL}
     // サービス推奨の通知メッセージを取得
     const notificationMessage = getServiceNotificationMessage(userId, serviceNotificationReason);
     if (notificationMessage) {
-    console.log('Service notification message (debug only):', notificationMessage);
+      console.log('Service notification message (debug only):', notificationMessage);
       // デバッグモードの場合のみ、AIの応答に追記（本番環境では表示しない）
       if (process.env.DEBUG_MODE === 'true') {
         finalResponse += '\n\n' + notificationMessage;
@@ -3229,7 +3231,7 @@ async function handleVisionExplanation(event, explanationText) {
   const timeoutId = setTimeout(() => {
     if (imageGenerationInProgress.has(userId)) {
       imageGenerationInProgress.delete(userId);
-    console.log(`[DEBUG-IMAGE] Force cleared image generation flag for user ${userId} after timeout (10 minutes)`);
+      console.log(`[DEBUG-IMAGE] Force cleared image generation flag for user ${userId} after timeout (10 minutes)`);
     }
   }, 10 * 60 * 1000);
   
@@ -3246,7 +3248,7 @@ async function handleVisionExplanation(event, explanationText) {
       if (typeof explanationText === 'object' && explanationText !== null) {
         textToUse = explanationText.content || "説明文が不明です";
         sourceInfo = explanationText.source || "unknown";
-      console.log(`[DEBUG-IMAGE] Using object format explanation, source: ${sourceInfo}`);
+        console.log(`[DEBUG-IMAGE] Using object format explanation, source: ${sourceInfo}`);
       }
       
       // Check if this is a long text like the ASD guide and summarize if needed
@@ -3256,15 +3258,15 @@ async function handleVisionExplanation(event, explanationText) {
       
       // If text is very long (like the ASD guide), create a summary version
       if (textToUse.length > 300) {
-      console.log(`[DEBUG-IMAGE] Long text detected (${textToUse.length} chars), creating summary version`);
+        console.log(`[DEBUG-IMAGE] Long text detected (${textToUse.length} chars), creating summary version`);
         
         // Check if it's the ASD guide
         if (textToUse.includes("ASD支援機能の使い方ガイド") || textToUse.includes("自閉症スペクトラム障害")) {
           isASDGuide = true;
           displayText = "ASD支援機能の活用方法";
           enhancedPrompt = "ASD（自閉症スペクトラム障害）支援の主要なポイントを簡潔に示した視覚的な図解。質問例（コミュニケーション、感覚過敏、社会場面などの対応）、基本的な使い方、注意点を含む。シンプルで分かりやすいインフォグラフィック形式。";
-        console.log(`[DEBUG-IMAGE] ASD guide detected, using specialized summary and prompt`);
-        
+          console.log(`[DEBUG-IMAGE] ASD guide detected, using specialized summary and prompt`);
+        } else {
           // For other long texts, extract the first sentence or first 100 chars
           displayText = textToUse.split('。')[0] + "。";
           if (displayText.length > 100) {
@@ -3274,10 +3276,10 @@ async function handleVisionExplanation(event, explanationText) {
         }
       } else if (textToUse.length <= 20) {
         // 短いテキストの場合は教育的なコンテキストを追加
-      console.log(`[DEBUG-IMAGE] Short text detected (${textToUse.length} chars), adding educational context`);
+        console.log(`[DEBUG-IMAGE] Short text detected (${textToUse.length} chars), adding educational context`);
         displayText = textToUse;
         enhancedPrompt = `「${textToUse}」についての教育的で分かりやすい図解。日常生活での応用例や基本概念を含む、明るく親しみやすいイラスト。`;
-      
+      } else {
         // For normal length text, use as is
         enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${textToUse}`;
       }
@@ -3298,7 +3300,7 @@ async function handleVisionExplanation(event, explanationText) {
           apiKey: process.env.OPENAI_API_KEY
         });
         
-      console.log(`[DEBUG-IMAGE] Using enhanced prompt: ${enhancedPrompt.substring(0, 100)}...`);
+        console.log(`[DEBUG-IMAGE] Using enhanced prompt: ${enhancedPrompt.substring(0, 100)}...`);
         
         const response = await openai.images.generate({
           model: "dall-e-3",
@@ -3311,13 +3313,13 @@ async function handleVisionExplanation(event, explanationText) {
         const imageUrl = response.data[0].url;
         
         // 生成された画像のURLを取得
-      console.log(`[DEBUG-IMAGE] Generated image URL: ${imageUrl}`);
+        console.log(`[DEBUG-IMAGE] Generated image URL: ${imageUrl}`);
         
         // Create a concise response message
         let responseMessage = "";
         if (isASDGuide) {
           responseMessage = "ASD支援機能の主なポイントをまとめた画像です。この視覚的な説明は理解の助けになりましたか？";
-        
+        } else {
           responseMessage = `「${displayText}」の要点を視覚化しました。この画像は参考になりましたか？`;
         }
         
@@ -3341,14 +3343,14 @@ async function handleVisionExplanation(event, explanationText) {
         
         // Add user to recent image generation tracking with timestamp to prevent ASD guide
         recentImageGenerationUsers.set(userId, Date.now());
-      console.log(`[DEBUG-IMAGE] Setting recentImageGenerationUsers timestamp for user ${userId}: ${Date.now()}`);
+        console.log(`[DEBUG-IMAGE] Setting recentImageGenerationUsers timestamp for user ${userId}: ${Date.now()}`);
         
         // 正常終了時のクリーンアップ: タイムアウトとフラグの両方をクリア
         clearTimeout(timeoutId);
         setTimeout(() => {
           imageGenerationInProgress.delete(userId);
-        console.log(`[DEBUG-IMAGE] Cleared image generation flag for user ${userId} after successful generation`);
-        console.log(`[DEBUG-IMAGE] Image generation protection status - imageGenerationInProgress: ${imageGenerationInProgress.has(userId) ? 'YES' : 'NO'}, recentImageGenerationUsers timestamp: ${recentImageGenerationUsers.get(userId)}`);
+          console.log(`[DEBUG-IMAGE] Cleared image generation flag for user ${userId} after successful generation`);
+          console.log(`[DEBUG-IMAGE] Image generation protection status - imageGenerationInProgress: ${imageGenerationInProgress.has(userId) ? 'YES' : 'NO'}, recentImageGenerationUsers timestamp: ${recentImageGenerationUsers.get(userId)}`);
         }, 5000);
         
       } catch (error) {
@@ -3363,7 +3365,7 @@ async function handleVisionExplanation(event, explanationText) {
           errorMessage = '申し訳ありません。このテキストから安全な画像を生成できませんでした。「日常会話のポイント」「コミュニケーションの基本」などの具体的なテーマで試してみてください。';
         } else if (error.code === 'rate_limit_exceeded') {
           errorMessage = '申し訳ありません。現在リクエストが多く、画像を生成できませんでした。しばらく経ってからお試しください。';
-        
+        } else {
           errorMessage += '別の表現で試してみてください。';
         }
         
@@ -3375,7 +3377,7 @@ async function handleVisionExplanation(event, explanationText) {
         // エラー発生時のクリーンアップ: タイムアウトとフラグの両方をクリア
         clearTimeout(timeoutId);
         imageGenerationInProgress.delete(userId);
-      console.log(`[DEBUG-IMAGE] Cleared image generation flag for user ${userId} due to error`);
+        console.log(`[DEBUG-IMAGE] Cleared image generation flag for user ${userId} due to error`);
       }
       
       return;
@@ -3486,7 +3488,7 @@ async function handleVisionExplanation(event, explanationText) {
     setTimeout(() => {
       if (imageGenerationInProgress.has(userId)) {
         imageGenerationInProgress.delete(userId);
-      console.log(`[DEBUG-IMAGE] Finally block cleared image generation flag for user ${userId}`);
+        console.log(`[DEBUG-IMAGE] Finally block cleared image generation flag for user ${userId}`);
       }
     }, 1000);
   }
@@ -3868,9 +3870,9 @@ async function detectAdviceRequestWithLLM(userMessage, history) {
     
     // 詳細なログを追加
     if (result === 'yes') {
-    console.log(`✅ Advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
-    
-    console.log(`❌ No advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+      console.log(`✅ Advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+    } else {
+      console.log(`❌ No advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
     }
     
     return result === 'yes';
@@ -3928,13 +3930,13 @@ async function shouldShowServicesToday(userId, history, userMessage) {
       
       // Limit to no more than 9 service recommendations per day
       if (servicesToday >= 9) {
-      console.log('⚠️ Daily service recommendation limit reached (9 per day) - not showing services');
+        console.log('⚠️ Daily service recommendation limit reached (9 per day) - not showing services');
         return false;
       }
       
       // If fewer than 5 service recommendations today, require a longer minimum gap
       if (servicesToday < 5 && now - lastServiceTime < 45 * 60 * 1000) {
-      console.log(`⚠️ Time between service recommendations too short (< 45 minutes) - not showing services. Last shown: ${Math.round((now - lastServiceTime) / 60000)} minutes ago`);
+        console.log(`⚠️ Time between service recommendations too short (< 45 minutes) - not showing services. Last shown: ${Math.round((now - lastServiceTime) / 60000)} minutes ago`);
         return false; // Less than 45 minutes since last recommendation
       }
     }
@@ -4076,7 +4078,7 @@ async function generateHistoryResponse(history) {
     
     // 会話履歴が空の場合
     if (!history || history.length === 0) {
-    console.log(`→ 会話履歴なし: 空のhistoryオブジェクト`);
+      console.log(`→ 会話履歴なし: 空のhistoryオブジェクト`);
       return "会話履歴がありません。もう少し会話を続けると、あなたの特性について分析できるようになります。";
     }
 
@@ -4088,8 +4090,8 @@ async function generateHistoryResponse(history) {
     
     // 分析に十分なデータがあるかどうかを確認（最低1件あれば分析を試みる）
     if (userMessages.length > 0) {
-    console.log(`→ OpenAI API呼び出し準備完了`);
-    console.log(`→ プロンプト付与: "たとえデータが少なくても、「過去の記録がない」などとは言わず、利用可能なデータから最大限の分析を行ってください"`);
+      console.log(`→ OpenAI API呼び出し準備完了`);
+      console.log(`→ プロンプト付与: "たとえデータが少なくても、「過去の記録がない」などとは言わず、利用可能なデータから最大限の分析を行ってください"`);
       
       // OpenAI APIを使用して特性分析を実行
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -4143,13 +4145,13 @@ ${userMessages.join('\n\n')}`
         max_tokens: 500
       });
       
-    console.log(`→ OpenAI API応答受信: ${response.choices[0].message.content.substring(0, 50)}...`);
-    console.log(`→ レスポンスが「過去の記録がない」を含むか: ${response.choices[0].message.content.includes('過去の記録がない') || response.choices[0].message.content.includes('会話履歴がない')}`);
-    console.log(`======= 特性分析詳細ログ終了 =======\n`);
+      console.log(`→ OpenAI API応答受信: ${response.choices[0].message.content.substring(0, 50)}...`);
+      console.log(`→ レスポンスが「過去の記録がない」を含むか: ${response.choices[0].message.content.includes('過去の記録がない') || response.choices[0].message.content.includes('会話履歴がない')}`);
+      console.log(`======= 特性分析詳細ログ終了 =======\n`);
       return response.choices[0].message.content;
-    
-    console.log(`→ 分析に利用可能なメッセージなし`);
-    console.log(`======= 特性分析詳細ログ終了 =======\n`);
+    } else {
+      console.log(`→ 分析に利用可能なメッセージなし`);
+      console.log(`======= 特性分析詳細ログ終了 =======\n`);
       // 会話履歴が不足している場合でも、否定的な表現は避ける
       return "会話履歴を分析しました。より詳細な特性分析のためには、もう少し会話を続けることをお勧めします。現時点では、あなたの興味や関心に合わせたサポートを提供できるよう努めています。何か具体的な質問や話題があれば、お気軽にお聞かせください。";
     }
@@ -4229,7 +4231,7 @@ async function restorePendingImageRequests() {
     const recentCompletedTimeLimit = Date.now() - 10 * 60 * 1000; // 10分前
     
     if (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID) {
-    console.log('[DEBUG-RESTORE] Airtable credentials not found. Checking local fallback data...');
+      console.log('[DEBUG-RESTORE] Airtable credentials not found. Checking local fallback data...');
       // ローカルデータやセッションストレージがあれば、ここでチェック
       return;
     }
@@ -4267,7 +4269,7 @@ async function restorePendingImageRequests() {
         completedGenerations.set(userId, timestamp);
       }
       
-    console.log(`[DEBUG-RESTORE] Found ${completionLogs.length} completed image generations in last 30 minutes`);
+      console.log(`[DEBUG-RESTORE] Found ${completionLogs.length} completed image generations in last 30 minutes`);
     } catch (completionError) {
       console.error('[DEBUG-RESTORE] Error fetching completion logs:', completionError);
     }
@@ -4289,7 +4291,7 @@ async function restorePendingImageRequests() {
         cancelledGenerations.set(userId, timestamp);
       }
       
-    console.log(`[DEBUG-RESTORE] Found ${cancellationLogs.length} cancelled image generations in last 30 minutes`);
+      console.log(`[DEBUG-RESTORE] Found ${cancellationLogs.length} cancelled image generations in last 30 minutes`);
     } catch (cancellationError) {
       console.error('[DEBUG-RESTORE] Error fetching cancellation logs:', cancellationError);
     }
@@ -4303,13 +4305,13 @@ async function restorePendingImageRequests() {
       
       // proposalTimeがNaNでないことを確認（タイムスタンプ変換エラー対策）
       if (isNaN(proposalTime)) {
-      console.log(`[DEBUG-RESTORE] Skipping proposal with invalid timestamp for user ${userId}: ${proposal.get('Timestamp')}`);
+        console.log(`[DEBUG-RESTORE] Skipping proposal with invalid timestamp for user ${userId}: ${proposal.get('Timestamp')}`);
         continue;
       }
       
       // タイムアウトチェック
       if (now - proposalTime > PENDING_IMAGE_TIMEOUT) {
-      console.log(`[DEBUG-RESTORE] Skipping expired proposal for user ${userId} (${Math.round((now - proposalTime)/1000)}s old)`);
+        console.log(`[DEBUG-RESTORE] Skipping expired proposal for user ${userId} (${Math.round((now - proposalTime)/1000)}s old)`);
         continue;
       }
       
@@ -4317,7 +4319,7 @@ async function restorePendingImageRequests() {
       if (completedGenerations.has(userId)) {
         const completionTime = completedGenerations.get(userId);
         if (completionTime > proposalTime) {
-        console.log(`[DEBUG-RESTORE] Skipping proposal for user ${userId} - generation already completed at ${new Date(completionTime).toISOString()}`);
+          console.log(`[DEBUG-RESTORE] Skipping proposal for user ${userId} - generation already completed at ${new Date(completionTime).toISOString()}`);
           continue;
         }
       }
@@ -4326,7 +4328,7 @@ async function restorePendingImageRequests() {
       if (cancelledGenerations.has(userId)) {
         const cancellationTime = cancelledGenerations.get(userId);
         if (cancellationTime > proposalTime) {
-        console.log(`[DEBUG-RESTORE] Skipping proposal for user ${userId} - generation was cancelled at ${new Date(cancellationTime).toISOString()}`);
+          console.log(`[DEBUG-RESTORE] Skipping proposal for user ${userId} - generation was cancelled at ${new Date(cancellationTime).toISOString()}`);
           continue;
         }
       }
@@ -4339,11 +4341,11 @@ async function restorePendingImageRequests() {
         })
         .firstPage();
       
-    console.log(`[DEBUG-RESTORE] User ${userId}: proposal time=${new Date(proposalTime).toISOString()}, found ${userResponses.length} responses after proposal`);
+      console.log(`[DEBUG-RESTORE] User ${userId}: proposal time=${new Date(proposalTime).toISOString()}, found ${userResponses.length} responses after proposal`);
       
       // ユーザーが応答していない場合、提案を保留中として復元
       if (userResponses.length === 0) {
-      console.log(`[DEBUG-RESTORE] Restoring pending image proposal for user ${userId} - no responses found after proposal`);
+        console.log(`[DEBUG-RESTORE] Restoring pending image proposal for user ${userId} - no responses found after proposal`);
         
         // 最後のアシスタントメッセージを取得（提案の直前のメッセージ）
         const lastMessages = await airtableBase('ConversationHistory')
@@ -4367,33 +4369,33 @@ async function restorePendingImageRequests() {
             source: source,
             restored: true
           });
-        console.log(`[DEBUG-RESTORE] Restored pending image explanation for user ${userId} with content: "${content.substring(0, 30)}..." at timestamp ${new Date(proposalTime).toISOString()}, source: ${source}`);
+          console.log(`[DEBUG-RESTORE] Restored pending image explanation for user ${userId} with content: "${content.substring(0, 30)}..." at timestamp ${new Date(proposalTime).toISOString()}, source: ${source}`);
           restoredCount++;
-        
-        console.log(`[DEBUG-RESTORE] Could not find assistant message before proposal for user ${userId}`);
+        } else {
+          console.log(`[DEBUG-RESTORE] Could not find assistant message before proposal for user ${userId}`);
         }
-      
-      console.log(`[DEBUG-RESTORE] User ${userId} already responded after proposal, not restoring`);
+      } else {
+        console.log(`[DEBUG-RESTORE] User ${userId} already responded after proposal, not restoring`);
         if (userResponses.length > 0) {
-        console.log(`[DEBUG-RESTORE] First response: "${userResponses[0].get('Content')}" at ${userResponses[0].get('Timestamp')}`);
+          console.log(`[DEBUG-RESTORE] First response: "${userResponses[0].get('Content')}" at ${userResponses[0].get('Timestamp')}`);
         }
       }
     }
     
     // 復元された内容の詳細なデバッグ情報
     if (pendingImageExplanations.size > 0) {
-    console.log('[DEBUG-RESTORE] === Restored pending image requests details ===');
+      console.log('[DEBUG-RESTORE] === Restored pending image requests details ===');
       for (const [uid, data] of pendingImageExplanations.entries()) {
         const contentPreview = typeof data.content === 'string' 
           ? data.content.substring(0, 30) 
           : (data.content ? data.content.substring(0, 30) : 'undefined');
           
-      console.log(`[DEBUG-RESTORE] User ${uid}: timestamp=${data.timestamp ? new Date(data.timestamp).toISOString() : 'none'}, age=${data.timestamp ? Math.round((Date.now() - data.timestamp)/1000) : 'unknown'}s, source=${data.source || 'unknown'}, restored=${data.restored || false}`);
-      console.log(`[DEBUG-RESTORE] Content preview: "${contentPreview}..."`);
+        console.log(`[DEBUG-RESTORE] User ${uid}: timestamp=${data.timestamp ? new Date(data.timestamp).toISOString() : 'none'}, age=${data.timestamp ? Math.round((Date.now() - data.timestamp)/1000) : 'unknown'}s, source=${data.source || 'unknown'}, restored=${data.restored || false}`);
+        console.log(`[DEBUG-RESTORE] Content preview: "${contentPreview}..."`);
       }
-    console.log('[DEBUG-RESTORE] ============================================');
-    
-    console.log('[DEBUG-RESTORE] No valid pending image requests were found to restore');
+      console.log('[DEBUG-RESTORE] ============================================');
+    } else {
+      console.log('[DEBUG-RESTORE] No valid pending image requests were found to restore');
     }
     
     console.log(`[DEBUG-RESTORE] Successfully restored ${restoredCount} pending image requests`);
@@ -4480,10 +4482,10 @@ async function detectConfusionWithLLM(userMessage, previousAIResponse) {
         const confidence = parseFloat(confidenceParts[1]);
         result.confidence = confidence;
         if (confidence >= 95) {
-        console.log(`[DEBUG-CONFUSION] LLM determined user doesn't understand AI response with high confidence (${confidence}%)`);
+          console.log(`[DEBUG-CONFUSION] LLM determined user doesn't understand AI response with high confidence (${confidence}%)`);
           result.isConfused = true;
-        
-        console.log(`[DEBUG-CONFUSION] LLM detected some confusion but confidence too low (${confidence}%)`);
+        } else {
+          console.log(`[DEBUG-CONFUSION] LLM detected some confusion but confidence too low (${confidence}%)`);
         }
       }
     }
@@ -4495,4 +4497,3 @@ async function detectConfusionWithLLM(userMessage, previousAIResponse) {
     return result;
   }
 }
-

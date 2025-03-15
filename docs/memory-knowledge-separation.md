@@ -68,7 +68,7 @@ messages = [
 // 知識の活用（ML分析結果を追加情報として使用）
 messages.push({
   role: 'system',
-  content: `# ML分析結果からの追加コンテキスト\n${mlSystemPrompt}`
+  content: mlSystemPrompt
 });
 ```
 
