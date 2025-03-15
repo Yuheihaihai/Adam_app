@@ -2552,6 +2552,14 @@ async function handleText(event) {
     const userId = event.source.userId;
     const messageText = event.message.text;
     
+    // デバッグ: 初期状態でのpendingImageExplanationsの状態確認
+    console.log(`[DEBUG-IMAGE] Message received for user ${userId}: "${messageText.substring(0, 20)}${messageText.length > 20 ? '...' : ''}"`);
+    console.log(`[DEBUG-IMAGE] pendingImageExplanations state: has(${userId})=${pendingImageExplanations.has(userId)}`);
+    if (pendingImageExplanations.has(userId)) {
+      const pendingData = pendingImageExplanations.get(userId);
+      console.log(`[DEBUG-IMAGE] Pending data: timestamp=${pendingData.timestamp}, age=${Date.now() - pendingData.timestamp}ms, contentLen=${pendingData.content ? pendingData.content.length : 0}`);
+    }
+    
     // 特性分析に関連するメッセージかどうかを検出
     if (messageText && (
       messageText.includes('特性') || 
@@ -2754,29 +2762,45 @@ ${SHARE_URL}
     
     // pendingImageExplanations のチェック（はい/いいえ 判定）
     if (pendingImageExplanations.has(userId)) {
-      console.log(`[DEBUG] Checking 'はい'/'いいえ' response for user ${userId}`);
-      console.log(`[DEBUG] Pending explanation exists: ${pendingImageExplanations.has(userId)}`);
+      console.log(`[DEBUG-IMAGE] Checking 'はい'/'いいえ' response for user ${userId}`);
+      console.log(`[DEBUG-IMAGE] Pending explanation exists: ${pendingImageExplanations.has(userId)}`);
       const pendingData = pendingImageExplanations.get(userId);
       
       // 有効期限チェック
       const now = Date.now();
       if (pendingData.timestamp && (now - pendingData.timestamp > 5 * 60 * 1000)) { // 5分でタイムアウト
-        console.log(`[DEBUG] Pending image request expired for ${userId} - ${Math.round((now - pendingData.timestamp)/1000)}s elapsed (max: 300s)`);
+        console.log(`[DEBUG-IMAGE] Pending image request expired for ${userId} - ${Math.round((now - pendingData.timestamp)/1000)}s elapsed (max: 300s)`);
         pendingImageExplanations.delete(userId);
         // 通常の処理を続行
       } else if (userMessage === "はい") {
-        console.log(`[DEBUG] 'はい' detected for user ${userId}, proceeding with image generation`);
+        console.log(`[DEBUG-IMAGE] 'はい' detected for user ${userId}, proceeding with image generation`);
+        console.log(`[DEBUG-IMAGE] pendingData details: timestamp=${new Date(pendingData.timestamp).toISOString()}, contentLength=${pendingData.content ? pendingData.content.length : 0}`);
+        
+        // contentが存在するか確認
+        if (!pendingData.content) {
+          console.log(`[DEBUG-IMAGE] Error: pendingData.content is ${pendingData.content}`);
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: "申し訳ありません。画像生成に必要な情報が見つかりませんでした。もう一度お試しください。"
+          });
+          pendingImageExplanations.delete(userId);
+          return;
+        }
+        
         const explanationText = pendingData.content;
         pendingImageExplanations.delete(userId);
-        console.log("ユーザーの「はい」が検出されました。画像生成を開始します。");
+        console.log(`[DEBUG-IMAGE] ユーザーの「はい」が検出されました。画像生成を開始します。内容: "${explanationText.substring(0, 30)}..."`);
         return handleVisionExplanation(event, explanationText);
       } else if (userMessage === "いいえ") {
+        console.log(`[DEBUG-IMAGE] 'いいえ' detected for user ${userId}, cancelling image generation`);
         pendingImageExplanations.delete(userId);
-        console.log("ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。");
+        console.log(`[DEBUG-IMAGE] ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。`);
         return client.replyMessage(event.replyToken, {
           type: 'text',
           text: "承知しました。引き続きテキストでの回答を行います。"
         });
+      } else {
+        console.log(`[DEBUG-IMAGE] User ${userId} responded with "${userMessage}" while image proposal was pending`);
       }
     }
 
@@ -2824,11 +2848,26 @@ ${SHARE_URL}
         console.log(`[DEBUG] Analyzing if user understands AI response: "${userMessage}"`);
         
         // 直前のAI回答を取得する
-        const previousAIResponse = lastAssistantMessage ? lastAssistantMessage.content : null;
+        // lastAssistantMessageが未定義の場合、会話履歴から取得を試みる
+        let previousAIResponse = null;
+        
+        if (lastAssistantMessage && lastAssistantMessage.content) {
+          previousAIResponse = lastAssistantMessage.content;
+          console.log(`[DEBUG-IMAGE] Using cached lastAssistantMessage: "${previousAIResponse.substring(0, 30)}..."`);
+        } else if (historyForProcessing && historyForProcessing.length > 0) {
+          // 会話履歴から最新のアシスタントメッセージを検索
+          for (let i = historyForProcessing.length - 1; i >= 0; i--) {
+            if (historyForProcessing[i].role === 'assistant') {
+              previousAIResponse = historyForProcessing[i].content;
+              console.log(`[DEBUG-IMAGE] Found assistant message in history: "${previousAIResponse.substring(0, 30)}..."`);
+              break;
+            }
+          }
+        }
         
         // 直前のAI回答がない場合はスキップ
         if (!previousAIResponse) {
-          console.log(`[DEBUG] No previous AI response to analyze against, skipping confusion detection`);
+          console.log(`[DEBUG-IMAGE] No previous AI response found in cache or history, skipping confusion detection`);
         } else {
           // OpenAI APIを使用して混乱度を判定
           const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -2887,41 +2926,63 @@ ${SHARE_URL}
     }
 
     if (triggerImageExplanation) {
-      console.log(`[DEBUG] Image explanation triggered for user ${userId}`);
+      console.log(`[DEBUG-IMAGE] Image explanation triggered for user ${userId}`);
       
       // Check if this user recently received an image generation - if so, skip image generation prompt
       const recentImageTimestamp = recentImageGenerationUsers.get(userId);
       if (recentImageTimestamp) {
-        console.log(`[DEBUG] User ${userId} has recent image timestamp: ${recentImageTimestamp}, now: ${Date.now()}, diff: ${Date.now() - recentImageTimestamp}ms`);
+        console.log(`[DEBUG-IMAGE] User ${userId} has recent image timestamp: ${recentImageTimestamp}, now: ${Date.now()}, diff: ${Date.now() - recentImageTimestamp}ms`);
       }
       
       if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 30000)) { // 30 seconds protection
-        console.log(`[DEBUG] User ${userId} recently received image generation, skipping image explanation offer`);
+        console.log(`[DEBUG-IMAGE] User ${userId} recently received image generation, skipping image explanation offer`);
         recentImageGenerationUsers.delete(userId); // Clean up after use
         return;
       }
       
-      if (lastAssistantMessage) {
-        console.log(`[DEBUG] Setting pendingImageExplanations for user ${userId} with content: "${lastAssistantMessage.content.substring(0, 30)}..."`);
+      // lastAssistantMessageの取得を試みる（未定義の場合は履歴から取得）
+      let contentToExplain = null;
+      let contentSource = "unknown";
+      
+      if (lastAssistantMessage && lastAssistantMessage.content) {
+        contentToExplain = lastAssistantMessage.content;
+        contentSource = "cached";
+        console.log(`[DEBUG-IMAGE] Using cached lastAssistantMessage for explanation: "${contentToExplain.substring(0, 30)}..."`);
+      } else if (historyForProcessing && historyForProcessing.length > 0) {
+        // 履歴から最新のアシスタントメッセージを検索
+        for (let i = historyForProcessing.length - 1; i >= 0; i--) {
+          if (historyForProcessing[i].role === 'assistant') {
+            contentToExplain = historyForProcessing[i].content;
+            contentSource = "history";
+            console.log(`[DEBUG-IMAGE] Using message from history for explanation: "${contentToExplain.substring(0, 30)}..."`);
+            break;
+          }
+        }
+      }
+      
+      if (contentToExplain) {
+        console.log(`[DEBUG-IMAGE] Setting pendingImageExplanations for user ${userId} with content from ${contentSource}: "${contentToExplain.substring(0, 30)}..."`);
         // タイムスタンプ付きで保存
         pendingImageExplanations.set(userId, {
-          content: lastAssistantMessage.content,
-          timestamp: Date.now()
+          content: contentToExplain,
+          timestamp: Date.now(),
+          source: contentSource
         });
         // 画像生成提案状態をConversationHistoryに記録
-        await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}`);
+        await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}, ソース: ${contentSource}`);
       } else {
-        console.log(`[DEBUG] No last assistant message found for user ${userId}, using default message`);
+        console.log(`[DEBUG-IMAGE] No content found for explanation, using default message`);
         pendingImageExplanations.set(userId, {
           content: "日常会話の基本とコミュニケーションのポイント",
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          source: "default"
         });
         // 画像生成提案状態をConversationHistoryに記録
         await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}, デフォルトテキスト使用`);
       }
       
       const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
-      console.log("画像による説明の提案をユーザーに送信:", suggestionMessage);
+      console.log(`[DEBUG-IMAGE] 画像による説明の提案をユーザーに送信: "${suggestionMessage}"`);
       
       await storeInteraction(userId, 'assistant', suggestionMessage);
       return client.replyMessage(event.replyToken, {
@@ -4127,9 +4188,11 @@ async function restorePendingImageRequests() {
         })
         .firstPage();
       
+      console.log(`[DEBUG-RESTORE] User ${userId}: proposal time=${new Date(proposalTime).toISOString()}, found ${userResponses.length} responses after proposal`);
+      
       // ユーザーが応答していない場合、提案を保留中として復元
       if (userResponses.length === 0) {
-        console.log(`Restoring pending image proposal for user ${userId}`);
+        console.log(`[DEBUG-RESTORE] Restoring pending image proposal for user ${userId} - no responses found after proposal`);
         
         // 最後のアシスタントメッセージを取得（提案の直前のメッセージ）
         const lastMessages = await airtableBase('ConversationHistory')
@@ -4146,9 +4209,28 @@ async function restorePendingImageRequests() {
             content: content,
             timestamp: proposalTime
           });
-          console.log(`Restored pending image explanation for user ${userId} with content: "${content.substring(0, 30)}..."`);
+          console.log(`[DEBUG-RESTORE] Restored pending image explanation for user ${userId} with content: "${content.substring(0, 30)}..." at timestamp ${new Date(proposalTime).toISOString()}`);
+        } else {
+          console.log(`[DEBUG-RESTORE] Could not find assistant message before proposal for user ${userId}`);
+        }
+      } else {
+        console.log(`[DEBUG-RESTORE] User ${userId} already responded after proposal, not restoring`);
+        if (userResponses.length > 0) {
+          console.log(`[DEBUG-RESTORE] First response: "${userResponses[0].get('Content')}" at ${userResponses[0].get('Timestamp')}`);
         }
       }
+    }
+    
+    // 復元された内容の詳細なデバッグ情報
+    if (pendingImageExplanations.size > 0) {
+      console.log('=== Restored pending image requests details ===');
+      for (const [uid, data] of pendingImageExplanations.entries()) {
+        console.log(`User ${uid}: timestamp=${new Date(data.timestamp).toISOString()}, age=${Math.round((Date.now() - data.timestamp)/1000)}s, contentLen=${data.content.length}`);
+        console.log(`Content preview: "${data.content.substring(0, 30)}..."`);
+      }
+      console.log('============================================');
+    } else {
+      console.log('No valid pending image requests were found to restore');
     }
     
     console.log(`Successfully restored ${pendingImageExplanations.size} pending image requests`);
