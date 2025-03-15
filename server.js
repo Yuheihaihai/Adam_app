@@ -919,22 +919,48 @@ async function fetchUserHistory(userId, limit) {
                 let role = '';
                 let content = '';
                 
+                // まずfieldsオブジェクトをログに出力して内容を確認
+                console.log(`  レコード診断 (ID: ${record.id}):`);
+                if (record.fields) {
+                  console.log(`  - fields内容: ${JSON.stringify(record.fields)}`);
+                }
                 if (record._rawJson && record._rawJson.fields) {
-                  // 直接rawJsonから取得
-                  role = record._rawJson.fields['Role'] || '';
-                  content = record._rawJson.fields['Content'] || '';
+                  console.log(`  - _rawJson.fields内容: ${JSON.stringify(record._rawJson.fields)}`);
+                }
+                
+                // 大文字と小文字の両方のバージョンを試す
+                // _rawJsonから取得を試みる
+                if (record._rawJson && record._rawJson.fields) {
+                  // 大文字小文字両方のバージョンを試す
+                  role = record._rawJson.fields['Role'] || record._rawJson.fields['role'] || '';
+                  content = record._rawJson.fields['Content'] || record._rawJson.fields['content'] || '';
                   
                   console.log(`  データ取得方法: rawJson, Role: ${role}, Content長さ: ${content.length}`);
-                } else if (record.fields) {
-                  // fieldsから取得
-                  role = record.fields['Role'] || '';
-                  content = record.fields['Content'] || '';
+                } 
+                // fieldsから取得を試みる
+                else if (record.fields) {
+                  // 大文字小文字両方のバージョンを試す
+                  role = record.fields['Role'] || record.fields['role'] || '';
+                  content = record.fields['Content'] || record.fields['content'] || '';
                   
                   console.log(`  データ取得方法: fields, Role: ${role}, Content長さ: ${content.length}`);
-                } else if (record.get) {
-                  // getメソッドを使用
-                  role = record.get('Role') || '';
-                  content = record.get('Content') || '';
+                } 
+                // getメソッドを使用
+                else if (record.get) {
+                  // 大文字小文字両方のバージョンを試す
+                  try {
+                    role = record.get('Role') || record.get('role') || '';
+                  } catch (e) {
+                    // エラーが発生した場合は無視
+                    console.log(`  get('Role')でエラー: ${e.message}`);
+                  }
+                  
+                  try {
+                    content = record.get('Content') || record.get('content') || '';
+                  } catch (e) {
+                    // エラーが発生した場合は無視
+                    console.log(`  get('Content')でエラー: ${e.message}`);
+                  }
                   
                   console.log(`  データ取得方法: get(), Role: ${role}, Content長さ: ${content.length}`);
                 }
