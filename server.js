@@ -1365,22 +1365,30 @@ async function checkEngagementWithLLM(userMessage, history) {
   }
 }
 
+/**
+ * AIを使用して応答を生成
+ * @param {string} systemPrompt - システムプロンプト
+ * @param {string} userMessage - ユーザーのメッセージ
+ * @param {Object} historyData - 履歴データ（記憶）
+ * @param {string} mode - 処理モード
+ * @param {string} userId - ユーザーID
+ * @param {Object} client - LINEクライアント
+ * @returns {Promise<Object>} - 応答オブジェクト
+ */
 async function processWithAI(systemPrompt, userMessage, historyData, mode, userId, client) {
   try {
     console.log(`Processing message in mode: ${mode}`);
     
     // Start performance measurement
     const startTime = Date.now();
-    const overallStartTime = startTime; // Add this line to fix the ReferenceError
-    
-    // historyDataからhistoryとmetadataを取り出す
-    const history = historyData.history || [];
-    const historyMetadata = historyData.metadata || {};
+    const overallStartTime = startTime;
     
     // Get user preferences
     const userPrefs = userPreferences.getUserPreferences(userId);
     
     // Check if this is a new user or has very few messages
+    const history = historyData.history || [];
+    const historyMetadata = historyData.metadata || {};
     const isNewUser = history.length < 3;
     
     // Determine which model to use
@@ -1393,25 +1401,27 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     console.log('┌──────────────────────────────────────────────────────────┐');
     console.log('│ 1. PARALLEL DATA COLLECTION PHASE                        │');
     console.log('└──────────────────────────────────────────────────────────┘');
+    console.log('   ├─ 記憶: Airtableからのチャット履歴データ');
+    console.log('   └─ 知識: MLの分析と生成されたコンテキスト');
     // ─────────────────────────────────────────────────────────────────────
     
     // Run user needs analysis, conversation context extraction, and service matching in parallel
     const [userNeedsPromise, conversationContextPromise, perplexityDataPromise] = await Promise.all([
-      // Analyze user needs from conversation history
+      // Analyze user needs from conversation history (知識の生成)
       (async () => {
-        console.log('\n📊 [1A] USER NEEDS ANALYSIS - Starting');
+        console.log('\n📊 [1A] USER NEEDS ANALYSIS (知識生成) - Starting');
         const needsStartTime = Date.now();
         const userNeeds = await userNeedsAnalyzer.analyzeUserNeeds(userMessage, history);
-        console.log(`📊 [1A] USER NEEDS ANALYSIS - Completed in ${Date.now() - needsStartTime}ms`);
+        console.log(`📊 [1A] USER NEEDS ANALYSIS (知識生成) - Completed in ${Date.now() - needsStartTime}ms`);
         return userNeeds;
       })(),
       
-      // Extract conversation context
+      // Extract conversation context (知識の生成)
       (async () => {
-        console.log('\n🔍 [1B] CONVERSATION CONTEXT EXTRACTION - Starting');
+        console.log('\n🔍 [1B] CONVERSATION CONTEXT EXTRACTION (知識生成) - Starting');
         const contextStartTime = Date.now();
         const conversationContext = extractConversationContext(history, userMessage);
-        console.log(`🔍 [1B] CONVERSATION CONTEXT EXTRACTION - Completed in ${Date.now() - contextStartTime}ms`);
+        console.log(`🔍 [1B] CONVERSATION CONTEXT EXTRACTION (知識生成) - Completed in ${Date.now() - contextStartTime}ms`);
         return conversationContext;
       })(),
       
@@ -1644,139 +1654,101 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     console.log('└──────────────────────────────────────────────────────────┘');
     // ─────────────────────────────────────────────────────────────────────
     
-    // デバッグログ追加
-    console.log(`\n======= AIプロンプト構築デバッグ =======`);
-    console.log(`→ モード: ${mode}`);
-    console.log(`→ 会話履歴件数: ${history.length}`);
-    
-    // 特性分析に関するキーワードの検出
-    const analysisKeywords = ['特性', '分析', '性格', '過去の記録', '履歴'];
-    const containsAnalysisKeywords = userMessage && analysisKeywords.some(keyword => userMessage.includes(keyword));
-    console.log(`→ 特性分析キーワード検出: ${containsAnalysisKeywords}`);
-    
-    // 特性/キャリア分析モードの確認
-    if (mode === 'characteristics' || mode === 'career') {
-      console.log(`→ 特性/キャリア分析モードが有効`);
-      
-      // historyDataオブジェクトからメタデータを安全に取得
-      const historyMetadata = historyData && historyData.metadata ? historyData.metadata : {};
-      
-      if (historyMetadata.insufficientReason) {
-        console.log(`→ 履歴不足理由: ${historyMetadata.insufficientReason}`);
-        if (historyMetadata.insufficientReason === 'few_records') {
-          console.log(`→ 履歴が少ない警告をプロンプトに追加: ${history.length}件`);
-        } else if (historyMetadata.insufficientReason === 'translation_heavy') {
-          console.log(`→ 翻訳依頼が多い警告をプロンプトに追加: 翻訳率=${historyMetadata.translationPercentage}%`);
-        }
-      } else if (history.length < 3) {
-        console.log(`→ 履歴が3件未満の警告をプロンプトに追加: ${history.length}件`);
-      }
-    }
-    console.log(`======= AIプロンプト構築デバッグ終了 =======\n`);
-    
     // Prepare the messages for the AI model
     console.log('\n📝 [3A] CREATING BASE PROMPT');
+    console.log('    ├─ 記憶データ（チャット履歴）を使用');
     console.log(`    ├─ System prompt: ${systemPrompt.length} characters`);
     console.log(`    └─ Including ${history.length} conversation messages`);
     
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...history.map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: msg.content
-      }))
-    ];
+    let messages = [];
     
-    // Add Perplexity data if available for career mode
-    if (mode === 'career' && perplexityData) {
-      console.log('\n🔄 [3B] INTEGRATING ML DATA INTO PROMPT');
+    // Use different prompt construction based on model
+    if (model === 'gpt-4o-latest') {
+      // GPT-4では、システムプロンプトと履歴を別々に扱う（記憶の活用）
+      messages = [
+        { role: 'system', content: systemPrompt },
+        ...history.map(msg => ({
+          role: msg.role === 'user' ? 'user' : 'assistant',
+          content: msg.content
+        }))
+      ];
+    } else {
+      // Claude-3用の形式（システムプロンプトをユーザーメッセージの接頭辞として使用）
+      // 各メッセージに明示的な役割表示を追加して会話の流れをより明確にする（記憶の活用）
+      const formattedHistory = history.map(msg => {
+        const rolePrefix = msg.role === 'user' ? 'Human: ' : 'Assistant: ';
+        return { role: 'user', content: `${rolePrefix}${msg.content}` };
+      });
       
-      // Record baseline prompt size before adding ML data
-      const baselinePromptSize = JSON.stringify(messages).length;
-      console.log(`    ├─ Baseline prompt size before ML data: ${baselinePromptSize} bytes`);
+      messages = [
+        { 
+          role: 'user', 
+          content: `${systemPrompt}\n\nHuman: ${userMessage}` 
+        }
+      ];
       
-      // Log the basic system instruction content before ML augmentation
-      const systemInstructions = messages.find(m => m.role === 'system')?.content || '';
-      console.log(`    ├─ Base system instructions: ${systemInstructions.substring(0, 100)}...`);
-      
-      if (perplexityData.jobTrends) {
-        console.log('    ├─ Adding job market trends:');
-        console.log(`    │  └─ Market analysis: ${perplexityData.jobTrends.analysis ? perplexityData.jobTrends.analysis.length : 0} characters`);
-        console.log(`    │  └─ Job URLs: ${perplexityData.jobTrends.urls ? 'Included' : 'Not available'}`);
-        
-        // Extract key market insights for logging
-        const marketInsights = extractKeyInsights(perplexityData.jobTrends.analysis, 3);
-        console.log('    │  └─ Key market insights:');
-        marketInsights.forEach((insight, i) => {
-          console.log(`    │     ${i+1}. ${insight.substring(0, 40)}...`);
-        });
-        
-        messages.push({
-          role: 'system',
-          content: `
-# 最新の市場データ (Perplexityから取得)
-
-[市場分析]
-${perplexityData.jobTrends.analysis || '情報を取得できませんでした。'}
-
-[求人情報]
-${perplexityData.jobTrends.urls || '情報を取得できませんでした。'}
-
-このデータを活用してユーザーに適切なキャリアアドバイスを提供してください。
-`
-        });
+      // Claudeはすべてのコンテキストを単一のメッセージで受け取る必要がある
+      if (formattedHistory.length > 0) {
+        // 最初のメッセージにシステムプロンプトと履歴を追加
+        messages[0].content = `${systemPrompt}\n\n${formattedHistory.map(m => m.content).join('\n\n')}\n\nHuman: ${userMessage}`;
       }
+    }
+    
+    // Add ML data for career mode (知識の活用)
+    if (mode === 'career' && perplexityData) {
+      console.log('\n🔄 [3B] INTEGRATING PERPLEXITY DATA INTO PROMPT (知識の活用)');
       
-      if (perplexityData.knowledge) {
-        console.log('    └─ Adding user characteristics analysis:');
-        console.log(`       └─ Analysis: ${perplexityData.knowledge.length} characters`);
-        
-        // Extract key characteristics for logging
-        const userCharacteristics = extractKeyInsights(perplexityData.knowledge, 3);
-        console.log('       └─ Key user characteristics:');
-        userCharacteristics.forEach((characteristic, i) => {
-          console.log(`          ${i+1}. ${characteristic.substring(0, 40)}...`);
-        });
-        
+      // Record baseline prompt size before adding Perplexity data
+      const baselinePromptSize = JSON.stringify(messages).length;
+      console.log(`    ├─ Baseline prompt size before Perplexity data: ${baselinePromptSize} bytes`);
+      
+      // Add Perplexity data to prompt
+      if (model === 'gpt-4o-latest') {
         messages.push({
           role: 'system',
           content: `
 # ユーザー特性の追加分析 (Perplexityから取得)
-
 ${perplexityData.knowledge}
-
 この特性を考慮してアドバイスを提供してください。
 `
         });
+      } else {
+        // For Claude, append to the first message content
+        messages[0].content += `\n\n# ユーザー特性の追加分析 (Perplexityから取得)\n${perplexityData.knowledge}\nこの特性を考慮してアドバイスを提供してください。`;
       }
       
-      // Log the ML data impact on prompt size
-      const mlAugmentedPromptSize = JSON.stringify(messages).length;
-      const promptSizeIncrease = mlAugmentedPromptSize - baselinePromptSize;
+      // Log the Perplexity data impact on prompt size
+      const perplexityAugmentedPromptSize = JSON.stringify(messages).length;
+      const promptSizeIncrease = perplexityAugmentedPromptSize - baselinePromptSize;
       const percentIncrease = ((promptSizeIncrease / baselinePromptSize) * 100).toFixed(1);
-      console.log(`    ├─ ML-augmented prompt size: ${mlAugmentedPromptSize} bytes`);
-      console.log(`    └─ ML data added ${promptSizeIncrease} bytes (${percentIncrease}% increase)`);
+      console.log(`    ├─ Perplexity-augmented prompt size: ${perplexityAugmentedPromptSize} bytes`);
+      console.log(`    └─ Perplexity data added ${promptSizeIncrease} bytes (${percentIncrease}% increase)`);
     }
-    // Add LocalML data for other modes (general, mental_health, analysis)
+    // Add LocalML data for other modes (知識の活用)
     else if (['general', 'mental_health', 'analysis'].includes(mode)) {
-      console.log('\n🔄 [3B] INTEGRATING LOCAL ML DATA INTO PROMPT');
+      console.log('\n🔄 [3B] INTEGRATING LOCAL ML DATA INTO PROMPT (知識の活用)');
       
       // Record baseline prompt size before adding ML data
       const baselinePromptSize = JSON.stringify(messages).length;
       console.log(`    ├─ Baseline prompt size before ML data: ${baselinePromptSize} bytes`);
       
       // Get system prompt from ML data
-      const { systemPrompt } = await processMlData(userId, userMessage, mode);
+      const { systemPrompt: mlSystemPrompt } = await processMlData(userId, userMessage, mode);
       
-      if (systemPrompt) {
+      if (mlSystemPrompt) {
         console.log(`    ├─ Adding ${mode} mode ML analysis`);
-        console.log(`    │  └─ Analysis length: ${systemPrompt.length} characters`);
+        console.log(`    │  └─ Analysis length: ${mlSystemPrompt.length} characters`);
         
-        // Add the ML system prompt
-        messages.push({
-          role: 'system',
-          content: systemPrompt
-        });
+        // Add the ML system prompt (知識の活用)
+        if (model === 'gpt-4o-latest') {
+          messages.push({
+            role: 'system',
+            content: mlSystemPrompt
+          });
+        } else {
+          // For Claude, append to the first message content
+          messages[0].content += `\n\n# ML分析結果からの追加コンテキスト\n${mlSystemPrompt}`;
+        }
         
         // Log the ML data impact on prompt size
         const mlAugmentedPromptSize = JSON.stringify(messages).length;
@@ -1789,12 +1761,14 @@ ${perplexityData.knowledge}
       }
     }
     
-    // Add user message after all context
-    console.log('\n📨 [3C] FINALIZING PROMPT:');
-    console.log(`    ├─ Total prompt components: ${messages.length}`);
-    console.log(`    └─ Adding user message: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
-    
-    messages.push({ role: 'user', content: userMessage });
+    // Add user message after all context for GPT-4
+    if (model === 'gpt-4o-latest') {
+      console.log('\n📨 [3C] FINALIZING PROMPT:');
+      console.log(`    ├─ Total prompt components: ${messages.length}`);
+      console.log(`    └─ Adding user message: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+      
+      messages.push({ role: 'user', content: userMessage });
+    }
     
     // ─────────────────────────────────────────────────────────────────────
     console.log('\n┌──────────────────────────────────────────────────────────┐');
@@ -2556,24 +2530,6 @@ async function handleText(event) {
     console.log(`[DEBUG-IMAGE] Message received for user ${userId}: "${userMessage.substring(0, 20)}${userMessage.length > 20 ? '...' : ''}"`);
     console.log(`[DEBUG-IMAGE] pendingImageExplanations state: has(${userId})=${pendingImageExplanations.has(userId)}`);
     
-    // 最近の会話履歴を先に取得して、すべての処理で利用できるようにする
-    const historyData = await fetchUserHistory(userId, 10);
-    const historyForProcessing = historyData.history || [];
-    const historyMetadata = historyData.metadata || {};
-    
-    // 最新のアシスタントメッセージを取得
-    let lastAssistantMessage = null;
-    if (historyForProcessing && historyForProcessing.length > 0) {
-      // 履歴から最新のアシスタントメッセージを検索
-      for (let i = historyForProcessing.length - 1; i >= 0; i--) {
-        if (historyForProcessing[i].role === 'assistant') {
-          lastAssistantMessage = historyForProcessing[i];
-          console.log(`[DEBUG-IMAGE] Found last assistant message from history: "${lastAssistantMessage.content.substring(0, 30)}..."`);
-          break;
-        }
-      }
-    }
-    
     // はい/いいえの応答を最初に確認して画像生成を優先処理
     if (pendingImageExplanations.has(userId)) {
       const pendingData = pendingImageExplanations.get(userId);
@@ -2947,7 +2903,10 @@ ${SHARE_URL}
       return null;
     }
 
-    // システムプロンプトの取得
+    // 最近の会話履歴の取得
+    const historyData = await fetchUserHistory(userId, 10);
+    const historyForProcessing = historyData.history || [];
+    const historyMetadata = historyData.metadata || {};
     const systemPrompt = getSystemPromptForMode(mode);
 
     // 画像説明の提案トリガーチェック：isConfusionRequest のみを使用
