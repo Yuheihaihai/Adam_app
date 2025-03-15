@@ -799,6 +799,8 @@ async function storeInteraction(userId, role, content) {
               Role: role,
               Content: content,
               Timestamp: new Date().toISOString(),
+              Mode: 'general', // デフォルトのモードを追加
+              MessageType: 'text', // デフォルトのメッセージタイプを追加
             },
           },
         ]);
@@ -819,6 +821,7 @@ async function storeInteraction(userId, role, content) {
           Role: role,
           Content: content,
           Timestamp: new Date().toISOString(),
+          // フォールバックテーブルには追加のフィールドは含めない（エラーの原因になる可能性あり）
         },
       },
     ]);
@@ -834,6 +837,7 @@ async function storeInteraction(userId, role, content) {
             Role: role,
             Content: content,
             Timestamp: new Date().toISOString(),
+            // 元のテーブルには追加のフィールドは含めない
           },
         },
       ]);
