@@ -2556,6 +2556,24 @@ async function handleText(event) {
     console.log(`[DEBUG-IMAGE] Message received for user ${userId}: "${userMessage.substring(0, 20)}${userMessage.length > 20 ? '...' : ''}"`);
     console.log(`[DEBUG-IMAGE] pendingImageExplanations state: has(${userId})=${pendingImageExplanations.has(userId)}`);
     
+    // 最近の会話履歴を先に取得して、すべての処理で利用できるようにする
+    const historyData = await fetchUserHistory(userId, 10);
+    const historyForProcessing = historyData.history || [];
+    const historyMetadata = historyData.metadata || {};
+    
+    // 最新のアシスタントメッセージを取得
+    let lastAssistantMessage = null;
+    if (historyForProcessing && historyForProcessing.length > 0) {
+      // 履歴から最新のアシスタントメッセージを検索
+      for (let i = historyForProcessing.length - 1; i >= 0; i--) {
+        if (historyForProcessing[i].role === 'assistant') {
+          lastAssistantMessage = historyForProcessing[i];
+          console.log(`[DEBUG-IMAGE] Found last assistant message from history: "${lastAssistantMessage.content.substring(0, 30)}..."`);
+          break;
+        }
+      }
+    }
+    
     // はい/いいえの応答を最初に確認して画像生成を優先処理
     if (pendingImageExplanations.has(userId)) {
       const pendingData = pendingImageExplanations.get(userId);
@@ -2929,10 +2947,7 @@ ${SHARE_URL}
       return null;
     }
 
-    // 最近の会話履歴の取得
-    const historyData = await fetchUserHistory(userId, 10);
-    const historyForProcessing = historyData.history || [];
-    const historyMetadata = historyData.metadata || {};
+    // システムプロンプトの取得
     const systemPrompt = getSystemPromptForMode(mode);
 
     // 画像説明の提案トリガーチェック：isConfusionRequest のみを使用
