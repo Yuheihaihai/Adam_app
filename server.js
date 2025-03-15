@@ -1397,7 +1397,7 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     
     // Determine which model to use
     const useGpt4 = mode === 'characteristics' || mode === 'analysis';
-    const model = useGpt4 ? 'gpt-4o' : 'gpt-4o';
+    const model = useGpt4 ? "gpt-4o" : "gpt-4o";
     console.log(`Using model: ${model}`);
     
     // ─────────────────────────────────────────────────────────────────────
@@ -1666,14 +1666,37 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     
     let messages = [];
     
-    // GPT-4では、システムプロンプトと履歴を別々に扱う（記憶の活用）
-    messages = [
-      { role: 'system', content: systemPrompt },
-      ...history.map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: msg.content
-      }))
-    ];
+    // Use different prompt construction based on model
+    if (model === 'gpt-4o-latest') {
+      // GPT-4では、システムプロンプトと履歴を別々に扱う（記憶の活用）
+      messages = [
+        { role: 'system', content: systemPrompt },
+        ...history.map(msg => ({
+          role: msg.role === 'user' ? 'user' : 'assistant',
+          content: msg.content
+        }))
+      ];
+    } else {
+      // Claude-3用の形式（システムプロンプトをユーザーメッセージの接頭辞として使用）
+      // 各メッセージに明示的な役割表示を追加して会話の流れをより明確にする（記憶の活用）
+      const formattedHistory = history.map(msg => {
+        const rolePrefix = msg.role === 'user' ? 'Human: ' : 'Assistant: ';
+        return { role: 'user', content: `${rolePrefix}${msg.content}` };
+      });
+      
+      messages = [
+        { 
+          role: 'user', 
+          content: `${systemPrompt}\n\nHuman: ${userMessage}` 
+        }
+      ];
+      
+      // Claudeはすべてのコンテキストを単一のメッセージで受け取る必要がある
+      if (formattedHistory.length > 0) {
+        // 最初のメッセージにシステムプロンプトと履歴を追加
+        messages[0].content = `${systemPrompt}\n\n${formattedHistory.map(m => m.content).join('\n\n')}\n\nHuman: ${userMessage}`;
+      }
+    }
     
     // Add ML data for career mode (知識の活用)
     if (mode === 'career' && perplexityData) {
@@ -1743,11 +1766,13 @@ ${perplexityData.knowledge}
     }
     
     // Add user message after all context for GPT-4
-    console.log('\n📨 [3C] FINALIZING PROMPT:');
-    console.log(`    ├─ Total prompt components: ${messages.length}`);
-    console.log(`    └─ Adding user message: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
-    
-    messages.push({ role: 'user', content: userMessage });
+    if (model === 'gpt-4o-latest') {
+      console.log('\n📨 [3C] FINALIZING PROMPT:');
+      console.log(`    ├─ Total prompt components: ${messages.length}`);
+      console.log(`    └─ Adding user message: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+      
+      messages.push({ role: 'user', content: userMessage });
+    }
     
     // ─────────────────────────────────────────────────────────────────────
     console.log('\n┌──────────────────────────────────────────────────────────┐');
@@ -3130,3 +3155,1373 @@ ${SHARE_URL}
       if (!showServiceReason) {
         return null; // 理由が指定されていない場合は何も表示しない
       }
+
+      const userPrefs = userPreferences.getUserPreferences(userId);
+      
+      switch (showServiceReason) {
+        case 'disabled':
+          return '（現在サービス推奨は無効になっています。「サービス表示オン」と入力すると有効になります）';
+        case 'no_request':
+          return '（明示的なアドバイス要求がない場合、サービス推奨は表示されません。「アドバイスください」などと入力すると表示されます）';
+        case 'daily_limit':
+          return '（1日の推奨上限に達しました。明日以降に再度ご利用ください）';
+        case 'cooldown':
+          return '（最近サービスを推奨したため、しばらく表示を控えています。少し時間をおいてから再度お試しください）';
+        default:
+          return null;
+      }
+    }
+
+    // デバッグ情報として表示されない理由を取得
+    // (serviceNotificationReasonの初期化が不足していたため、ここで適切に設定)
+    let serviceNotificationReason = null;
+    
+    // ユーザー設定を取得
+    const userPrefs = userPreferences.getUserPreferences(userId);
+    
+    // サービス表示がオフの場合に理由を設定
+    if (!showServices && userPrefs && !userPrefs.showServiceRecommendations) {
+      serviceNotificationReason = 'disabled';
+    } else if (!showServices && !adviceRequested) {
+      serviceNotificationReason = 'no_request';
+    }
+    
+    // サービス推奨の通知メッセージを取得
+    const notificationMessage = getServiceNotificationMessage(userId, serviceNotificationReason);
+    if (notificationMessage) {
+      console.log('Service notification message (debug only):', notificationMessage);
+      // デバッグモードの場合のみ、AIの応答に追記（本番環境では表示しない）
+      if (process.env.DEBUG_MODE === 'true') {
+        finalResponse += '\n\n' + notificationMessage;
+      }
+    }
+    
+    return client.replyMessage(event.replyToken, { type: 'text', text: finalResponse });
+  } catch (error) {
+    console.error('Error handling text message:', error);
+    return Promise.resolve(null);
+  }
+}
+
+// サーバー起動設定
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Listening on port ${PORT}`);
+  console.log(`Visit: http://localhost:${PORT} (if local)\n`);
+});
+
+/**
+ * Checks if a message is a direct request for image generation
+ * @param {string} text - The message text to check
+ * @return {boolean} - True if the message is a direct request for image generation
+ */
+function isImageGenerationRequest(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 画像生成リクエストに特化したフレーズ
+  const imageGenerationRequests = [
+    '画像を生成', '画像を作成', '画像を作って', 'イメージを生成', 'イメージを作成', 'イメージを作って',
+    '図を生成', '図を作成', '図を作って', '図解して', '図解を作成', '図解を生成',
+    'ビジュアル化して', '視覚化して', '絵を描いて', '絵を生成', '絵を作成',
+    '画像で説明', 'イメージで説明', '図で説明', '視覚的に説明',
+    '画像にして', 'イラストを作成', 'イラストを生成', 'イラストを描いて'
+  ];
+  
+  // 直接的な画像生成リクエストの場合はtrueを返す
+  return imageGenerationRequests.some(phrase => text.includes(phrase));
+}
+
+/**
+ * Checks if a message indicates user confusion or a request for explanation about an image
+ * Now only checks for direct image generation requests
+ * @param {string} text - The message text to check
+ * @return {boolean} - True if the message is a direct request for image generation
+ */
+function isConfusionRequest(text) {
+  // 直接的な画像生成リクエストかどうかを判断するだけの機能に変更
+  // 互換性のために関数名は変更せず
+  return isImageGenerationRequest(text);
+}
+
+/**
+ * Handles vision explanation requests
+ * @param {Object} event - The LINE event object
+ * @return {Promise<void>}
+ */
+async function handleVisionExplanation(event, explanationText) {
+  const userId = event.source.userId;
+  
+  // Mark this user as having image generation in progress
+  imageGenerationInProgress.set(userId, true);
+  console.log(`[DEBUG-IMAGE] Starting image generation for user ${userId} - setting protection flag`);
+  
+  // タイムアウト処理の追加 - 10分後に強制的にフラグをクリア
+  const timeoutId = setTimeout(() => {
+    if (imageGenerationInProgress.has(userId)) {
+      imageGenerationInProgress.delete(userId);
+      console.log(`[DEBUG-IMAGE] Force cleared image generation flag for user ${userId} after timeout (10 minutes)`);
+    }
+  }, 10 * 60 * 1000);
+  
+  // 画像生成開始を記録
+  await storeInteraction(userId, 'system', `[画像生成開始] ${new Date().toISOString()}`);
+  
+  try {
+    // explanationTextが提供されている場合、それを使用して画像説明を生成
+    if (explanationText) {
+      // オブジェクト形式と文字列形式の両方に対応（後方互換性の確保）
+      let textToUse = explanationText;
+      let sourceInfo = "legacy";
+      
+      if (typeof explanationText === 'object' && explanationText !== null) {
+        textToUse = explanationText.content || "説明文が不明です";
+        sourceInfo = explanationText.source || "unknown";
+        console.log(`[DEBUG-IMAGE] Using object format explanation, source: ${sourceInfo}`);
+      }
+      
+      // Check if this is a long text like the ASD guide and summarize if needed
+      let displayText = textToUse;
+      let enhancedPrompt = "";
+      let isASDGuide = false;
+      
+      // If text is very long (like the ASD guide), create a summary version
+      if (textToUse.length > 300) {
+        console.log(`[DEBUG-IMAGE] Long text detected (${textToUse.length} chars), creating summary version`);
+        
+        // Check if it's the ASD guide
+        if (textToUse.includes("ASD支援機能の使い方ガイド") || textToUse.includes("自閉症スペクトラム障害")) {
+          isASDGuide = true;
+          displayText = "ASD支援機能の活用方法";
+          enhancedPrompt = "ASD（自閉症スペクトラム障害）支援の主要なポイントを簡潔に示した視覚的な図解。質問例（コミュニケーション、感覚過敏、社会場面などの対応）、基本的な使い方、注意点を含む。シンプルで分かりやすいインフォグラフィック形式。";
+          console.log(`[DEBUG-IMAGE] ASD guide detected, using specialized summary and prompt`);
+        } else {
+          // For other long texts, extract the first sentence or first 100 chars
+          displayText = textToUse.split('。')[0] + "。";
+          if (displayText.length > 100) {
+            displayText = displayText.substring(0, 97) + "...";
+          }
+          enhancedPrompt = `以下の内容の要点を視覚的に説明するイラスト: ${textToUse.substring(0, 500)}`;
+        }
+      } else if (textToUse.length <= 20) {
+        // 短いテキストの場合は教育的なコンテキストを追加
+        console.log(`[DEBUG-IMAGE] Short text detected (${textToUse.length} chars), adding educational context`);
+        displayText = textToUse;
+        enhancedPrompt = `「${textToUse}」についての教育的で分かりやすい図解。日常生活での応用例や基本概念を含む、明るく親しみやすいイラスト。`;
+      } else {
+        // For normal length text, use as is
+        enhancedPrompt = `以下のテキストに基づいて詳細で、わかりやすいイラストを作成してください。テキスト: ${textToUse}`;
+      }
+      
+      // Use a simple message for generation notification
+      let generationMessage = isASDGuide 
+        ? "ASD支援機能の主なポイントを視覚化しています。少々お待ちください..."
+        : `「${displayText}」に基づく視覚的な説明を生成しています。少々お待ちください...`;
+      
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: generationMessage
+      });
+      
+      // DALL-Eを使用して画像を生成
+      try {
+        const openai = new OpenAI({
+          apiKey: process.env.OPENAI_API_KEY
+        });
+        
+        console.log(`[DEBUG-IMAGE] Using enhanced prompt: ${enhancedPrompt.substring(0, 100)}...`);
+        
+        const response = await openai.images.generate({
+          model: "dall-e-3",
+          prompt: enhancedPrompt,
+          n: 1,
+          size: "1024x1024",
+          quality: "standard"
+        });
+        
+        const imageUrl = response.data[0].url;
+        
+        // 生成された画像のURLを取得
+        console.log(`[DEBUG-IMAGE] Generated image URL: ${imageUrl}`);
+        
+        // Create a concise response message
+        let responseMessage = "";
+        if (isASDGuide) {
+          responseMessage = "ASD支援機能の主なポイントをまとめた画像です。この視覚的な説明は理解の助けになりましたか？";
+        } else {
+          responseMessage = `「${displayText}」の要点を視覚化しました。この画像は参考になりましたか？`;
+        }
+        
+        // 画像をLINEに送信
+        await client.pushMessage(userId, [
+          {
+            type: 'image',
+            originalContentUrl: imageUrl,
+            previewImageUrl: imageUrl
+          },
+          {
+            type: 'text',
+            text: responseMessage
+          }
+        ]);
+        
+        // 生成した画像情報を保存 - Store only image reference with concise text
+        let storageText = isASDGuide ? "ASD支援機能の視覚的ガイド" : displayText;
+        await storeInteraction(userId, 'assistant', `[生成画像] ${storageText}`);
+        await storeInteraction(userId, 'system', `[画像生成完了] ${new Date().toISOString()}`);
+        
+        // Add user to recent image generation tracking with timestamp to prevent ASD guide
+        recentImageGenerationUsers.set(userId, Date.now());
+        console.log(`[DEBUG-IMAGE] Setting recentImageGenerationUsers timestamp for user ${userId}: ${Date.now()}`);
+        
+        // 正常終了時のクリーンアップ: タイムアウトとフラグの両方をクリア
+        clearTimeout(timeoutId);
+        setTimeout(() => {
+          imageGenerationInProgress.delete(userId);
+          console.log(`[DEBUG-IMAGE] Cleared image generation flag for user ${userId} after successful generation`);
+          console.log(`[DEBUG-IMAGE] Image generation protection status - imageGenerationInProgress: ${imageGenerationInProgress.has(userId) ? 'YES' : 'NO'}, recentImageGenerationUsers timestamp: ${recentImageGenerationUsers.get(userId)}`);
+        }, 5000);
+        
+      } catch (error) {
+        console.error('[DEBUG-IMAGE] DALL-E画像生成エラー:', error);
+        
+        // エラーの種類に応じたメッセージを提供
+        let errorMessage = '申し訳ありません。画像の生成中にエラーが発生しました。';
+        
+        // 安全システムによる拒否の場合
+        if (error.code === 'content_policy_violation' || 
+            (error.message && error.message.includes('safety system'))) {
+          errorMessage = '申し訳ありません。このテキストから安全な画像を生成できませんでした。「日常会話のポイント」「コミュニケーションの基本」などの具体的なテーマで試してみてください。';
+        } else if (error.code === 'rate_limit_exceeded') {
+          errorMessage = '申し訳ありません。現在リクエストが多く、画像を生成できませんでした。しばらく経ってからお試しください。';
+        } else {
+          errorMessage += '別の表現で試してみてください。';
+        }
+        
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: errorMessage
+        });
+        
+        // エラー発生時のクリーンアップ: タイムアウトとフラグの両方をクリア
+        clearTimeout(timeoutId);
+        imageGenerationInProgress.delete(userId);
+        console.log(`[DEBUG-IMAGE] Cleared image generation flag for user ${userId} due to error`);
+      }
+      
+      return;
+    }
+    
+    // explanationTextがない場合は通常の画像履歴検索処理を行う
+    // Get user's recent history to find the last image
+    const history = await fetchUserHistory(userId, 10);
+    
+    // Find the most recent image message
+    const lastImageMessage = history
+      .filter(item => item.content && item.content.includes('画像が送信されました'))
+      .pop();
+    
+    if (!lastImageMessage) {
+      // No recent image found
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '最近の画像が見つかりませんでした。説明してほしい画像を送信してください。もし画像の説明を求めていない場合は、別の質問をお願いします。'
+      });
+      return;
+    }
+
+    // 処理中であることを通知
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '画像を分析しています。少々お待ちください...'
+    });
+
+    // 画像メッセージIDを抽出
+    const messageIdMatch = lastImageMessage.content.match(/\(ID: ([^)]+)\)/);
+    const messageId = messageIdMatch ? messageIdMatch[1] : null;
+    
+    if (!messageId) {
+      throw new Error('画像メッセージIDが見つかりませんでした');
+    }
+    
+    console.log(`Using image message ID: ${messageId} for analysis`);
+
+    // LINE APIを使用して画像コンテンツを取得
+    const stream = await client.getMessageContent(messageId);
+    
+    // 画像データをバッファに変換
+    const chunks = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+    }
+    const imageBuffer = Buffer.concat(chunks);
+    
+    // Base64エンコード
+    const base64Image = imageBuffer.toString('base64');
+    
+    // OpenAI Vision APIに送信するリクエストを準備
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "この画像について詳しく説明してください。何が写っていて、どんな状況か、重要な詳細を教えてください。" },
+            { 
+              type: "image_url", 
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 500
+    });
+    
+    const analysis = response.choices[0].message.content;
+    console.log(`Image analysis completed for user ${userId}`);
+    
+    // ユーザーに分析結果を送信
+    await client.pushMessage(userId, {
+      type: 'text',
+      text: analysis
+    });
+    
+    // 会話履歴に画像分析を記録
+    await storeInteraction(userId, 'assistant', `[画像分析] ${analysis}`);
+    
+  } catch (error) {
+    console.error('[DEBUG-IMAGE] Error in handleVisionExplanation:', error);
+    
+    // グローバルエラーハンドリング
+    try {
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: '申し訳ありません。画像処理中に問題が発生しました。もう一度お試しいただくか、別の方法でお問い合わせください。'
+      });
+    } catch (msgError) {
+      console.error('[DEBUG-IMAGE] Failed to send error message:', msgError);
+    }
+    
+    // 必ずタイムアウトとフラグをクリア
+    clearTimeout(timeoutId);
+    imageGenerationInProgress.delete(userId);
+    console.log(`[DEBUG-IMAGE] Cleared image generation flag for user ${userId} after catching error`);
+  } finally {
+    // 念のためfinallyブロックでもフラグをチェック（10分以上かかる処理はないはず）
+    setTimeout(() => {
+      if (imageGenerationInProgress.has(userId)) {
+        imageGenerationInProgress.delete(userId);
+        console.log(`[DEBUG-IMAGE] Finally block cleared image generation flag for user ${userId}`);
+      }
+    }, 1000);
+  }
+}
+
+/**
+ * Extracts relevant context from conversation history
+ * @param {Array} history - Array of conversation history items
+ * @param {string} userMessage - Current user message
+ * @return {Object} - Extracted context information
+ */
+function extractConversationContext(history, userMessage) {
+  try {
+    // Extract recent topics from last 5 messages
+    const recentMessages = history.slice(-5);
+    
+    // Extract user interests
+    const userInterests = [];
+    const interestKeywords = [
+      '趣味', '好き', '興味', 'ホビー', '楽しい', '関心', 
+      'すき', 'きょうみ', 'たのしい', 'かんしん'
+    ];
+    
+    recentMessages.forEach(msg => {
+      if (msg.role === 'user') {
+        for (const keyword of interestKeywords) {
+          if (msg.content.includes(keyword)) {
+            // Extract the sentence containing the keyword
+            const sentences = msg.content.split(/。|！|\.|!/).filter(s => s.includes(keyword));
+            userInterests.push(...sentences);
+          }
+        }
+      }
+    });
+    
+    // Check for emotion indicators
+    const emotions = {
+      positive: 0,
+      negative: 0,
+      neutral: 1 // Default to slightly neutral
+    };
+    
+    const positiveWords = [
+      '嬉しい', '楽しい', '良い', '好き', '素晴らしい', 
+      'うれしい', 'たのしい', 'よい', 'すき', 'すばらしい'
+    ];
+    
+    const negativeWords = [
+      '悲しい', '辛い', '苦しい', '嫌い', '心配', 
+      'かなしい', 'つらい', 'くるしい', 'きらい', 'しんぱい'
+    ];
+    
+    // Check current message for emotion words
+    for (const word of positiveWords) {
+      if (userMessage.includes(word)) emotions.positive++;
+    }
+    
+    for (const word of negativeWords) {
+      if (userMessage.includes(word)) emotions.negative++;
+    }
+    
+    // Return the compiled context
+    return {
+      userInterests: userInterests.length > 0 ? userInterests : null,
+      userEmotion: emotions.positive > emotions.negative ? 'positive' : 
+                   emotions.negative > emotions.positive ? 'negative' : 'neutral',
+      emotionIntensity: Math.max(emotions.positive, emotions.negative),
+      messageCount: history.length,
+      recentTopics: recentMessages
+        .map(msg => msg.content)
+        .join(' ')
+        .split(/。|！|\.|!/)
+        .filter(s => s.length > 5)
+        .slice(-3)
+    };
+  } catch (error) {
+    console.error('Error extracting conversation context:', error);
+    // Return a minimal context object in case of error
+    return {
+      userEmotion: 'neutral',
+      emotionIntensity: 0,
+      messageCount: history.length
+    };
+  }
+}
+
+async function processUserMessage(userId, userMessage, history, initialMode = null) {
+  try {
+    // Start timer for overall processing
+    const overallStartTime = Date.now();
+    console.log(`\n==== PROCESSING USER MESSAGE (${new Date().toISOString()}) ====`);
+    console.log(`User ID: ${userId}`);
+    console.log(`Message: ${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}`);
+    
+    // Get user preferences
+    // ... existing code ...
+  } catch (error) {
+    console.error('Error processing user message:', error);
+    return {
+      type: 'text',
+      text: '申し訳ありません。メッセージの処理中にエラーが発生しました。もう一度お試しください。'
+    };
+  }
+}
+
+// Define the missing handleASDUsageInquiry function
+async function handleASDUsageInquiry(event) {
+  const userId = event.source.userId;
+  const messageText = event.message.text;
+  
+  console.log(`[DEBUG] handleASDUsageInquiry called for user ${userId}`);
+  console.log(`[DEBUG] Protection check - imageGenerationInProgress: ${imageGenerationInProgress.has(userId) ? 'YES' : 'NO'}, recentImageTimestamp: ${recentImageGenerationUsers.has(userId) ? recentImageGenerationUsers.get(userId) : 'NONE'}`);
+  
+  // Check if image generation is in progress - if so, skip sending ASD guide
+  if (imageGenerationInProgress.has(userId)) {
+    console.log(`Image generation in progress for ${userId}, skipping ASD guide`);
+    return;
+  }
+  
+  // Create a comprehensive response about ASD support features
+  const response = `
+【ASD支援機能の使い方ガイド】
+
+Adamでは以下のようなASD(自閉症スペクトラム障害)に関する質問や相談に対応できます：
+
+■ 対応可能な質問例
+• 「自閉症スペクトラムの特性について教えて」
+• 「ASDの子どもとのコミュニケーション方法は？」
+• 「感覚過敏への対処法を知りたい」
+• 「社会的場面での不安に対するアドバイスが欲しい」
+• 「特定の興味や関心を活かせる仕事は？」
+• 「構造化や視覚支援の方法を教えて」
+• 「学校や職場での合理的配慮について」
+
+■ 使い方
+• テキストで質問するだけ：気になることを自然な言葉で入力してください
+• 継続的な会話：フォローアップ質問も自然にできます
+• 画像の送信：視覚的な説明が必要なときは「画像で説明して」と伝えてください
+
+■ 注意点
+• 医学的診断はできません
+• あくまで情報提供や一般的なアドバイスが中心です
+• 専門家への相談も並行して検討してください
+
+何か具体的に知りたいことがあれば、お気軽に質問してください。
+`;
+
+  // Store the interaction
+  await storeInteraction(userId, 'user', messageText);
+  await storeInteraction(userId, 'assistant', response);
+
+  // Reply to the user
+  await client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: response
+  });
+  
+  return;
+}
+
+// Helper functions for ML influence analysis
+function extractJobSectors(marketData) {
+  if (!marketData) return [];
+  
+  // List of common job sectors and related terms to look for
+  const sectorKeywords = {
+    'AI/機械学習': ['AI', '人工知能', '機械学習', 'ディープラーニング', 'データサイエンティスト'],
+    'ウェブ開発': ['ウェブ', 'Web', 'フロントエンド', 'バックエンド', 'フルスタック'],
+    'モバイル開発': ['モバイル', 'iOS', 'Android', 'アプリ開発'],
+    'クラウド': ['クラウド', 'AWS', 'Azure', 'GCP', 'DevOps'],
+    'サイバーセキュリティ': ['セキュリティ', 'サイバー', 'ハッキング', '脆弱性'],
+    'ブロックチェーン': ['ブロックチェーン', '暗号通貨', 'NFT', 'Web3'],
+    'IoT': ['IoT', 'インターネット・オブ・シングス', 'センサー', '組み込み'],
+    '医療/ヘルスケア': ['医療', 'ヘルスケア', '健康', '病院'],
+    '金融/フィンテック': ['金融', 'フィンテック', '銀行', '投資'],
+    '教育': ['教育', 'EdTech', '学習', '教師'],
+    '持続可能性': ['持続可能', 'SDGs', '環境', 'グリーン', 'カーボンニュートラル']
+  };
+  
+  // Count mentions of each sector
+  const sectorCounts = {};
+  Object.entries(sectorKeywords).forEach(([sector, keywords]) => {
+    sectorCounts[sector] = keywords.filter(keyword => 
+      marketData.includes(keyword)
+    ).length;
+  });
+  
+  // Return sectors sorted by mention count (only those with at least one mention)
+  return Object.entries(sectorCounts)
+    .filter(([_, count]) => count > 0)
+    .sort(([_, countA], [__, countB]) => countB - countA)
+    .map(([sector, _]) => sector);
+}
+
+function extractPersonalityTraits(text) {
+  if (!text) return [];
+  
+  const traits = [
+    ['論理的', '分析的', '理性的'],
+    ['創造的', '革新的', 'クリエイティブ'],
+    ['社交的', '外向的', 'コミュニケーション'],
+    ['慎重', '注意深い', '計画的'],
+    ['リーダーシップ', '指導的', 'マネジメント'],
+    ['サポート', '協力的', '支援'],
+    ['目標志向', '成果主義', '達成']
+  ];
+  
+  return traits
+    .filter(synonyms => synonyms.some(trait => text.includes(trait)))
+    .map(([trait, _]) => trait);
+}
+
+// Helper function to extract key insights from text
+function extractKeyInsights(text, count = 3) {
+  if (!text) return [];
+  
+  // Split by sentence end markers and filter for meaningful sentences
+  const sentences = text.split(/[。.?!]/).filter(s => s.length > 15);
+  
+  // Sort by length (shorter sentences are often more concise insights)
+  const sortedSentences = [...sentences].sort((a, b) => {
+    // Prioritize sentences with key indicator terms
+    const keyTerms = ['重要', '特徴', '傾向', '注目', '成長', '特性', '好み', '強み', '市場'];
+    const aScore = keyTerms.filter(term => a.includes(term)).length;
+    const bScore = keyTerms.filter(term => b.includes(term)).length;
+    
+    if (aScore !== bScore) return bScore - aScore;
+    
+    // Then consider length (prefer 20-50 character sentences)
+    const aLengthScore = Math.abs(35 - a.length);
+    const bLengthScore = Math.abs(35 - b.length);
+    return aLengthScore - bLengthScore;
+  });
+  
+  // Return top insights
+  return sortedSentences.slice(0, count).map(s => s.trim());
+}
+
+// Helper function to extract meaningful phrases from text
+function extractSignificantPhrases(text) {
+  if (!text) return [];
+  
+  // Split into sentences
+  const sentences = text.split(/。|\./).filter(s => s.trim().length > 10);
+  
+  // Extract key phrases (8-30 characters)
+  let phrases = [];
+  for (const sentence of sentences) {
+    // Split by common separators
+    const parts = sentence.split(/、|,|（|）|\(|\)|「|」|『|』|"|"|'|'/).filter(p => p.trim().length >= 8 && p.trim().length <= 30);
+    phrases = [...phrases, ...parts.map(p => p.trim())];
+    
+    // If the sentence itself is a good length, include it too
+    if (sentence.trim().length >= 8 && sentence.trim().length <= 40) {
+      phrases.push(sentence.trim());
+    }
+  }
+  
+  // Deduplicate and filter out very similar phrases
+  const uniquePhrases = [];
+  for (const phrase of phrases) {
+    if (!uniquePhrases.some(p => 
+      p.includes(phrase) || 
+      phrase.includes(p) || 
+      levenshteinDistance(p, phrase) < Math.min(p.length, phrase.length) * 0.3
+    )) {
+      uniquePhrases.push(phrase);
+    }
+  }
+  
+  return uniquePhrases.slice(0, 10); // Return up to 10 phrases
+}
+
+// Helper function for string similarity
+function levenshteinDistance(a, b) {
+  const matrix = Array(a.length + 1).fill().map(() => Array(b.length + 1).fill(0));
+  
+  for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+  for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+  
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i-1] === b[j-1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i-1][j] + 1,
+        matrix[i][j-1] + 1,
+        matrix[i-1][j-1] + cost
+      );
+    }
+  }
+  
+  return matrix[a.length][b.length];
+}
+
+// Create a natural transition based on message content
+function createNaturalTransition(responseText, category, isMinimal) {
+  // より単純かつ一貫性のあるカテゴリ判定ロジック
+  if (isMinimal) {
+    return '\n\n■ サポート情報 ■\n必要な時にご覧いただければ幸いです：\n';
+  }
+  
+  // カテゴリごとに適切な導入メッセージを表示
+  switch (category) {
+    case 'mental_health':
+      return '\n\n■ メンタルヘルスサポート ■\nこちらのサービスが心の健康をサポートするかもしれません：\n';
+    case 'career':
+      return '\n\n■ キャリア支援サービス ■\nキャリアアップに役立つかもしれないサービスをご紹介します：\n';
+    case 'social':
+      return '\n\n■ コミュニティサポート ■\n以下のサービスが社会とのつながりをサポートします：\n';
+    case 'financial':
+      return '\n\n■ 生活支援サービス ■\n経済的な支援に関する以下のサービスが参考になるかもしれません：\n';
+    case 'education':
+      return '\n\n■ 学習支援サービス ■\n以下の学習サポートサービスがお役に立つかもしれません：\n';
+    case 'daily_living':
+      return '\n\n■ 日常生活サポート ■\n日常生活をサポートする以下のサービスをご紹介します：\n';
+    default:
+      // レスポンスのコンテンツに基づいて判断（バックアップ）
+      if (responseText.includes('ストレス') || responseText.includes('不安') || 
+          responseText.includes('悩み') || responseText.includes('落ち込み')) {
+        return '\n\n■ メンタルヘルスサポート ■\nこちらのサービスが心の健康をサポートするかもしれません：\n';
+      } else if (responseText.includes('キャリア') || responseText.includes('仕事') || 
+                responseText.includes('就職') || responseText.includes('転職')) {
+        return '\n\n■ キャリア支援サービス ■\nキャリアアップに役立つかもしれないサービスをご紹介します：\n';
+      } else if (responseText.includes('スキル') || responseText.includes('技術') || 
+                responseText.includes('学習') || responseText.includes('勉強')) {
+        return '\n\n■ スキルアップ支援 ■\n以下のサービスがスキル向上に役立つかもしれません：\n';
+      }
+      // デフォルトの一般的なメッセージ
+      return '\n\n■ 関連サポートサービス ■\n以下のサービスが参考になるかもしれません：\n';
+  }
+}
+
+/**
+ * Detect if the user is asking for advice or recommendations using LLM context understanding
+ */
+function detectAdviceRequest(userMessage, history) {
+  if (!userMessage) return false;
+  
+  // Use LLM to detect if user needs advice based on context
+  return detectAdviceRequestWithLLM(userMessage, history);
+}
+
+/**
+ * Use GPT-4o-mini to determine if user is asking for advice or in need of service recommendations
+ */
+async function detectAdviceRequestWithLLM(userMessage, history) {
+  try {
+    console.log('Using LLM to analyze if user needs service recommendations');
+    
+    const prompt = `
+ユーザーの次のメッセージから、アドバイスやサービスの推薦を求めているか、または困った状況にあるかを判断してください:
+
+"${userMessage}"
+
+判断基準:
+1. ユーザーが明示的にアドバイスやサービスの推薦を求めている
+2. ユーザーが困った状況や問題を抱えており、サービス推薦が役立つ可能性がある
+3. 単なる雑談やお礼の場合は推薦不要
+4. ユーザーが推薦を拒否している場合は推薦不要
+
+応答は「yes」または「no」のみで答えてください。
+`;
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "あなたはユーザーの意図を正確に判断するAIです。yes/noのみで回答してください。" },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.1,
+      max_tokens: 10
+    });
+    
+    const result = response.choices[0].message.content.trim().toLowerCase();
+    
+    // 詳細なログを追加
+    if (result === 'yes') {
+      console.log(`✅ Advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+    } else {
+      console.log(`❌ No advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+    }
+    
+    return result === 'yes';
+  } catch (error) {
+    console.error('Error in LLM advice request detection:', error);
+    // Fall back to simpler heuristic in case of error
+    console.log(`⚠️ Error in advice request detection, defaulting to false`);
+    return false;
+  }
+}
+
+/**
+ * Check if it's an appropriate time in the conversation to show service recommendations
+ */
+async function shouldShowServicesToday(userId, history, userMessage) {
+  // 画像生成処理中かどうかをチェック
+  if (imageGenerationInProgress.has(userId)) {
+    console.log(`[DEBUG-SERVICE] Image generation in progress for user ${userId} - skipping service recommendations`);
+    return false;
+  }
+  
+  // 保留中の画像生成リクエストがあるかをチェック
+  if (pendingImageExplanations.has(userId)) {
+    console.log(`[DEBUG-SERVICE] Pending image request exists for user ${userId} - skipping service recommendations`);
+    return false;
+}
+
+  // If user explicitly asks for advice/services, always show
+  const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
+  if (isAdviceRequest) {
+    console.log('✅ Advice request detected by LLM in shouldShowServicesToday - always showing services');
+    return true;
+  }
+  
+  try {
+    // Use a shared function to get/set last service time
+    const userPrefs = userPreferences.getUserPreferences(userId);
+    const lastServiceTime = userPrefs.lastServiceTime || 0;
+    const now = Date.now();
+    
+    // If user recently received service recommendations (within last 4 hours)
+    if (lastServiceTime > 0 && now - lastServiceTime < 4 * 60 * 60 * 1000) {
+      // Count total service recommendations today
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      
+      let servicesToday = 0;
+      if (userPrefs.recentlyShownServices) {
+        for (const timestamp in userPrefs.recentlyShownServices) {
+          if (parseInt(timestamp) > todayStart.getTime()) {
+            servicesToday += userPrefs.recentlyShownServices[timestamp].length;
+          }
+        }
+      }
+      
+      // Limit to no more than 9 service recommendations per day
+      if (servicesToday >= 9) {
+        console.log('⚠️ Daily service recommendation limit reached (9 per day) - not showing services');
+        return false;
+      }
+      
+      // If fewer than 5 service recommendations today, require a longer minimum gap
+      if (servicesToday < 5 && now - lastServiceTime < 45 * 60 * 1000) {
+        console.log(`⚠️ Time between service recommendations too short (< 45 minutes) - not showing services. Last shown: ${Math.round((now - lastServiceTime) / 60000)} minutes ago`);
+        return false; // Less than 45 minutes since last recommendation
+      }
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error in shouldShowServicesToday:', err);
+    return true; // Default to showing if there's an error
+  }
+}
+
+/**
+ * Safety check for images using OpenAI's moderation capability with GPT-4o-mini
+ * @param {string} base64Image - Base64 encoded image
+ * @return {Promise<boolean>} - Whether the image passed the safety check
+ */
+async function checkImageSafety(base64Image) {
+  try {
+    // Using OpenAI's GPT-4o-mini model to detect potential safety issues
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "あなたは画像モデレーターです。この画像が安全かどうかを判断してください。画像が暴力的、性的、または不適切な内容が含まれている場合、それを特定してください。回答は「SAFE」または「UNSAFE」で始めてください。"
+        },
+        {
+          role: "user",
+          content: [
+            { 
+              type: "image_url", 
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 150,
+      temperature: 0
+    });
+    
+    const moderationResult = response.choices[0].message.content;
+    console.log(`Image safety check (4o-mini): ${moderationResult}`);
+    
+    // If the response starts with UNSAFE, the image didn't pass the safety check
+    return !moderationResult.startsWith("UNSAFE");
+  } catch (error) {
+    console.error('Error in image safety check:', error);
+    // In case of error, assume the image is safe to not block valid images
+    return true;
+  }
+}
+
+/**
+ * ユーザー入力の検証と無害化
+ * @param {string} input - ユーザーからの入力メッセージ
+ * @returns {string} - 検証済みの入力メッセージ
+ */
+function sanitizeUserInput(input) {
+  if (!input) return '';
+  
+  // 文字列でない場合は文字列に変換
+  if (typeof input !== 'string') {
+    input = String(input);
+  }
+  
+  // 最大長の制限
+  const MAX_INPUT_LENGTH = 2000;
+  if (input.length > MAX_INPUT_LENGTH) {
+    console.warn(`ユーザー入力が長すぎます (${input.length} > ${MAX_INPUT_LENGTH}). 切り詰めます。`);
+    input = input.substring(0, MAX_INPUT_LENGTH);
+  }
+  
+  // XSS対策 - xssライブラリを使用
+  input = xss(input);
+  
+  // SQL Injection対策 - SQL関連のキーワードを検出して警告
+  const SQL_PATTERN = /\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|UNION|JOIN|WHERE|OR)\b/gi;
+  if (SQL_PATTERN.test(input)) {
+    console.warn('SQL Injectionの可能性があるユーザー入力を検出しました');
+    // キーワードを置換
+    input = input.replace(SQL_PATTERN, '***');
+  }
+  
+  return input;
+}
+
+/**
+ * Line UserIDの検証
+ * @param {string} userId - LineのユーザーID
+ * @returns {string|null} - 検証済みのユーザーIDまたはnull
+ */
+function validateUserId(userId) {
+  if (!userId || typeof userId !== 'string') {
+    console.error('不正なユーザーID形式:', userId);
+    return null;
+  }
+  
+  // Line UserIDの形式チェック (UUIDv4形式)
+  const LINE_USERID_PATTERN = /^U[a-f0-9]{32}$/i;
+  if (!LINE_USERID_PATTERN.test(userId)) {
+    console.error('Line UserIDの形式が不正です:', userId);
+    return null;
+  }
+  
+  return userId;
+}
+
+// Add cleanup for the tracking map every hour
+// Setup a cleanup interval for recentImageGenerationUsers
+setInterval(() => {
+  const now = Date.now();
+  recentImageGenerationUsers.forEach((timestamp, userId) => {
+    // Remove entries older than 1 hour
+    if (now - timestamp > 3600000) {
+      recentImageGenerationUsers.delete(userId);
+    }
+  });
+}, 3600000); // Clean up every hour
+
+// Export functions for use in other modules
+module.exports = {
+  fetchUserHistory
+};
+
+/**
+ * 会話履歴から特性分析を行い、レスポンスを生成する関数
+ * @param {Array} history - 会話履歴の配列
+ * @returns {Promise<string>} - 分析結果のテキスト
+ */
+async function generateHistoryResponse(history) {
+  try {
+    console.log(`\n======= 特性分析詳細ログ =======`);
+    
+    // 会話履歴が空の場合
+    if (!history || history.length === 0) {
+      console.log(`→ 会話履歴なし: 空のhistoryオブジェクト`);
+      return "会話履歴がありません。もう少し会話を続けると、あなたの特性について分析できるようになります。";
+    }
+
+    console.log(`→ 分析開始: ${history.length}件の会話レコード`);
+    
+    // 会話履歴からユーザーのメッセージのみを抽出
+    const userMessages = history.filter(msg => msg.role === 'user').map(msg => msg.content);
+    console.log(`→ ユーザーメッセージ抽出: ${userMessages.length}件`);
+    
+    // 分析に十分なデータがあるかどうかを確認（最低1件あれば分析を試みる）
+    if (userMessages.length > 0) {
+      console.log(`→ OpenAI API呼び出し準備完了`);
+      console.log(`→ プロンプト付与: "たとえデータが少なくても、「過去の記録がない」などとは言わず、利用可能なデータから最大限の分析を行ってください"`);
+      
+      // OpenAI APIを使用して特性分析を実行
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `あなたは「Adam」という発達障害専門のカウンセラーです。ユーザーの過去ログを分析し、以下の観点から深い洞察を提供してください。
+
+[分析の観点]
+1. コミュニケーションパターン
+   - 言葉遣いの特徴
+   - 表現の一貫性
+   - 感情表現の方法
+
+2. 思考プロセス
+   - 論理的思考の特徴
+   - 問題解決アプローチ
+   - 興味・関心の対象
+
+3. 社会的相互作用
+   - 対人関係での傾向
+   - ストレス対処方法
+   - コミュニケーション上の強み/課題
+
+4. 感情と自己認識
+   - 感情表現の特徴
+   - 自己理解の程度
+   - モチベーションの源泉
+
+[出力形式]
+- 日本語で簡潔に（200文字以内）
+- 肯定的な側面を含める
+- 改善提案あれば添える
+- 断定的な診断は避ける（専門医に相談を推奨する）
+- 「データが不足している」「分析できない」「記録が少ない」などの否定的な表現は避け、限られたデータからでも何らかの洞察を提供する
+- 専門家への相談を推奨する
+
+重要: たとえデータが少なくても、「過去の記録がない」「データが少ない」「これまでの記録が少ない」などの表現は絶対に使わず、利用可能なデータから最大限の具体的な分析を行ってください。データ量についての言及は一切避け、直接分析内容を伝えてください。`
+          },
+          {
+            role: "user",
+            content: `以下はユーザーの過去の会話履歴です。この情報を基に、ユーザーの特性について分析してください。
+            
+会話履歴:
+${userMessages.join('\n\n')}`
+          }
+        ],
+        max_tokens: 500
+      });
+      
+      console.log(`→ OpenAI API応答受信: ${response.choices[0].message.content.substring(0, 50)}...`);
+      console.log(`→ レスポンスが「過去の記録がない」を含むか: ${response.choices[0].message.content.includes('過去の記録がない') || response.choices[0].message.content.includes('会話履歴がない')}`);
+      console.log(`======= 特性分析詳細ログ終了 =======\n`);
+      return response.choices[0].message.content;
+    } else {
+      console.log(`→ 分析に利用可能なメッセージなし`);
+      console.log(`======= 特性分析詳細ログ終了 =======\n`);
+      // 会話履歴が不足している場合でも、否定的な表現は避ける
+      return "会話履歴を分析しました。より詳細な特性分析のためには、もう少し会話を続けることをお勧めします。現時点では、あなたの興味や関心に合わせたサポートを提供できるよう努めています。何か具体的な質問や話題があれば、お気軽にお聞かせください。";
+    }
+  } catch (error) {
+    console.error('Error in generateHistoryResponse:', error);
+    console.error(`→ エラースタックトレース: ${error.stack}`);
+    console.log(`======= 特性分析詳細ログ終了 (エラー発生) =======\n`);
+    // エラーが発生した場合でも、ユーザーフレンドリーなメッセージを返す
+    return "申し訳ありません。特性分析の処理中にエラーが発生しました。もう一度お試しいただくか、別の質問をしていただけますか？";
+  }
+}
+
+/**
+ * 混乱や理解困難を示す表現を含むかどうかをチェックする
+ * @param {string} text - チェックするテキスト
+ * @return {boolean} - 混乱表現を含む場合はtrue
+ */
+function containsConfusionTerms(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 一般的な混乱表現
+  const confusionTerms = [
+    'わからない', '分からない', '理解できない', '意味がわからない', '意味が分からない',
+    'どういう意味', 'どういうこと', 'よくわからない', 'よく分からない',
+    '何が言いたい', 'なにが言いたい', '何を言ってる', 'なにを言ってる',
+    'もう少し', 'もっと', '簡単に', 'かみ砕いて', 'シンプルに', '例を挙げて',
+    '違う方法で', '別の言い方', '言い換えると', '言い換えれば', '詳しく',
+    '混乱', '複雑', '難解', 'むずかしい'
+  ];
+  
+  return confusionTerms.some(term => text.includes(term));
+}
+
+/**
+ * 直接的な画像分析リクエストかどうかを判断する
+ * @param {string} text - チェックするテキスト
+ * @return {boolean} - 直接的な画像分析リクエストの場合はtrue
+ */
+function isDirectImageAnalysisRequest(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 画像分析に特化したフレーズ
+  const directAnalysisRequests = [
+    'この画像について', 'この写真について', 'この画像を分析', 'この写真を分析',
+    'この画像を解析', 'この写真を解析', 'この画像を説明', 'この写真を説明',
+    'この画像の内容', 'この写真の内容', 'この画像に写っているもの', 'この写真に写っているもの'
+  ];
+  
+  // 直接的な画像分析リクエストの場合はtrueを返す
+  return directAnalysisRequests.some(phrase => text.includes(phrase));
+}
+
+// 定数宣言の部分の後に追加
+const PENDING_IMAGE_TIMEOUT = 5 * 60 * 1000; // 5分のタイムアウト
+
+// server.js内の起動処理部分（通常はexpressアプリの初期化後）に追加
+// アプリケーション起動時にシステムステートを復元する関数
+async function restoreSystemState() {
+  try {
+    console.log('Restoring system state from persistent storage...');
+    
+    // 保留中の画像生成リクエストの復元
+    await restorePendingImageRequests();
+    
+    console.log('System state restoration completed');
+  } catch (error) {
+    console.error('Error restoring system state:', error);
+  }
+}
+
+// 会話履歴から保留中の画像生成リクエストを復元する関数
+async function restorePendingImageRequests() {
+  try {
+    console.log('[DEBUG-RESTORE] Attempting to restore pending image generation requests...');
+    
+    // 10分以内に実行された画像生成処理をチェックするためのタイムスタンプ
+    const recentCompletedTimeLimit = Date.now() - 10 * 60 * 1000; // 10分前
+    
+    if (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID) {
+      console.log('[DEBUG-RESTORE] Airtable credentials not found. Checking local fallback data...');
+      // ローカルデータやセッションストレージがあれば、ここでチェック
+      return;
+    }
+    
+    const airtableBase = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
+      .base(process.env.AIRTABLE_BASE_ID);
+    
+    // 最近の画像生成提案を検索（過去30分以内）
+    const cutoffTime = new Date(Date.now() - 30 * 60 * 1000); // 30分前
+    const cutoffTimeStr = cutoffTime.toISOString();
+    
+    const pendingProposals = await airtableBase('ConversationHistory')
+      .select({
+        filterByFormula: `AND(SEARCH("[画像生成提案]", {Content}) > 0, {Timestamp} > "${cutoffTimeStr}")`,
+        sort: [{ field: 'Timestamp', direction: 'desc' }]
+      })
+      .firstPage();
+    
+    console.log(`[DEBUG-RESTORE] Found ${pendingProposals.length} recent image generation proposals`);
+    
+    // 画像生成完了ログを検索
+    const completedGenerations = new Map();
+    try {
+      const completionLogs = await airtableBase('ConversationHistory')
+        .select({
+          filterByFormula: `AND(SEARCH("[画像生成完了]", {Content}) > 0, {Timestamp} > "${cutoffTimeStr}")`,
+          sort: [{ field: 'Timestamp', direction: 'desc' }]
+        })
+        .firstPage();
+      
+      // 完了したユーザーIDとタイムスタンプをマップに記録
+      for (const log of completionLogs) {
+        const userId = log.get('UserID');
+        const timestamp = new Date(log.get('Timestamp')).getTime();
+        completedGenerations.set(userId, timestamp);
+      }
+      
+      console.log(`[DEBUG-RESTORE] Found ${completionLogs.length} completed image generations in last 30 minutes`);
+    } catch (completionError) {
+      console.error('[DEBUG-RESTORE] Error fetching completion logs:', completionError);
+    }
+    
+    // キャンセルログも検索
+    const cancelledGenerations = new Map();
+    try {
+      const cancellationLogs = await airtableBase('ConversationHistory')
+        .select({
+          filterByFormula: `AND(SEARCH("[画像生成キャンセル]", {Content}) > 0, {Timestamp} > "${cutoffTimeStr}")`,
+          sort: [{ field: 'Timestamp', direction: 'desc' }]
+        })
+        .firstPage();
+      
+      // キャンセルしたユーザーIDとタイムスタンプをマップに記録
+      for (const log of cancellationLogs) {
+        const userId = log.get('UserID');
+        const timestamp = new Date(log.get('Timestamp')).getTime();
+        cancelledGenerations.set(userId, timestamp);
+      }
+      
+      console.log(`[DEBUG-RESTORE] Found ${cancellationLogs.length} cancelled image generations in last 30 minutes`);
+    } catch (cancellationError) {
+      console.error('[DEBUG-RESTORE] Error fetching cancellation logs:', cancellationError);
+    }
+    
+    // 各提案についてユーザーの応答をチェック
+    let restoredCount = 0;
+    for (const proposal of pendingProposals) {
+      const userId = proposal.get('UserID');
+      const proposalTime = new Date(proposal.get('Timestamp')).getTime();
+      const now = Date.now();
+      
+      // proposalTimeがNaNでないことを確認（タイムスタンプ変換エラー対策）
+      if (isNaN(proposalTime)) {
+        console.log(`[DEBUG-RESTORE] Skipping proposal with invalid timestamp for user ${userId}: ${proposal.get('Timestamp')}`);
+        continue;
+      }
+      
+      // タイムアウトチェック
+      if (now - proposalTime > PENDING_IMAGE_TIMEOUT) {
+        console.log(`[DEBUG-RESTORE] Skipping expired proposal for user ${userId} (${Math.round((now - proposalTime)/1000)}s old)`);
+        continue;
+      }
+      
+      // すでに完了しているか確認
+      if (completedGenerations.has(userId)) {
+        const completionTime = completedGenerations.get(userId);
+        if (completionTime > proposalTime) {
+          console.log(`[DEBUG-RESTORE] Skipping proposal for user ${userId} - generation already completed at ${new Date(completionTime).toISOString()}`);
+          continue;
+        }
+      }
+      
+      // キャンセル済みかどうか確認
+      if (cancelledGenerations.has(userId)) {
+        const cancellationTime = cancelledGenerations.get(userId);
+        if (cancellationTime > proposalTime) {
+          console.log(`[DEBUG-RESTORE] Skipping proposal for user ${userId} - generation was cancelled at ${new Date(cancellationTime).toISOString()}`);
+          continue;
+        }
+      }
+      
+      // 提案後のユーザー応答を確認
+      const userResponses = await airtableBase('ConversationHistory')
+        .select({
+          filterByFormula: `AND({UserID} = "${userId}", {Role} = "user", {Timestamp} > "${proposal.get('Timestamp')}")`,
+          sort: [{ field: 'Timestamp', direction: 'asc' }]
+        })
+        .firstPage();
+      
+      console.log(`[DEBUG-RESTORE] User ${userId}: proposal time=${new Date(proposalTime).toISOString()}, found ${userResponses.length} responses after proposal`);
+      
+      // ユーザーが応答していない場合、提案を保留中として復元
+      if (userResponses.length === 0) {
+        console.log(`[DEBUG-RESTORE] Restoring pending image proposal for user ${userId} - no responses found after proposal`);
+        
+        // 最後のアシスタントメッセージを取得（提案の直前のメッセージ）
+        const lastMessages = await airtableBase('ConversationHistory')
+          .select({
+            filterByFormula: `AND({UserID} = "${userId}", {Role} = "assistant", {Timestamp} < "${proposal.get('Timestamp')}")`,
+            sort: [{ field: 'Timestamp', direction: 'desc' }],
+            maxRecords: 1
+          })
+          .firstPage();
+        
+        if (lastMessages.length > 0) {
+          const content = lastMessages[0].get('Content');
+          // 提案内容から復元ソース情報を抽出
+          const proposalContent = proposal.get('Content');
+          const sourceMatch = proposalContent.match(/ソース: (\w+)/);
+          const source = sourceMatch ? sourceMatch[1] : 'airtable_restore';
+          
+          pendingImageExplanations.set(userId, {
+            content: content,
+            timestamp: proposalTime,
+            source: source,
+            restored: true
+          });
+          console.log(`[DEBUG-RESTORE] Restored pending image explanation for user ${userId} with content: "${content.substring(0, 30)}..." at timestamp ${new Date(proposalTime).toISOString()}, source: ${source}`);
+          restoredCount++;
+        } else {
+          console.log(`[DEBUG-RESTORE] Could not find assistant message before proposal for user ${userId}`);
+        }
+      } else {
+        console.log(`[DEBUG-RESTORE] User ${userId} already responded after proposal, not restoring`);
+        if (userResponses.length > 0) {
+          console.log(`[DEBUG-RESTORE] First response: "${userResponses[0].get('Content')}" at ${userResponses[0].get('Timestamp')}`);
+        }
+      }
+    }
+    
+    // 復元された内容の詳細なデバッグ情報
+    if (pendingImageExplanations.size > 0) {
+      console.log('[DEBUG-RESTORE] === Restored pending image requests details ===');
+      for (const [uid, data] of pendingImageExplanations.entries()) {
+        const contentPreview = typeof data.content === 'string' 
+          ? data.content.substring(0, 30) 
+          : (data.content ? data.content.substring(0, 30) : 'undefined');
+          
+        console.log(`[DEBUG-RESTORE] User ${uid}: timestamp=${data.timestamp ? new Date(data.timestamp).toISOString() : 'none'}, age=${data.timestamp ? Math.round((Date.now() - data.timestamp)/1000) : 'unknown'}s, source=${data.source || 'unknown'}, restored=${data.restored || false}`);
+        console.log(`[DEBUG-RESTORE] Content preview: "${contentPreview}..."`);
+      }
+      console.log('[DEBUG-RESTORE] ============================================');
+    } else {
+      console.log('[DEBUG-RESTORE] No valid pending image requests were found to restore');
+    }
+    
+    console.log(`[DEBUG-RESTORE] Successfully restored ${restoredCount} pending image requests`);
+  } catch (error) {
+    console.error('[DEBUG-RESTORE] Error restoring pending image requests:', error);
+    console.error('[DEBUG-RESTORE] Error details:', error.stack);
+  }
+}
+
+// アプリケーション起動時に状態を復元
+restoreSystemState();
+
+/**
+ * LLMを使用して、ユーザーがAIの応答を理解しているかどうかを検出する
+ * @param {string} userMessage ユーザーのメッセージ
+ * @param {string} previousAIResponse 直前のAIの応答
+ * @returns {Promise<{isConfused: boolean, confidence: number, error: string|null}>}
+ */
+async function detectConfusionWithLLM(userMessage, previousAIResponse) {
+  // 結果の初期化
+  const result = {
+    isConfused: false,
+    confidence: 0,
+    error: null
+  };
+  
+  // 入力チェック
+  if (!userMessage || !previousAIResponse) {
+    result.error = "Missing required input";
+    return result;
+  }
+  
+  try {
+    console.log(`[DEBUG-CONFUSION] Analyzing if user understands AI response: "${userMessage.substring(0, 30)}..."`);
+    
+    // OpenAI APIを使用して混乱度を判定
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    
+    const systemPrompt = `あなたはユーザーとAIの会話を分析し、ユーザーがAIの発言を理解できているかどうかを判断する専門家です。
+
+あなたの任務は、「ユーザーがAIの直前の回答を理解していないかどうか」を判断することです。
+ユーザーの発言から、AIの回答に対する混乱や理解困難が示されていると判断できる場合は、その確度（0〜100%）を評価してください。
+
+確度が95%以上の場合のみ「CONFUSED:確度」と回答し、それ以外は「NOT_CONFUSED」と回答してください。
+
+判断の際は、以下のポイントに注意してください：
+1. ユーザーの発言がAIの回答内容に関連しているか
+2. ユーザーが「わからない」「理解できない」などの表現を使っているか
+3. ユーザーが説明の簡略化や別の言い方を求めているか
+4. ユーザーの質問がAIの回答内容を正しく理解していないことを示しているか
+
+「億劫」などの表現は通常、混乱ではなく単に気が進まないという意味なので混乱とは判断しないでください。
+純粋に会話を継続する意図の発言は混乱とみなさないでください。
+
+回答は「CONFUSED:確度」または「NOT_CONFUSED」の形式のみで返してください。`;
+
+    // メッセージ配列を作成
+    const messages = [
+      { role: "system", content: systemPrompt },
+      { role: "system", content: `直前のAIの回答: "${previousAIResponse.substring(0, 500)}${previousAIResponse.length > 500 ? '...' : ''}"` },
+      { role: "user", content: userMessage }
+    ];
+    
+    // タイムアウト制御付きの呼び出し
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("LLM confusion detection timed out after 5 seconds")), 5000);
+    });
+    
+    const responsePromise = openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: messages,
+      max_tokens: 10,
+      temperature: 0.0
+    });
+    
+    const response = await Promise.race([responsePromise, timeoutPromise]);
+    
+    const content = response.choices[0].message.content.trim();
+    console.log(`[DEBUG-CONFUSION] LLM understanding analysis result: ${content}`);
+    
+    if (content.startsWith('CONFUSED:')) {
+      const confidenceParts = content.split(':');
+      if (confidenceParts.length > 1) {
+        const confidence = parseFloat(confidenceParts[1]);
+        result.confidence = confidence;
+        if (confidence >= 95) {
+          console.log(`[DEBUG-CONFUSION] LLM determined user doesn't understand AI response with high confidence (${confidence}%)`);
+          result.isConfused = true;
+        } else {
+          console.log(`[DEBUG-CONFUSION] LLM detected some confusion but confidence too low (${confidence}%)`);
+        }
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    console.error(`[DEBUG-CONFUSION] Error in LLM understanding analysis: ${error.message}`);
+    result.error = error.message;
+    return result;
+  }
+}
