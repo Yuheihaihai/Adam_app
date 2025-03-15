@@ -2754,8 +2754,19 @@ ${SHARE_URL}
     
     // pendingImageExplanations のチェック（はい/いいえ 判定）
     if (pendingImageExplanations.has(userId)) {
-      if (userMessage === "はい") {
-        const explanationText = pendingImageExplanations.get(userId);
+      console.log(`[DEBUG] Checking 'はい'/'いいえ' response for user ${userId}`);
+      console.log(`[DEBUG] Pending explanation exists: ${pendingImageExplanations.has(userId)}`);
+      const pendingData = pendingImageExplanations.get(userId);
+      
+      // 有効期限チェック
+      const now = Date.now();
+      if (pendingData.timestamp && (now - pendingData.timestamp > 5 * 60 * 1000)) { // 5分でタイムアウト
+        console.log(`[DEBUG] Pending image request expired for ${userId} - ${Math.round((now - pendingData.timestamp)/1000)}s elapsed (max: 300s)`);
+        pendingImageExplanations.delete(userId);
+        // 通常の処理を続行
+      } else if (userMessage === "はい") {
+        console.log(`[DEBUG] 'はい' detected for user ${userId}, proceeding with image generation`);
+        const explanationText = pendingData.content;
         pendingImageExplanations.delete(userId);
         console.log("ユーザーの「はい」が検出されました。画像生成を開始します。");
         return handleVisionExplanation(event, explanationText);
@@ -2892,17 +2903,27 @@ ${SHARE_URL}
       
       if (lastAssistantMessage) {
         console.log(`[DEBUG] Setting pendingImageExplanations for user ${userId} with content: "${lastAssistantMessage.content.substring(0, 30)}..."`);
-        pendingImageExplanations.set(userId, lastAssistantMessage.content);
+        // タイムスタンプ付きで保存
+        pendingImageExplanations.set(userId, {
+          content: lastAssistantMessage.content,
+          timestamp: Date.now()
+        });
+        // 画像生成提案状態をConversationHistoryに記録
+        await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}`);
       } else {
         console.log(`[DEBUG] No last assistant message found for user ${userId}, using default message`);
-        pendingImageExplanations.set(userId, "日常会話の基本とコミュニケーションのポイント");
+        pendingImageExplanations.set(userId, {
+          content: "日常会話の基本とコミュニケーションのポイント",
+          timestamp: Date.now()
+        });
+        // 画像生成提案状態をConversationHistoryに記録
+        await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}, デフォルトテキスト使用`);
       }
       
       const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
-      console.log(`[DEBUG] Image explanation suggestion sent to user ${userId}`);
-      await storeInteraction(userId, 'user', userMessage);
-      await storeInteraction(userId, 'assistant', suggestionMessage);
+      console.log("画像による説明の提案をユーザーに送信:", suggestionMessage);
       
+      await storeInteraction(userId, 'assistant', suggestionMessage);
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: suggestionMessage
@@ -3112,6 +3133,9 @@ async function handleVisionExplanation(event, explanationText) {
   imageGenerationInProgress.set(userId, true);
   console.log(`Starting image generation for user ${userId} - setting protection flag`);
   
+  // 画像生成開始を記録
+  await storeInteraction(userId, 'system', `[画像生成開始] ${new Date().toISOString()}`);
+  
   try {
     // explanationTextが提供されている場合、それを使用して画像説明を生成
     if (explanationText) {
@@ -3203,6 +3227,7 @@ async function handleVisionExplanation(event, explanationText) {
         // 生成した画像情報を保存 - Store only image reference with concise text
         let storageText = isASDGuide ? "ASD支援機能の視覚的ガイド" : displayText;
         await storeInteraction(userId, 'assistant', `[生成画像] ${storageText}`);
+        await storeInteraction(userId, 'system', `[画像生成完了] ${new Date().toISOString()}`);
         
         // Add user to recent image generation tracking with timestamp to prevent ASD guide
         recentImageGenerationUsers.set(userId, Date.now());
@@ -4037,3 +4062,100 @@ function isDirectImageAnalysisRequest(text) {
   // 直接的な画像分析リクエストの場合はtrueを返す
   return directAnalysisRequests.some(phrase => text.includes(phrase));
 }
+
+// 定数宣言の部分の後に追加
+const PENDING_IMAGE_TIMEOUT = 5 * 60 * 1000; // 5分のタイムアウト
+
+// server.js内の起動処理部分（通常はexpressアプリの初期化後）に追加
+// アプリケーション起動時にシステムステートを復元する関数
+async function restoreSystemState() {
+  try {
+    console.log('Restoring system state from persistent storage...');
+    
+    // 保留中の画像生成リクエストの復元
+    await restorePendingImageRequests();
+    
+    console.log('System state restoration completed');
+  } catch (error) {
+    console.error('Error restoring system state:', error);
+  }
+}
+
+// 会話履歴から保留中の画像生成リクエストを復元する関数
+async function restorePendingImageRequests() {
+  try {
+    console.log('Attempting to restore pending image generation requests...');
+    
+    if (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID) {
+      console.log('Airtable credentials not found. Cannot restore pending image requests.');
+      return;
+    }
+    
+    const airtableBase = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
+      .base(process.env.AIRTABLE_BASE_ID);
+    
+    // 最近の画像生成提案を検索（過去30分以内）
+    const cutoffTime = new Date(Date.now() - 30 * 60 * 1000); // 30分前
+    const cutoffTimeStr = cutoffTime.toISOString();
+    
+    const pendingProposals = await airtableBase('ConversationHistory')
+      .select({
+        filterByFormula: `AND(SEARCH("[画像生成提案]", {Content}) > 0, {Timestamp} > "${cutoffTimeStr}")`,
+        sort: [{ field: 'Timestamp', direction: 'desc' }]
+      })
+      .firstPage();
+    
+    console.log(`Found ${pendingProposals.length} recent image generation proposals`);
+    
+    // 各提案についてユーザーの応答をチェック
+    for (const proposal of pendingProposals) {
+      const userId = proposal.get('UserID');
+      const proposalTime = new Date(proposal.get('Timestamp')).getTime();
+      const now = Date.now();
+      
+      // タイムアウトチェック
+      if (now - proposalTime > PENDING_IMAGE_TIMEOUT) {
+        console.log(`Skipping expired proposal for user ${userId} (${Math.round((now - proposalTime)/1000)}s old)`);
+        continue;
+      }
+      
+      // 提案後のユーザー応答を確認
+      const userResponses = await airtableBase('ConversationHistory')
+        .select({
+          filterByFormula: `AND({UserID} = "${userId}", {Role} = "user", {Timestamp} > "${proposal.get('Timestamp')}")`,
+          sort: [{ field: 'Timestamp', direction: 'asc' }]
+        })
+        .firstPage();
+      
+      // ユーザーが応答していない場合、提案を保留中として復元
+      if (userResponses.length === 0) {
+        console.log(`Restoring pending image proposal for user ${userId}`);
+        
+        // 最後のアシスタントメッセージを取得（提案の直前のメッセージ）
+        const lastMessages = await airtableBase('ConversationHistory')
+          .select({
+            filterByFormula: `AND({UserID} = "${userId}", {Role} = "assistant", {Timestamp} < "${proposal.get('Timestamp')}")`,
+            sort: [{ field: 'Timestamp', direction: 'desc' }],
+            maxRecords: 1
+          })
+          .firstPage();
+        
+        if (lastMessages.length > 0) {
+          const content = lastMessages[0].get('Content');
+          pendingImageExplanations.set(userId, {
+            content: content,
+            timestamp: proposalTime
+          });
+          console.log(`Restored pending image explanation for user ${userId} with content: "${content.substring(0, 30)}..."`);
+        }
+      }
+    }
+    
+    console.log(`Successfully restored ${pendingImageExplanations.size} pending image requests`);
+  } catch (error) {
+    console.error('Error restoring pending image requests:', error);
+  }
+}
+
+// アプリケーション起動時に状態を復元
+restoreSystemState();
