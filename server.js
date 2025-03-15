@@ -777,27 +777,68 @@ function getSystemPromptForMode(mode) {
 
 async function storeInteraction(userId, role, content) {
   try {
-    // メッセージIDの生成（追跡用）
-    const messageId = Date.now() + Math.floor(Math.random() * 1000);
-    
     console.log(
-      `Storing interaction => msgId: ${messageId}, userId: ${userId}, role: ${role}, content: ${content}`
+      `Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`
     );
-    await base(INTERACTIONS_TABLE).create([
-      {
-        fields: {
-          UserID: userId,
-          Role: role,
-          Content: content,
-          Timestamp: new Date().toISOString(),
-          MessageID: messageId.toString(), // メッセージIDをデータベースに保存
-        },
-      },
-    ]);
     
-    // 会話履歴の保存が成功したことをログに記録
-    console.log(`会話履歴の保存成功 => メッセージID: ${messageId}, ユーザー: ${userId}, タイプ: ${role}, 長さ: ${content.length}文字`);
-    return true;
+    // 一意のメッセージIDを生成
+    const messageId = Date.now().toString();
+    
+    // ConversationHistoryテーブルに保存
+    if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
+      const airtableBase = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
+        .base(process.env.AIRTABLE_BASE_ID);
+      
+      try {
+        await airtableBase('ConversationHistory').create([
+          {
+            fields: {
+              UserID: userId,
+              Role: role,
+              Content: content,
+              Timestamp: new Date().toISOString(),
+            },
+          },
+        ]);
+        
+        console.log(`会話履歴の保存成功 => ユーザー: ${userId}, タイプ: ${role}, 長さ: ${content.length}文字`);
+        return true;
+      } catch (airtableErr) {
+        console.error('Error storing to ConversationHistory:', airtableErr);
+        console.error(`ConversationHistory保存エラー => ユーザー: ${userId}`);
+        console.error(`エラータイプ: ${airtableErr.name || 'Unknown'}`);
+        console.error(`エラーメッセージ: ${airtableErr.message || 'No message'}`);
+        
+        // ConversationHistoryに保存できない場合は、元のINTERACTIONS_TABLEにフォールバック
+        await base(INTERACTIONS_TABLE).create([
+          {
+            fields: {
+              UserID: userId,
+              Role: role,
+              Content: content,
+              Timestamp: new Date().toISOString(),
+            },
+          },
+        ]);
+        console.log(`会話履歴のフォールバック保存成功 => INTERACTIONS_TABLEに保存`);
+        return true;
+      }
+    } else {
+      // 元のINTERACTIONS_TABLEに保存
+      await base(INTERACTIONS_TABLE).create([
+        {
+          fields: {
+            UserID: userId,
+            Role: role,
+            Content: content,
+            Timestamp: new Date().toISOString(),
+          },
+        },
+      ]);
+      
+      console.log(`会話履歴の保存成功 => ユーザー: ${userId}, タイプ: ${role}, 長さ: ${content.length}文字`);
+      return true;
+    }
   } catch (err) {
     console.error('Error storing interaction:', err);
     // 詳細なエラー情報をログに出力（会話保存の失敗原因特定のため）
