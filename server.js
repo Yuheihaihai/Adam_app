@@ -908,61 +908,36 @@ async function fetchUserHistory(userId, limit) {
             // 修正：Airtableから取得したレコードを適切な形式に変換
             const history = [];
 
-            // 【修正】テーブル構造確認用のログ
+            // テーブル構造確認用のログ
             console.log(`→ テーブル構造確認:`);
             const fullSample = conversationRecords[0];
             console.log(`  レコード構造: ${JSON.stringify(fullSample._rawJson || {})}`);
             
             for (const record of conversationRecords) {
               try {
-                // 【修正】_rawJsonから直接データを抽出
+                // 【修正】フィールド値取得の簡素化と信頼性向上
                 let role = '';
                 let content = '';
                 
-                // まずfieldsオブジェクトをログに出力して内容を確認
-                console.log(`  レコード診断 (ID: ${record.id}):`);
+                // 最も信頼性の高い方法でフィールド値を取得
                 if (record.fields) {
-                  console.log(`  - fields内容: ${JSON.stringify(record.fields)}`);
-                }
-                if (record._rawJson && record._rawJson.fields) {
-                  console.log(`  - _rawJson.fields内容: ${JSON.stringify(record._rawJson.fields)}`);
-                }
-                
-                // 大文字と小文字の両方のバージョンを試す
-                // _rawJsonから取得を試みる
-                if (record._rawJson && record._rawJson.fields) {
-                  // 大文字小文字両方のバージョンを試す
-                  role = record._rawJson.fields['Role'] || record._rawJson.fields['role'] || '';
-                  content = record._rawJson.fields['Content'] || record._rawJson.fields['content'] || '';
+                  // 基本的な方法: フィールドから直接取得
+                  role = record.fields["Role"] || '';
+                  content = record.fields["Content"] || '';
                   
-                  console.log(`  データ取得方法: rawJson, Role: ${role}, Content長さ: ${content.length}`);
-                } 
-                // fieldsから取得を試みる
-                else if (record.fields) {
-                  // 大文字小文字両方のバージョンを試す
-                  role = record.fields['Role'] || record.fields['role'] || '';
-                  content = record.fields['Content'] || record.fields['content'] || '';
+                  console.log(`  データ取得方法: fields直接アクセス, Role: ${role}, Content長さ: ${content.length}`);
+                } else if (record.get) {
+                  // 代替方法: getメソッド
+                  role = record.get("Role") || '';
+                  content = record.get("Content") || '';
                   
-                  console.log(`  データ取得方法: fields, Role: ${role}, Content長さ: ${content.length}`);
-                } 
-                // getメソッドを使用
-                else if (record.get) {
-                  // 大文字小文字両方のバージョンを試す
-                  try {
-                    role = record.get('Role') || record.get('role') || '';
-                  } catch (e) {
-                    // エラーが発生した場合は無視
-                    console.log(`  get('Role')でエラー: ${e.message}`);
-                  }
+                  console.log(`  データ取得方法: get()メソッド, Role: ${role}, Content長さ: ${content.length}`);
+                } else if (record._rawJson && record._rawJson.fields) {
+                  // フォールバック方法: _rawJson
+                  role = record._rawJson.fields["Role"] || '';
+                  content = record._rawJson.fields["Content"] || '';
                   
-                  try {
-                    content = record.get('Content') || record.get('content') || '';
-                  } catch (e) {
-                    // エラーが発生した場合は無視
-                    console.log(`  get('Content')でエラー: ${e.message}`);
-                  }
-                  
-                  console.log(`  データ取得方法: get(), Role: ${role}, Content長さ: ${content.length}`);
+                  console.log(`  データ取得方法: _rawJsonフォールバック, Role: ${role}, Content長さ: ${content.length}`);
                 }
                 
                 // roleの正規化
@@ -973,12 +948,16 @@ async function fetchUserHistory(userId, limit) {
                   content = String(content || '');
                 }
                 
+                // デバッグ情報
+                console.log(`  レコードID: ${record.id}, Role: ${role}, Content抽出成功: ${content.length > 0}`);
+                
                 // 空でないcontentの場合のみ追加
-                if (content.trim()) {
+                if (content && content.trim()) {
                   history.push({
                     role: normalizedRole,
                     content: content
                   });
+                  console.log(`  ✅ レコード追加成功: ${normalizedRole}, 内容長: ${content.length}文字`);
                 } else {
                   console.log(`  ⚠ 警告: 空のcontentを持つレコードをスキップしました (ID: ${record.id})`);
                 }
