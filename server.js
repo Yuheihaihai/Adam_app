@@ -2382,6 +2382,13 @@ async function handleText(event) {
     console.log(`[DEBUG-IMAGE] Message received for user ${userId}: "${userMessage.substring(0, 20)}${userMessage.length > 20 ? '...' : ''}"`);
     console.log(`[DEBUG-IMAGE] pendingImageExplanations state: has(${userId})=${pendingImageExplanations.has(userId)}`);
     
+    // 画像生成リクエストの検出（直接的なリクエスト）
+    if (isConfusionRequest(userMessage)) {
+      console.log(`[DEBUG-IMAGE] Direct image generation request detected: "${userMessage}"`);
+      let contentToExplain = userMessage.replace(/画像を生成|画像を作成|画像を作って|イメージを生成|イメージを作成|イメージを作って|図を生成|図を作成|図を作って|図解して|図解を作成|図解を生成|ビジュアル化して|視覚化して|絵を描いて|絵を生成|絵を作成|画像で説明|イメージで説明|図で説明|視覚的に説明|画像にして|イラストを作成|イラストを生成|イラストを描いて/g, '').trim();
+      return handleVisionExplanation(event, contentToExplain);
+    }
+    
     // はい/いいえの応答を最初に確認して画像生成を優先処理
     if (pendingImageExplanations.has(userId)) {
       const pendingData = pendingImageExplanations.get(userId);
@@ -3107,7 +3114,19 @@ app.listen(PORT, () => {
 function isConfusionRequest(text) {
   // 直接的な画像分析リクエストかどうかを判断するだけの機能に変更
   // 互換性のために関数名は変更せず
-  return isDirectImageAnalysisRequest(text);
+  if (!text || typeof text !== 'string') return false;
+  
+  // 画像生成リクエストをチェック
+  const imageGenerationRequests = [
+    '画像を生成', '画像を作成', '画像を作って', 'イメージを生成', 'イメージを作成', 'イメージを作って',
+    '図を生成', '図を作成', '図を作って', '図解して', '図解を作成', '図解を生成',
+    'ビジュアル化して', '視覚化して', '絵を描いて', '絵を生成', '絵を作成',
+    '画像で説明', 'イメージで説明', '図で説明', '視覚的に説明',
+    '画像にして', 'イラストを作成', 'イラストを生成', 'イラストを描いて'
+  ];
+  
+  // 画像生成リクエストまたは画像分析リクエストの場合はtrueを返す
+  return imageGenerationRequests.some(phrase => text.includes(phrase)) || isDirectImageAnalysisRequest(text);
 }
 
 /**
