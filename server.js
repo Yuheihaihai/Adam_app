@@ -873,7 +873,7 @@ async function fetchUserHistory(userId, limit) {
     // ConversationHistoryテーブルからの取得を試みる
     try {
       console.log(`ConversationHistory テーブルからユーザー ${userId} の履歴を取得中...`);
-      
+          
       // すべてのフィールドを確実に取得するためのカラム指定
       const columns = ['UserID', 'Role', 'Content', 'Timestamp', 'Mode', 'MessageType'];
       
@@ -881,7 +881,7 @@ async function fetchUserHistory(userId, limit) {
       const conversationRecords = await airtableBase('ConversationHistory')
         .select({
           filterByFormula: `{UserID} = "${userId}"`,
-          sort: [{ field: 'Timestamp', direction: 'asc' }],
+          sort: [{ field: 'Timestamp', direction: 'desc' }], // 降順に変更
           fields: columns,  // 明示的にフィールドを指定
           maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
         })
@@ -893,7 +893,10 @@ async function fetchUserHistory(userId, limit) {
         // 取得したデータを変換
         const history = [];
         
-        for (const record of conversationRecords) {
+        // 降順で取得したレコードを逆順（昇順）に処理
+        const recordsInAscOrder = [...conversationRecords].reverse();
+        
+        for (const record of recordsInAscOrder) {
           try {
             // デバッグを追加
             if (history.length === 0) {
@@ -924,32 +927,32 @@ async function fetchUserHistory(userId, limit) {
             console.error(`レコード処理エラー: ${recordErr.message}`);
           }
         }
-        
-        // 履歴の内容を分析
+            
+            // 履歴の内容を分析
         historyMetadata.totalRecords += history.length;
-        analyzeHistoryContent(history, historyMetadata);
-        
+            analyzeHistoryContent(history, historyMetadata);
+            
         // 最新のlimit件を取得
-        if (history.length > limit) {
-          return { history: history.slice(-limit), metadata: historyMetadata };
-        }
-        return { history, metadata: historyMetadata };
+            if (history.length > limit) {
+              return { history: history.slice(-limit), metadata: historyMetadata };
+            }
+            return { history, metadata: historyMetadata };
       } else {
         console.log(`No records found for user ${userId} in ConversationHistory table`);
-      }
-    } catch (tableErr) {
+          }
+        } catch (tableErr) {
       console.error(`ConversationHistory table not found or error: ${tableErr.message}. Falling back to UserAnalysis.`);
-    }
-    
+        }
+        
     // ConversationHistoryが使えないかデータがない場合は旧テーブルからの取得を試みる
-    try {
+        try {
       const records = await airtableBase('UserAnalysis')
-        .select({
+            .select({
           filterByFormula: `{UserID} = "${userId}"`,
           maxRecords: 100
-        })
-        .all();
-        
+            })
+            .all();
+            
       if (records && records.length > 0) {
         console.log(`Found ${records.length} records for user in original INTERACTIONS_TABLE`);
         
@@ -1009,11 +1012,11 @@ async function fetchUserHistory(userId, limit) {
             // エラーは無視して次のレコードを処理
           }
         }
-        
-        // 履歴の内容を分析
+    
+    // 履歴の内容を分析
         historyMetadata.totalRecords += history.length;
-        analyzeHistoryContent(history, historyMetadata);
-        
+    analyzeHistoryContent(history, historyMetadata);
+    
         // 時間順に並べ替え (最も古いものから新しいものへ)
         history.sort((a, b) => {
           const timestampA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
@@ -1025,7 +1028,7 @@ async function fetchUserHistory(userId, limit) {
         if (history.length > limit) {
           return { history: history.slice(-limit), metadata: historyMetadata };
         }
-        return { history, metadata: historyMetadata };
+    return { history, metadata: historyMetadata };
       }
     } catch (tableErr) {
       console.error(`UserAnalysis table error: ${tableErr.message}`);
