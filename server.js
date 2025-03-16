@@ -50,6 +50,20 @@ const ServiceRecommender = require('./serviceRecommender');
 // Import ML Hook for enhanced machine learning capabilities
 const { processMlData, analyzeResponseWithMl } = require('./mlHook');
 
+// グローバル変数としてairtableBaseを初期化
+let airtableBase = null;
+if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
+  try {
+    airtableBase = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
+      .base(process.env.AIRTABLE_BASE_ID);
+    console.log('Airtable接続が初期化されました');
+  } catch (error) {
+    console.error('Airtable接続の初期化に失敗しました:', error);
+  }
+} else {
+  console.warn('Airtable認証情報が不足しているため、履歴機能は制限されます');
+}
+
 // User Preferences Module
 const userPreferences = {
   _prefStore: {}, // Simple in-memory storage
@@ -424,13 +438,12 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const PerplexitySearch = require('./perplexitySearch');
 const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
 
-const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
-  .base(process.env.AIRTABLE_BASE_ID);
+// baseの代わりにairtableBaseを使用
 const INTERACTIONS_TABLE = 'ConversationHistory';
 
 // Initialize service hub components
 const userNeedsAnalyzer = new UserNeedsAnalyzer(process.env.OPENAI_API_KEY);
-const serviceRecommender = new ServiceRecommender(base);
+const serviceRecommender = new ServiceRecommender(airtableBase); // baseをairtableBaseに変更
 // Load enhanced features
 require('./loadEnhancements')(serviceRecommender);
 
@@ -787,10 +800,7 @@ async function storeInteraction(userId, role, content) {
     const messageId = Date.now().toString();
     
     // ConversationHistoryテーブルに保存
-    if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
-      const airtableBase = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
-        .base(process.env.AIRTABLE_BASE_ID);
-      
+    if (airtableBase) {
       try {
         await airtableBase('ConversationHistory').create([
           {
@@ -814,36 +824,28 @@ async function storeInteraction(userId, role, content) {
         console.error(`エラーメッセージ: ${airtableErr.message || 'No message'}`);
         
         // ConversationHistoryに保存できない場合は、元のINTERACTIONS_TABLEにフォールバック
-    await base(INTERACTIONS_TABLE).create([
-      {
-        fields: {
-          UserID: userId,
-          Role: role,
-          Content: content,
-          Timestamp: new Date().toISOString(),
-          // フォールバックテーブルには追加のフィールドは含めない（エラーの原因になる可能性あり）
-        },
-      },
-    ]);
-        console.log(`会話履歴のフォールバック保存成功 => INTERACTIONS_TABLEに保存`);
-        return true;
+        if (airtableBase) {
+          await airtableBase(INTERACTIONS_TABLE).create([
+            {
+              fields: {
+                UserID: userId,
+                Role: role,
+                Content: content,
+                Timestamp: new Date().toISOString(),
+                // フォールバックテーブルには追加のフィールドは含めない（エラーの原因になる可能性あり）
+              },
+            },
+          ]);
+          console.log(`会話履歴のフォールバック保存成功 => INTERACTIONS_TABLEに保存`);
+          return true;
+        } else {
+          console.error('Airtable接続が設定されていないため、フォールバック保存もできませんでした');
+          return false;
+        }
       }
     } else {
-      // 元のINTERACTIONS_TABLEに保存
-      await base(INTERACTIONS_TABLE).create([
-        {
-          fields: {
-            UserID: userId,
-            Role: role,
-            Content: content,
-            Timestamp: new Date().toISOString(),
-            // 元のテーブルには追加のフィールドは含めない
-          },
-        },
-      ]);
-      
-      console.log(`会話履歴の保存成功 => ユーザー: ${userId}, タイプ: ${role}, 長さ: ${content.length}文字`);
-      return true;
+      console.warn('Airtable接続が初期化されていないため、会話履歴を保存できません');
+      return false;
     }
   } catch (err) {
     console.error('Error storing interaction:', err);
@@ -861,6 +863,7 @@ async function fetchUserHistory(userId, limit) {
     
     // API認証情報の検証（デバッグ用）
     console.log(`[接続検証] Airtable認証情報 => API_KEY存在: ${!!process.env.AIRTABLE_API_KEY}, BASE_ID存在: ${!!process.env.AIRTABLE_BASE_ID}`);
+    console.log(`[接続検証] airtableBase初期化状態: ${airtableBase ? '成功' : '未初期化'}`);
     
     // 履歴分析用のメタデータオブジェクトを初期化
     const historyMetadata = {
@@ -870,6 +873,12 @@ async function fetchUserHistory(userId, limit) {
       insufficientReason: null
     };
     
+    if (!airtableBase) {
+      console.error('Airtable接続が初期化されていないため、履歴を取得できません');
+      historyMetadata.insufficientReason = 'airtable_not_initialized';
+      return { history: [], metadata: historyMetadata };
+    }
+    
     // ConversationHistoryテーブルからの取得を試みる
     try {
       console.log(`ConversationHistory テーブルからユーザー ${userId} の履歴を取得中...`);
@@ -878,16 +887,16 @@ async function fetchUserHistory(userId, limit) {
       const columns = ['UserID', 'Role', 'Content', 'Timestamp', 'Mode', 'MessageType'];
       
       // filterByFormulaとsortを設定
-      const conversationRecords = await airtableBase('ConversationHistory')
-        .select({
-          filterByFormula: `{UserID} = "${userId}"`,
+          const conversationRecords = await airtableBase('ConversationHistory')
+            .select({
+              filterByFormula: `{UserID} = "${userId}"`,
           sort: [{ field: 'Timestamp', direction: 'desc' }], // 降順に変更
           fields: columns,  // 明示的にフィールドを指定
-          maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
-        })
-        .all();
-        
-      if (conversationRecords && conversationRecords.length > 0) {
+              maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
+            })
+            .all();
+            
+          if (conversationRecords && conversationRecords.length > 0) {
         console.log(`Found ${conversationRecords.length} records for user in ConversationHistory table`);
         
         // 取得したデータを変換
@@ -4071,8 +4080,11 @@ async function restorePendingImageRequests() {
       return;
     }
     
-    const airtableBase = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
-      .base(process.env.AIRTABLE_BASE_ID);
+    // グローバル変数のairtableBaseを使用
+    if (!airtableBase) {
+      console.error('Airtable connection not initialized. Cannot restore pending image requests.');
+      return;
+    }
     
     // 最近の画像生成提案を検索（過去30分以内）
     const cutoffTime = new Date(Date.now() - 30 * 60 * 1000); // 30分前
