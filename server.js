@@ -366,6 +366,10 @@ const config = {
 };
 const client = new line.Client(config);
 
+// グローバル変数として宣言して外部モジュールからアクセスできるようにする
+global.client = client;
+global.storeInteraction = storeInteraction;
+
 // webhookエンドポイントの定義
 app.post('/webhook', rawBodyParser, line.middleware(config), (req, res) => {
   console.log('Webhook was called! Events:', JSON.stringify(req.body, null, 2));
