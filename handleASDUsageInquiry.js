@@ -224,29 +224,32 @@ async function handleASDUsageInquiry(event) {
   }
   
   try {
-    // LINEクライアントの存在確認 - 修正: インスタンスを正しく取得
-    const client = global.client || new (require('@line/bot-sdk').Client)({
-      channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
-      channelSecret: process.env.CHANNEL_SECRET
-    });
-    
-    // storeInteraction関数の存在確認
-    const storeInteraction = global.storeInteraction || (async () => {
-      console.warn('storeInteraction function not found, interaction not stored');
-    });
-    
     // ASDガイドを生成
     const response = await asdGuideHandler.generateASDGuide(messageText);
     
     // 会話履歴を保存
-    await storeInteraction(userId, 'user', messageText);
-    await storeInteraction(userId, 'assistant', response);
+    if (typeof global.storeInteraction === 'function') {
+      await global.storeInteraction(userId, 'user', messageText);
+      await global.storeInteraction(userId, 'assistant', response);
+    } else {
+      console.warn('storeInteraction function not found, interaction not stored');
+    }
     
-    // ユーザーに返信
-    await client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: response
-    });
+    // ユーザーに返信 - server.jsで定義されたグローバルなLINEクライアントを使用
+    if (global.client && typeof global.client.replyMessage === 'function') {
+      await global.client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: response
+      });
+    } else {
+      console.error('LINE client or replyMessage not available');
+      // 代替策: event.replyを使用
+      if (event.reply && typeof event.reply === 'function') {
+        await event.reply(response);
+      } else {
+        throw new Error('No method available to reply to the user');
+      }
+    }
     
     return true;
   } catch (error) {
