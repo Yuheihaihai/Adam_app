@@ -1,5 +1,17 @@
 # Change Log
 
+## 2025-03-18: lastAssistantMessage参照エラーの修正
+
+### 画像生成処理での変数未定義エラーの修正
+
+#### Changes Made:
+- `server.js`の`handleText`関数内で`lastAssistantMessage`変数が未定義のままアクセスされていたエラーを修正
+- 会話履歴から直前のアシスタントメッセージを取得するコードを追加
+- `[DEBUG] Error in LLM understanding analysis: lastAssistantMessage is not defined`エラーの解消
+
+#### Reason for Change:
+会話理解の分析処理で`lastAssistantMessage`変数が定義されていないままアクセスされており、エラーが発生していました。変数を適切に定義することで、コードの実行を継続しながらエラーを解消しました。これにより、ユーザーメッセージの分析がより正確に行えるようになり、画像生成トリガーの動作も安定します。
+
 ## 2025-03-18: サーバー機能復旧 - 欠落関数の追加
 
 ### 失われていた重要な関数の再実装
