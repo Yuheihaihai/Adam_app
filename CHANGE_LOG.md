@@ -1,5 +1,26 @@
 # Change Log
 
+## 2025-03-17: OpenAI Embeddingsによる意味理解機能の強化 - 第2段階
+
+### 自然言語理解の大幅な改善とテキスト分析精度の向上
+
+#### Changes Made:
+1. **server.js**:
+   - `semanticSimilarity`関数を実装して文字列比較を意味的類似度計算に拡張
+   - `extractSignificantPhrases`関数を改善してフレーズ間の意味的類似性を考慮
+   - 意味ベースのコンテキスト抽出を実現する`extractConversationContextAsync`関数を実装
+
+2. **perplexitySearch.js**:
+   - `isAllowedQuerySemantic`関数を実装し、検索クエリの意図解釈を強化
+   - 「天気」や「スポーツ」に関する意図を明示的なキーワードがなくても検出可能に
+
+3. **localML.js**:
+   - `_detectPatternsWithEmbeddings`関数を実装し、パターン検出を文字パターンから意味理解へ進化
+   - 分析関数を非同期処理に更新し、テキストの深層分析を実現
+
+#### Reason for Change:
+第1段階で実装した基本機能を拡張し、アプリケーション全体の言語理解能力を強化しました。これにより、従来のキーワードマッチングでは捉えられなかった微妙なニュアンスや意図を理解できるようになり、より人間らしい対話体験を実現します。すべての機能で障害時のフォールバックメカニズムを実装し、システムの堅牢性も確保しています。
+
 ## 2025-03-17: OpenAI Embeddings APIによるユーザーニーズ分析の強化
 
 ### Embeddings APIを活用した意味的テキスト理解機能の実装

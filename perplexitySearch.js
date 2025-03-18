@@ -117,11 +117,14 @@ ${analysisPrompt}`
 
   // For weather/sports test queries only
   async handleAllowedQuery(query) {
-    if (!this.isAllowedQuery(query)) {
-      return "申し訳ありません。天気予報とスポーツの結果以外の検索には対応していません。";
-    }
-
     try {
+      // 拡張版の意味的クエリ判定を使用
+      const isAllowed = await this.isAllowedQuerySemantic(query);
+      
+      if (!isAllowed) {
+        return "申し訳ありません。天気予報とスポーツの結果以外の検索には対応していません。";
+      }
+
       console.log('Processing allowed query:', query);
       const response = await this.client.chat.completions.create({
         model: 'sonar',
@@ -148,6 +151,58 @@ ${analysisPrompt}`
            query.includes('試合') ||
            query.includes('スポーツ') ||
            query.includes('sports');
+  }
+
+  /**
+   * クエリが許可されたトピックに関するものかどうかを意味的に判断（非同期）
+   * @param {string} query - 検索クエリ
+   * @returns {Promise<boolean>} - 許可されるかどうか
+   */
+  async isAllowedQuerySemantic(query) {
+    try {
+      // キーワードマッチングは高速なため最初に試す
+      const hasDirectKeyword = query.includes('天気') || 
+                               query.includes('weather') ||
+                               query.includes('試合') ||
+                               query.includes('スポーツ') ||
+                               query.includes('sports');
+      
+      if (hasDirectKeyword) {
+        return true;
+      }
+      
+      // EmbeddingServiceのインスタンスを取得または作成
+      if (!this.embeddingService) {
+        const EmbeddingService = require('./embeddingService');
+        this.embeddingService = new EmbeddingService();
+        await this.embeddingService.initialize();
+      }
+      
+      // 意図カテゴリと例文のマッピング
+      const intentExamples = {
+        weather: "今日の天気はどうですか？東京の気象情報を教えて。明日は雨が降りますか？今日の気温はどうなりますか？",
+        sports: "昨日の試合の結果を教えて。プロ野球の順位表はどうなっていますか？サッカーのスコアを知りたい。今週末の試合予定は？"
+      };
+      
+      // 各カテゴリとの類似度を計算
+      const weatherSimilarity = await this.embeddingService.getTextSimilarity(query, intentExamples.weather);
+      const sportsSimilarity = await this.embeddingService.getTextSimilarity(query, intentExamples.sports);
+      
+      // 類似度スコアの閾値
+      const SIMILARITY_THRESHOLD = 0.70;
+      
+      // デバッグログ
+      console.log(`Query: "${query}"`);
+      console.log(`Weather similarity: ${weatherSimilarity.toFixed(3)}`);
+      console.log(`Sports similarity: ${sportsSimilarity.toFixed(3)}`);
+      
+      // いずれかのカテゴリが閾値を超えていれば許可
+      return (weatherSimilarity > SIMILARITY_THRESHOLD || sportsSimilarity > SIMILARITY_THRESHOLD);
+    } catch (error) {
+      console.error('Error detecting query intent:', error);
+      // エラー時は安全のため元のキーワードマッチングに戻る
+      return this.isAllowedQuery(query);
+    }
   }
 
   async getJobTrends(searchQuery = null) {

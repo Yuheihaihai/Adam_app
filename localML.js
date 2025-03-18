@@ -347,7 +347,7 @@ class LocalML {
     const allMessages = history.map(msg => msg.message).join(' ') + ' ' + currentMessage;
 
     // 心理状態の指標分析
-    const stateData = this._detectPatterns(allMessages, this.trainingData.mental_health.stateIndicators);
+    const stateData = await this._detectPatternsWithEmbeddings(allMessages, this.trainingData.mental_health.stateIndicators);
     const primaryStates = this._getTopCategories(stateData, 2);
     
     if (primaryStates.length > 0) {
@@ -356,7 +356,7 @@ class LocalML {
     }
 
     // 対処メカニズムの分析
-    const copingData = this._detectPatterns(allMessages, this.trainingData.mental_health.copingMechanisms);
+    const copingData = await this._detectPatternsWithEmbeddings(allMessages, this.trainingData.mental_health.copingMechanisms);
     const primaryCoping = this._getTopCategories(copingData, 2);
     
     if (primaryCoping.length > 0) {
@@ -364,7 +364,7 @@ class LocalML {
     }
 
     // 改善への姿勢を分析
-    const attitudeData = this._detectPatterns(allMessages, this.trainingData.mental_health.improvementAttitude);
+    const attitudeData = await this._detectPatternsWithEmbeddings(allMessages, this.trainingData.mental_health.improvementAttitude);
     const dominantAttitude = this._findDominantCategory(attitudeData);
     
     if (dominantAttitude) {
@@ -380,7 +380,7 @@ class LocalML {
   /**
    * 分析モードの分析実行
    */
-  _analyzeAnalyticalConversation(userId, history, currentMessage) {
+  async _analyzeAnalyticalConversation(userId, history, currentMessage) {
     console.log('    ├─ 分析モードの分析を実行');
     const analysis = {
       complexity: {},
@@ -392,15 +392,15 @@ class LocalML {
     const allMessages = history.map(msg => msg.message).join(' ') + ' ' + currentMessage;
 
     // 思考の複雑さを分析
-    const complexityData = this._detectPatterns(allMessages, this.trainingData.analysis.thinkingComplexity);
+    const complexityData = await this._detectPatternsWithEmbeddings(allMessages, this.trainingData.analysis.thinkingComplexity);
     const thinkingStyles = this._getTopCategories(complexityData, 2);
     
     if (thinkingStyles.length > 0) {
-      analysis.complexity.thinking_style = thinkingStyles;
+      analysis.complexity.thinking_styles = thinkingStyles;
     }
 
     // 焦点エリアを分析
-    const focusData = this._detectPatterns(allMessages, this.trainingData.analysis.focusAreas);
+    const focusData = await this._detectPatternsWithEmbeddings(allMessages, this.trainingData.analysis.focusAreas);
     const primaryFocus = this._getTopCategories(focusData, 2);
     
     if (primaryFocus.length > 0) {
@@ -408,7 +408,7 @@ class LocalML {
     }
 
     // 分析の精度を分析
-    const precisionData = this._detectPatterns(allMessages, this.trainingData.analysis.analysisPrecision);
+    const precisionData = await this._detectPatternsWithEmbeddings(allMessages, this.trainingData.analysis.analysisPrecision);
     const precisionApproach = this._findDominantCategory(precisionData);
     
     if (precisionApproach) {
@@ -444,6 +444,90 @@ class LocalML {
     });
     
     return results;
+  }
+
+  /**
+   * テキスト内のパターンを意味的に検出（非同期バージョン）
+   * @param {string} text - 分析対象テキスト
+   * @param {Object} patternCategories - カテゴリとパターンのマッピング
+   * @returns {Promise<Object>} - 各カテゴリの検出カウント
+   */
+  async _detectPatternsWithEmbeddings(text, patternCategories) {
+    const results = {};
+    
+    try {
+      // EmbeddingServiceのインスタンスを取得または初期化
+      if (!this.embeddingService) {
+        const EmbeddingService = require('./embeddingService');
+        this.embeddingService = new EmbeddingService();
+        await this.embeddingService.initialize();
+      }
+      
+      // テキストが短すぎる場合は従来の方法を使用
+      if (text.length < 10) {
+        return this._detectPatterns(text, patternCategories);
+      }
+      
+      // 各カテゴリとそれに関連する例文の配列を作成
+      const categoryExamples = {};
+      for (const [category, patterns] of Object.entries(patternCategories)) {
+        // パターンを例文に変換（正規表現を自然な文章に）
+        const naturalPatterns = patterns.map(pattern => {
+          // 正規表現特殊文字を除去して自然な文章に変換
+          return pattern.replace(/[\^\$\\\.\*\+\?\(\)\[\]\{\}\|]/g, ' ').trim();
+        }).filter(example => example.length > 0);
+        
+        // 有効な例文があれば連結
+        if (naturalPatterns.length > 0) {
+          categoryExamples[category] = naturalPatterns.join('. ');
+        }
+      }
+      
+      // 各カテゴリとの意味的類似度を計算
+      for (const [category, examples] of Object.entries(categoryExamples)) {
+        if (!examples || examples.length === 0) {
+          // 例文がない場合は従来の方法を使用
+          const count = this._countPatternMatches(text, patternCategories[category]);
+          results[category] = count;
+          continue;
+        }
+        
+        // 類似度スコアを計算
+        const similarity = await this.embeddingService.getTextSimilarity(text, examples);
+        
+        // スコアを0-10の範囲に正規化してカウントとして使用
+        // 0.5以上の類似度から意味があると考える（0.5未満はほぼ無関係）
+        const normalizedCount = similarity > 0.5 ? Math.round((similarity - 0.5) * 20) : 0;
+        results[category] = normalizedCount;
+        
+        // デバッグ情報
+        console.log(`Category: ${category}, Similarity: ${similarity.toFixed(3)}, Count: ${normalizedCount}`);
+      }
+      
+      return results;
+    } catch (error) {
+      console.error('Error in semantic pattern detection:', error);
+      // エラー時は従来の方法にフォールバック
+      return this._detectPatterns(text, patternCategories);
+    }
+  }
+
+  /**
+   * 単純なパターンマッチングのカウント計算（ヘルパー関数）
+   * @private
+   */
+  _countPatternMatches(text, patterns) {
+    let count = 0;
+    
+    patterns.forEach(pattern => {
+      const regex = new RegExp(pattern, 'gi');
+      const matches = text.match(regex);
+      if (matches) {
+        count += matches.length;
+      }
+    });
+    
+    return count;
   }
 
   /**
@@ -869,8 +953,8 @@ class LocalML {
   _generateAnalysisPrompt(analysis) {
     let prompt = `## 思考特性\n`;
     
-    if (analysis.complexity && analysis.complexity.thinking_style) {
-      prompt += `- 思考スタイル: ${analysis.complexity.thinking_style.map(style => this._translateThinking(style)).join(', ')}\n`;
+    if (analysis.complexity && analysis.complexity.thinking_styles) {
+      prompt += `- 思考スタイル: ${analysis.complexity.thinking_styles.map(style => this._translateThinking(style)).join(', ')}\n`;
     }
     
     prompt += `\n## 分析の焦点\n`;

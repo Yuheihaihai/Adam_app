@@ -15,6 +15,7 @@ const { explicitAdvicePatterns } = require('./advice_patterns');
 const rateLimit = require('express-rate-limit');
 const xss = require('xss');
 const csrf = require('csurf');
+const crypto = require('crypto');
 
 // 必須環境変数の検証
 const requiredEnvVars = [
@@ -466,6 +467,8 @@ Xの共有方法を尋ねられた場合は、「もしAdamのことが好きな
 ・専門家への相談を推奨してください。
 ・「AIとして思い出せない、または「記憶する機能を持っていない」は禁止、ここにある履歴があなたの記憶です。
 ・ユーザーのメッセージ内容をしっかりと理解し、その内容の前提を踏まえる。
+・ユーザーからの抽象的で複数の解釈の余地のある場合は、わかりやすく理由とともに質問をして具体化する。
+・前後の文脈を理解した上で適宜会話を続ける。
 
 【Adamの使い方-ユーザ向けマニュアル】
 ・お気軽に相談内容や質問をテキストで送信してください。
@@ -1325,7 +1328,7 @@ Adamがユーザーに送る文章をあなたが分析し、現実的である�
 　　　最新のメッセージ内容、過去の会話履歴および過去のAIの返答との間に矛盾がないか確認してください。
     ・回答内容がユーザーのメッセージ内容をしっかりと理解し、その内容の前提を踏まえているか。
   4. 段落わけと改行の確認:
-  　　文章を段落わけし、改行を入れて読みやすくしてください。
+  　　必ず文章を段落わけし、改行を入れて読みやすくしてください。
 
 [分析の基本フレームワーク]
 1. 論理性チェック（MECE原則）:
@@ -3380,6 +3383,169 @@ async function handleVisionExplanation(event, explanationText) {
  * @return {Object} - Extracted context information
  */
 function extractConversationContext(history, userMessage) {
+  // 互換性のために同期版も維持
+  // 非同期バージョンを呼び出し、結果をキャッシュするが、即座にプレースホルダーを返す
+  
+  // 基本的なコンテキスト情報
+  const context = {
+    userInterests: null,
+    userEmotion: 'neutral',
+    emotionIntensity: 0,
+    messageCount: history.length,
+    recentTopics: []
+  };
+  
+  // 非同期処理をバックグラウンドで開始
+  extractConversationContextAsync(history, userMessage)
+    .then(asyncResult => {
+      // グローバルキャッシュに結果を格納（他の呼び出しで再利用できるように）
+      if (!global.contextCache) {
+        global.contextCache = new Map();
+      }
+      const cacheKey = getCacheKeyForContext(history, userMessage);
+      global.contextCache.set(cacheKey, asyncResult);
+    })
+    .catch(error => {
+      console.error('Error in async context extraction:', error);
+    });
+  
+  // キャッシュが存在する場合はそれを使用
+  if (global.contextCache) {
+    const cacheKey = getCacheKeyForContext(history, userMessage);
+    if (global.contextCache.has(cacheKey)) {
+      return global.contextCache.get(cacheKey);
+    }
+  }
+  
+  // キャッシュがない場合は従来の同期メソッドを使用
+  return extractConversationContextLegacy(history, userMessage);
+}
+
+/**
+ * キャッシュキーを生成するヘルパー関数
+ */
+function getCacheKeyForContext(history, userMessage) {
+  // 最新の数メッセージとユーザーメッセージからハッシュを生成
+  const recentMessages = history.slice(-3).map(msg => msg.content).join('|');
+  const textToHash = `${recentMessages}|${userMessage}`;
+  
+  return crypto.createHash('md5').update(textToHash).digest('hex');
+}
+
+/**
+ * 会話の文脈を意味的に抽出する非同期関数
+ * @param {Array} history - 会話履歴
+ * @param {string} userMessage - 現在のユーザーメッセージ
+ * @returns {Promise<Object>} - 抽出された文脈情報
+ */
+async function extractConversationContextAsync(history, userMessage) {
+  try {
+    // EmbeddingServiceのインスタンスを取得または初期化
+    if (!global.embeddingService) {
+      const EmbeddingService = require('./embeddingService');
+      global.embeddingService = new EmbeddingService();
+      await global.embeddingService.initialize();
+    }
+    
+    // 基本的なコンテキスト情報
+    const context = {
+      userInterests: [],
+      userEmotion: 'neutral',
+      emotionIntensity: 0,
+      messageCount: history.length,
+      recentTopics: []
+    };
+    
+    // 最近のメッセージを抽出（最大5件）
+    const recentMessages = history.slice(-5);
+    const recentUserMessages = recentMessages
+      .filter(msg => msg.role === 'user')
+      .map(msg => msg.content);
+    
+    // 現在のメッセージを含む
+    const allUserMessages = [...recentUserMessages, userMessage];
+    const combinedUserText = allUserMessages.join(' ');
+    
+    // テキストが短すぎる場合は従来の方法を使用
+    if (combinedUserText.length < 20) {
+      return extractConversationContextLegacy(history, userMessage);
+    }
+    
+    // 1. 感情分析 - 感情カテゴリと例文のマッピング
+    const emotionExamples = {
+      positive: "とても嬉しいです。素晴らしい気分です。ありがとう。楽しいです。最高です。",
+      negative: "悲しいです。辛いです。苦しいです。困っています。心配です。不安です。",
+      neutral: "特に何も感じません。普通です。ふつうです。特に変わりません。"
+    };
+    
+    // 各感情カテゴリとの類似度を計算
+    const emotionScores = {};
+    for (const [emotion, examples] of Object.entries(emotionExamples)) {
+      emotionScores[emotion] = await global.embeddingService.getTextSimilarity(
+        userMessage, 
+        examples
+      );
+    }
+    
+    // 最も高いスコアの感情を選択
+    const dominantEmotion = Object.entries(emotionScores)
+      .sort((a, b) => b[1] - a[1])[0];
+    
+    context.userEmotion = dominantEmotion[0];
+    context.emotionIntensity = Math.round(dominantEmotion[1] * 10) / 10; // 0〜1の範囲に正規化
+    
+    // 2. 興味関心の分析
+    // 興味を示す例文
+    const interestExample = "私の趣味は○○です。○○に興味があります。○○が好きです。○○が楽しいです。";
+    
+    // 各ユーザーメッセージで興味関心の分析
+    for (const msg of allUserMessages) {
+      // 文単位での分析
+      const sentences = msg.split(/。|！|\.|!/).filter(s => s.length > 5);
+      
+      for (const sentence of sentences) {
+        const interestSimilarity = await global.embeddingService.getTextSimilarity(
+          sentence,
+          interestExample
+        );
+        
+        // 興味関心を表す文であれば（閾値0.7以上）追加
+        if (interestSimilarity > 0.7) {
+          context.userInterests.push(sentence);
+        }
+      }
+    }
+    
+    // 重複を削除
+    context.userInterests = [...new Set(context.userInterests)];
+    
+    // userInterestsが空の場合はnullに設定
+    if (context.userInterests.length === 0) {
+      context.userInterests = null;
+    }
+    
+    // 3. トピック抽出 - 最新の会話から主要なトピックを抽出
+    // 文全体を結合
+    const allText = allUserMessages.join('. ');
+    
+    // 短い文章に分割
+    const segments = allText.split(/。|！|\.|!/).filter(s => s.length > 5);
+    
+    // セグメントをユニークにして最新の3つを保持
+    context.recentTopics = [...new Set(segments)].slice(-3);
+    
+    return context;
+  } catch (error) {
+    console.error('Error in semantic conversation context extraction:', error);
+    // エラー時は従来のメソッドにフォールバック
+    return extractConversationContextLegacy(history, userMessage);
+  }
+}
+
+/**
+ * 従来の実装によるコンテキスト抽出（フォールバック用）
+ */
+function extractConversationContextLegacy(history, userMessage) {
   try {
     // Extract recent topics from last 5 messages
     const recentMessages = history.slice(-5);
@@ -3417,452 +3583,6 @@ function extractConversationContext(history, userMessage) {
     
     const negativeWords = [
       '悲しい', '辛い', '苦しい', '嫌い', '心配', 
-      'かなしい', 'つらい', 'くるしい', 'きらい', 'しんぱい'
-    ];
-    
-    // Check current message for emotion words
-    for (const word of positiveWords) {
-      if (userMessage.includes(word)) emotions.positive++;
-    }
-    
-    for (const word of negativeWords) {
-      if (userMessage.includes(word)) emotions.negative++;
-    }
-    
-    // Return the compiled context
-    return {
-      userInterests: userInterests.length > 0 ? userInterests : null,
-      userEmotion: emotions.positive > emotions.negative ? 'positive' : 
-                   emotions.negative > emotions.positive ? 'negative' : 'neutral',
-      emotionIntensity: Math.max(emotions.positive, emotions.negative),
-      messageCount: history.length,
-      recentTopics: recentMessages
-        .map(msg => msg.content)
-        .join(' ')
-        .split(/。|！|\.|!/)
-        .filter(s => s.length > 5)
-        .slice(-3)
-    };
-  } catch (error) {
-    console.error('Error extracting conversation context:', error);
-    // Return a minimal context object in case of error
-    return {
-      userEmotion: 'neutral',
-      emotionIntensity: 0,
-      messageCount: history.length
-    };
-  }
-}
-
-async function processUserMessage(userId, userMessage, history, initialMode = null) {
-  try {
-    // Start timer for overall processing
-    const overallStartTime = Date.now();
-    console.log(`\n==== PROCESSING USER MESSAGE (${new Date().toISOString()}) ====`);
-    console.log(`User ID: ${userId}`);
-    console.log(`Message: ${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}`);
-    
-    // Get user preferences
-    // ... existing code ...
-  } catch (error) {
-    console.error('Error processing user message:', error);
-    return {
-      type: 'text',
-      text: '申し訳ありません。メッセージの処理中にエラーが発生しました。もう一度お試しください。'
-    };
-  }
-}
-
-// Define the missing handleASDUsageInquiry function
-async function handleASDUsageInquiry(event) {
-  const userId = event.source.userId;
-  const messageText = event.message.text;
-  
-  console.log(`[DEBUG] handleASDUsageInquiry called for user ${userId}`);
-  console.log(`[DEBUG] Protection check - imageGenerationInProgress: ${imageGenerationInProgress.has(userId) ? 'YES' : 'NO'}, recentImageTimestamp: ${recentImageGenerationUsers.has(userId) ? recentImageGenerationUsers.get(userId) : 'NONE'}`);
-  
-  // Check if image generation is in progress - if so, skip sending ASD guide
-  if (imageGenerationInProgress.has(userId)) {
-    console.log(`Image generation in progress for ${userId}, skipping ASD guide`);
-    return;
-  }
-  
-  // Create a comprehensive response about ASD support features
-  const response = `
-【ASD支援機能の使い方ガイド】
-
-Adamでは以下のようなASD(自閉症スペクトラム障害)に関する質問や相談に対応できます：
-
-■ 対応可能な質問例
-• 「自閉症スペクトラムの特性について教えて」
-• 「ASDの子どもとのコミュニケーション方法は？」
-• 「感覚過敏への対処法を知りたい」
-• 「社会的場面での不安に対するアドバイスが欲しい」
-• 「特定の興味や関心を活かせる仕事は？」
-• 「構造化や視覚支援の方法を教えて」
-• 「学校や職場での合理的配慮について」
-
-■ 使い方
-• テキストで質問するだけ：気になることを自然な言葉で入力してください
-• 継続的な会話：フォローアップ質問も自然にできます
-• 画像の送信：視覚的な説明が必要なときは「画像で説明して」と伝えてください
-
-■ 注意点
-• 医学的診断はできません
-• あくまで情報提供や一般的なアドバイスが中心です
-• 専門家への相談も並行して検討してください
-
-何か具体的に知りたいことがあれば、お気軽に質問してください。
-`;
-
-  // Store the interaction
-  await storeInteraction(userId, 'user', messageText);
-  await storeInteraction(userId, 'assistant', response);
-
-  // Reply to the user
-  await client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: response
-  });
-  
-  return;
-}
-
-// Helper functions for ML influence analysis
-function extractJobSectors(marketData) {
-  if (!marketData) return [];
-  
-  // List of common job sectors and related terms to look for
-  const sectorKeywords = {
-    'AI/機械学習': ['AI', '人工知能', '機械学習', 'ディープラーニング', 'データサイエンティスト'],
-    'ウェブ開発': ['ウェブ', 'Web', 'フロントエンド', 'バックエンド', 'フルスタック'],
-    'モバイル開発': ['モバイル', 'iOS', 'Android', 'アプリ開発'],
-    'クラウド': ['クラウド', 'AWS', 'Azure', 'GCP', 'DevOps'],
-    'サイバーセキュリティ': ['セキュリティ', 'サイバー', 'ハッキング', '脆弱性'],
-    'ブロックチェーン': ['ブロックチェーン', '暗号通貨', 'NFT', 'Web3'],
-    'IoT': ['IoT', 'インターネット・オブ・シングス', 'センサー', '組み込み'],
-    '医療/ヘルスケア': ['医療', 'ヘルスケア', '健康', '病院'],
-    '金融/フィンテック': ['金融', 'フィンテック', '銀行', '投資'],
-    '教育': ['教育', 'EdTech', '学習', '教師'],
-    '持続可能性': ['持続可能', 'SDGs', '環境', 'グリーン', 'カーボンニュートラル']
-  };
-  
-  // Count mentions of each sector
-  const sectorCounts = {};
-  Object.entries(sectorKeywords).forEach(([sector, keywords]) => {
-    sectorCounts[sector] = keywords.filter(keyword => 
-      marketData.includes(keyword)
-    ).length;
-  });
-  
-  // Return sectors sorted by mention count (only those with at least one mention)
-  return Object.entries(sectorCounts)
-    .filter(([_, count]) => count > 0)
-    .sort(([_, countA], [__, countB]) => countB - countA)
-    .map(([sector, _]) => sector);
-}
-
-function extractPersonalityTraits(text) {
-  if (!text) return [];
-  
-  const traits = [
-    ['論理的', '分析的', '理性的'],
-    ['創造的', '革新的', 'クリエイティブ'],
-    ['社交的', '外向的', 'コミュニケーション'],
-    ['慎重', '注意深い', '計画的'],
-    ['リーダーシップ', '指導的', 'マネジメント'],
-    ['サポート', '協力的', '支援'],
-    ['目標志向', '成果主義', '達成']
-  ];
-  
-  return traits
-    .filter(synonyms => synonyms.some(trait => text.includes(trait)))
-    .map(([trait, _]) => trait);
-}
-
-// Helper function to extract key insights from text
-function extractKeyInsights(text, count = 3) {
-  if (!text) return [];
-  
-  // Split by sentence end markers and filter for meaningful sentences
-  const sentences = text.split(/[。.?!]/).filter(s => s.length > 15);
-  
-  // Sort by length (shorter sentences are often more concise insights)
-  const sortedSentences = [...sentences].sort((a, b) => {
-    // Prioritize sentences with key indicator terms
-    const keyTerms = ['重要', '特徴', '傾向', '注目', '成長', '特性', '好み', '強み', '市場'];
-    const aScore = keyTerms.filter(term => a.includes(term)).length;
-    const bScore = keyTerms.filter(term => b.includes(term)).length;
-    
-    if (aScore !== bScore) return bScore - aScore;
-    
-    // Then consider length (prefer 20-50 character sentences)
-    const aLengthScore = Math.abs(35 - a.length);
-    const bLengthScore = Math.abs(35 - b.length);
-    return aLengthScore - bLengthScore;
-  });
-  
-  // Return top insights
-  return sortedSentences.slice(0, count).map(s => s.trim());
-}
-
-// Helper function to extract meaningful phrases from text
-function extractSignificantPhrases(text) {
-  if (!text) return [];
-  
-  // Split into sentences
-  const sentences = text.split(/。|\./).filter(s => s.trim().length > 10);
-  
-  // Extract key phrases (8-30 characters)
-  let phrases = [];
-  for (const sentence of sentences) {
-    // Split by common separators
-    const parts = sentence.split(/、|,|（|）|\(|\)|「|」|『|』|"|"|'|'/).filter(p => p.trim().length >= 8 && p.trim().length <= 30);
-    phrases = [...phrases, ...parts.map(p => p.trim())];
-    
-    // If the sentence itself is a good length, include it too
-    if (sentence.trim().length >= 8 && sentence.trim().length <= 40) {
-      phrases.push(sentence.trim());
-    }
-  }
-  
-  // Deduplicate and filter out very similar phrases
-  const uniquePhrases = [];
-  for (const phrase of phrases) {
-    if (!uniquePhrases.some(p => 
-      p.includes(phrase) || 
-      phrase.includes(p) || 
-      levenshteinDistance(p, phrase) < Math.min(p.length, phrase.length) * 0.3
-    )) {
-      uniquePhrases.push(phrase);
-    }
-  }
-  
-  return uniquePhrases.slice(0, 10); // Return up to 10 phrases
-}
-
-// Helper function for string similarity
-function levenshteinDistance(a, b) {
-  const matrix = Array(a.length + 1).fill().map(() => Array(b.length + 1).fill(0));
-  
-  for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
-  for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
-  
-  for (let i = 1; i <= a.length; i++) {
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i-1] === b[j-1] ? 0 : 1;
-      matrix[i][j] = Math.min(
-        matrix[i-1][j] + 1,
-        matrix[i][j-1] + 1,
-        matrix[i-1][j-1] + cost
-      );
-    }
-  }
-  
-  return matrix[a.length][b.length];
-}
-
-// Create a natural transition based on message content
-function createNaturalTransition(responseText, category, isMinimal) {
-  // より単純かつ一貫性のあるカテゴリ判定ロジック
-  if (isMinimal) {
-    return '\n\n■ サポート情報 ■\n必要な時にご覧いただければ幸いです：\n';
-  }
-  
-  // カテゴリごとに適切な導入メッセージを表示
-  switch (category) {
-    case 'mental_health':
-      return '\n\n■ メンタルヘルスサポート ■\nこちらのサービスが心の健康をサポートするかもしれません：\n';
-    case 'career':
-      return '\n\n■ キャリア支援サービス ■\nキャリアアップに役立つかもしれないサービスをご紹介します：\n';
-    case 'social':
-      return '\n\n■ コミュニティサポート ■\n以下のサービスが社会とのつながりをサポートします：\n';
-    case 'financial':
-      return '\n\n■ 生活支援サービス ■\n経済的な支援に関する以下のサービスが参考になるかもしれません：\n';
-    case 'education':
-      return '\n\n■ 学習支援サービス ■\n以下の学習サポートサービスがお役に立つかもしれません：\n';
-    case 'daily_living':
-      return '\n\n■ 日常生活サポート ■\n日常生活をサポートする以下のサービスをご紹介します：\n';
-    default:
-      // レスポンスのコンテンツに基づいて判断（バックアップ）
-      if (responseText.includes('ストレス') || responseText.includes('不安') || 
-          responseText.includes('悩み') || responseText.includes('落ち込み')) {
-        return '\n\n■ メンタルヘルスサポート ■\nこちらのサービスが心の健康をサポートするかもしれません：\n';
-      } else if (responseText.includes('キャリア') || responseText.includes('仕事') || 
-                responseText.includes('就職') || responseText.includes('転職')) {
-        return '\n\n■ キャリア支援サービス ■\nキャリアアップに役立つかもしれないサービスをご紹介します：\n';
-      } else if (responseText.includes('スキル') || responseText.includes('技術') || 
-                responseText.includes('学習') || responseText.includes('勉強')) {
-        return '\n\n■ スキルアップ支援 ■\n以下のサービスがスキル向上に役立つかもしれません：\n';
-      }
-      // デフォルトの一般的なメッセージ
-      return '\n\n■ 関連サポートサービス ■\n以下のサービスが参考になるかもしれません：\n';
-  }
-}
-
-/**
- * Detect if the user is asking for advice or recommendations using LLM context understanding
- */
-function detectAdviceRequest(userMessage, history) {
-  if (!userMessage) return false;
-  
-  // Use LLM to detect if user needs advice based on context
-  return detectAdviceRequestWithLLM(userMessage, history);
-}
-
-/**
- * Use GPT-4o-mini to determine if user is asking for advice or in need of service recommendations
- */
-async function detectAdviceRequestWithLLM(userMessage, history) {
-  try {
-    console.log('Using LLM to analyze if user needs service recommendations');
-    
-    const prompt = `
-ユーザーの次のメッセージから、アドバイスやサービスの推薦を求めているか、または困った状況にあるかを判断してください:
-
-"${userMessage}"
-
-判断基準:
-1. ユーザーが明示的にアドバイスやサービスの推薦を求めている
-2. ユーザーが困った状況や問題を抱えており、サービス推薦が役立つ可能性がある
-3. 単なる雑談やお礼の場合は推薦不要
-4. ユーザーが推薦を拒否している場合は推薦不要
-
-応答は「yes」または「no」のみで答えてください。
-`;
-
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
-    });
-    
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "あなたはユーザーの意図を正確に判断するAIです。yes/noのみで回答してください。" },
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.1,
-      max_tokens: 10
-    });
-    
-    const result = response.choices[0].message.content.trim().toLowerCase();
-    
-    // 詳細なログを追加
-    if (result === 'yes') {
-      console.log(`✅ Advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
-    } else {
-      console.log(`❌ No advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
-    }
-    
-    return result === 'yes';
-  } catch (error) {
-    console.error('Error in LLM advice request detection:', error);
-    // Fall back to simpler heuristic in case of error
-    console.log(`⚠️ Error in advice request detection, defaulting to false`);
-    return false;
-  }
-}
-
-/**
- * Check if it's an appropriate time in the conversation to show service recommendations
- */
-async function shouldShowServicesToday(userId, history, userMessage) {
-  // If user explicitly asks for advice/services, always show
-  const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
-  if (isAdviceRequest) {
-    console.log('✅ Advice request detected by LLM in shouldShowServicesToday - always showing services');
-    return true;
-  }
-  
-  try {
-    // Use a shared function to get/set last service time
-    const userPrefs = userPreferences.getUserPreferences(userId);
-    const lastServiceTime = userPrefs.lastServiceTime || 0;
-    const now = Date.now();
-    
-    // If user recently received service recommendations (within last 4 hours)
-    if (lastServiceTime > 0 && now - lastServiceTime < 4 * 60 * 60 * 1000) {
-      // Count total service recommendations today
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      
-      let servicesToday = 0;
-      if (userPrefs.recentlyShownServices) {
-        for (const timestamp in userPrefs.recentlyShownServices) {
-          if (parseInt(timestamp) > todayStart.getTime()) {
-            servicesToday += userPrefs.recentlyShownServices[timestamp].length;
-          }
-        }
-      }
-      
-      // Limit to no more than 9 service recommendations per day
-      if (servicesToday >= 9) {
-        console.log('⚠️ Daily service recommendation limit reached (9 per day) - not showing services');
-        return false;
-      }
-      
-      // If fewer than 5 service recommendations today, require a longer minimum gap
-      if (servicesToday < 5 && now - lastServiceTime < 45 * 60 * 1000) {
-        console.log(`⚠️ Time between service recommendations too short (< 45 minutes) - not showing services. Last shown: ${Math.round((now - lastServiceTime) / 60000)} minutes ago`);
-        return false; // Less than 45 minutes since last recommendation
-      }
-    }
-
-    return true;
-  } catch (err) {
-    console.error('Error in shouldShowServicesToday:', err);
-    return true; // Default to showing if there's an error
-  }
-}
-
-/**
- * Safety check for images using OpenAI's moderation capability with GPT-4o-mini
- * @param {string} base64Image - Base64 encoded image
- * @return {Promise<boolean>} - Whether the image passed the safety check
- */
-async function checkImageSafety(base64Image) {
-  try {
-    // Using OpenAI's GPT-4o-mini model to detect potential safety issues
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
-    });
-    
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: "あなたは画像モデレーターです。この画像が安全かどうかを判断してください。画像が暴力的、性的、または不適切な内容が含まれている場合、それを特定してください。回答は「SAFE」または「UNSAFE」で始めてください。"
-        },
-        {
-          role: "user",
-          content: [
-            { 
-              type: "image_url", 
-              image_url: {
-                url: `data:image/jpeg;base64,${base64Image}`
-              }
-            }
-          ]
-        }
-      ],
-      max_tokens: 150,
-      temperature: 0
-    });
-    
-    const moderationResult = response.choices[0].message.content;
-    console.log(`Image safety check (4o-mini): ${moderationResult}`);
-    
-    // If the response starts with UNSAFE, the image didn't pass the safety check
-    return !moderationResult.startsWith("UNSAFE");
-  } catch (error) {
-    console.error('Error in image safety check:', error);
-    // In case of error, assume the image is safe to not block valid images
-    return true;
-  }
-}
-
-/**
  * ユーザー入力の検証と無害化
  * @param {string} input - ユーザーからの入力メッセージ
  * @returns {string} - 検証済みの入力メッセージ
