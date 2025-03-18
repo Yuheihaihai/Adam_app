@@ -1,6 +1,6 @@
 {
   "name": "line-openai-voice-chat",
-  "version": "1.0.0",
+  "version": "2.4.0",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
@@ -24,15 +24,33 @@
     "node-fetch": "^3.3.2",
     "openai": "^4.87.3",
     "perplexity-sdk": "^1.0.4",
+    "uuid": "^9.0.1",
     "xss": "^1.0.15"
   },
   "optionalDependencies": {
     "@tensorflow/tfjs-node": "^4.22.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.9",
+    "supertest": "^6.3.3"
   },
   "engines": {
-    "node": "18.x"
+    "node": ">=18.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/__tests__/**/*.js",
+      "**/?(*.)+(spec|test).js"
+    ]
+  },
+  "nodemonConfig": {
+    "ignore": [
+      "node_modules/",
+      "*.log",
+      "*.json"
+    ],
+    "delay": "1000"
   }
 }

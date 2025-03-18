@@ -17,6 +17,28 @@ const xss = require('xss');
 const csrf = require('csurf');
 const crypto = require('crypto');
 
+// Embedding拡張機能のインポート - 既存コードを壊さないよう追加のみ
+let embeddingFeatures;
+try {
+  embeddingFeatures = require('./index');
+  console.log('Embedding features loaded successfully');
+  
+  // グローバルアクセスのため関数をエクスポート
+  global.handleASDUsageInquiry = embeddingFeatures.handleASDUsageInquiry;
+  
+  // サーバー起動後に非同期で初期化（起動を遅延させない）
+  setTimeout(async () => {
+    try {
+      await embeddingFeatures.initializeEmbeddingFeatures();
+      console.log('Embedding features initialized asynchronously');
+    } catch (error) {
+      console.warn('Async initialization of embedding features failed:', error.message);
+    }
+  }, 1000);
+} catch (error) {
+  console.warn('Embedding features could not be loaded, using fallback methods:', error.message);
+}
+
 // 必須環境変数の検証
 const requiredEnvVars = [
   'CHANNEL_ACCESS_TOKEN',
@@ -2730,15 +2752,43 @@ ${SHARE_URL}
     // 画像説明の提案トリガーチェック：isConfusionRequest のみを使用
     let triggerImageExplanation = false;
     
-    
-    // 直接的な画像分析リクエストの場合は即座にトリガー
-    if (isConfusionRequest(userMessage)) {
+    // 拡張Embedding機能が利用可能な場合はそちらを使用
+    if (global.enhancedImageDecision) {
+      try {
+        // 前の応答を取得（可能な場合）
+        let previousResponse = null;
+        if (historyForProcessing && historyForProcessing.length > 0) {
+          for (let i = historyForProcessing.length - 1; i >= 0; i--) {
+            if (historyForProcessing[i].role === 'assistant') {
+              previousResponse = historyForProcessing[i].content;
+              break;
+            }
+          }
+        }
+        
+        // 拡張判定を使用
+        const enhancedDecision = await global.enhancedImageDecision.shouldGenerateImage(userMessage, previousResponse);
+        if (enhancedDecision) {
+          console.log(`[DEBUG] Enhanced image generation decision triggered for: "${userMessage}"`);
+          triggerImageExplanation = true;
+        }
+      } catch (error) {
+        console.error('[ERROR] Enhanced image decision failed, falling back to standard method:', error.message);
+        // 従来の方法にフォールバック
+        if (isConfusionRequest(userMessage)) {
+          console.log(`[DEBUG] Fallback: Direct image request detected in message: "${userMessage}"`);
+          triggerImageExplanation = true;
+        }
+      }
+    }
+    // 拡張機能が利用できない場合は従来の方法を使用
+    else if (isConfusionRequest(userMessage)) {
       console.log(`[DEBUG] Direct image request detected in message: "${userMessage}"`);
       triggerImageExplanation = true;
     }
+    
     // それ以外のすべてのメッセージはLLMで分析
-    else {
-      // LLMを使用して「AIの発言を理解していないか」を判定
+    if (!triggerImageExplanation) {
       try {
         console.log(`[DEBUG] Analyzing if user understands AI response: "${userMessage}"`);
         
@@ -4028,9 +4078,58 @@ async function detectAdviceRequestWithLLM(userMessage, history) {
 }
 
 /**
+ * [新機能] 拡張Embedding機能への橋渡し
+ * 既存の機能を変更せず、機能を追加するための関数
+ * global.detectAdviceRequestWithLLMへの参照を設定
+ */
+// グローバルに関数を公開（他モジュールからのアクセス用）
+global.detectAdviceRequestWithLLM = detectAdviceRequestWithLLM;
+global.isConfusionRequest = isConfusionRequest;
+
+// 拡張機能のサポート用ヘルパー（初期化が済んでいない場合に安全に実行）
+const initializeEmbeddingBridge = async () => {
+  try {
+    // サービスマッチング機能の初期化と組み込み
+    if (typeof enhancedServiceMatching === 'undefined' && fs.existsSync('./enhancedServiceMatching.js')) {
+      global.enhancedServiceMatching = require('./enhancedServiceMatching');
+      await global.enhancedServiceMatching.initialize();
+      console.log('Enhanced service matching bridge initialized successfully');
+    }
+    
+    // 画像判断機能の初期化と組み込み
+    if (typeof enhancedImageDecision === 'undefined' && fs.existsSync('./enhancedImageDecision.js')) {
+      global.enhancedImageDecision = require('./enhancedImageDecision');
+      await global.enhancedImageDecision.initialize();
+      console.log('Enhanced image decision bridge initialized successfully');
+    }
+  } catch (error) {
+    console.error('Error initializing embedding bridges:', error);
+  }
+};
+
+// 非同期で拡張機能を初期化（サーバー起動を遅延させない）
+setTimeout(initializeEmbeddingBridge, 2000);
+
+/**
  * Check if it's an appropriate time in the conversation to show service recommendations
  */
 async function shouldShowServicesToday(userId, history, userMessage) {
+  // 拡張機能が利用可能な場合はそちらを使用
+  if (global.enhancedServiceMatching) {
+    try {
+      const enhancedDecision = await global.enhancedServiceMatching.shouldShowServiceRecommendation(
+        userMessage, 
+        history, 
+        userId
+      );
+      console.log(`[DEBUG] Enhanced service recommendation decision: ${enhancedDecision}`);
+      return enhancedDecision;
+    } catch (error) {
+      console.error('[ERROR] Enhanced service recommendation failed, falling back to standard method:', error.message);
+      // 従来の方法にフォールバック
+    }
+  }
+  
   // If user explicitly asks for advice/services, always show
   const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
   if (isAdviceRequest) {
