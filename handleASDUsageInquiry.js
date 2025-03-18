@@ -224,8 +224,11 @@ async function handleASDUsageInquiry(event) {
   }
   
   try {
-    // LINEクライアントの存在確認
-    const client = global.client || require('@line/bot-sdk').Client;
+    // LINEクライアントの存在確認 - 修正: インスタンスを正しく取得
+    const client = global.client || new (require('@line/bot-sdk').Client)({
+      channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+      channelSecret: process.env.CHANNEL_SECRET
+    });
     
     // storeInteraction関数の存在確認
     const storeInteraction = global.storeInteraction || (async () => {
