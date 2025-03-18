@@ -3968,3 +3968,112 @@ async function restorePendingImageRequests() {
 
 // アプリケーション起動時に状態を復元
 restoreSystemState();
+
+/**
+ * Use GPT-4o-mini to determine if user is asking for advice or in need of service recommendations
+ */
+async function detectAdviceRequestWithLLM(userMessage, history) {
+  try {
+    console.log('Using LLM to analyze if user needs service recommendations');
+    
+    const prompt = `
+ユーザーの次のメッセージから、アドバイスやサービスの推薦を求めているか、または困った状況にあるかを判断してください:
+
+"${userMessage}"
+
+判断基準:
+1. ユーザーが明示的にアドバイスやサービスの推薦を求めている
+2. ユーザーが困った状況や問題を抱えており、サービス推薦が役立つ可能性がある
+3. 単なる雑談やお礼の場合は推薦不要
+4. ユーザーが推薦を拒否している場合は推薦不要
+
+応答は「yes」または「no」のみで答えてください。
+`;
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "あなたはユーザーの意図を正確に判断するAIです。yes/noのみで回答してください。" },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.1,
+      max_tokens: 10
+    });
+    
+    const result = response.choices[0].message.content.trim().toLowerCase();
+    
+    // 詳細なログを追加
+    if (result === 'yes') {
+      console.log(`✅ Advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+    } else {
+      console.log(`❌ No advice request detected by LLM: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+    }
+    
+    return result === 'yes';
+  } catch (error) {
+    console.error('Error in LLM advice request detection:', error);
+    // Fall back to simpler heuristic in case of error
+    console.log(`⚠️ Error in advice request detection, defaulting to false`);
+    return false;
+  }
+}
+
+/**
+ * Check if it's an appropriate time in the conversation to show service recommendations
+ */
+async function shouldShowServicesToday(userId, history, userMessage) {
+  // If user explicitly asks for advice/services, always show
+  const isAdviceRequest = await detectAdviceRequestWithLLM(userMessage, history);
+  if (isAdviceRequest) {
+    console.log('✅ Advice request detected by LLM in shouldShowServicesToday - always showing services');
+    return true;
+  }
+  
+  try {
+    // Use a shared function to get/set last service time
+    const userPrefs = userPreferences.getUserPreferences(userId);
+    const lastServiceTime = userPrefs.lastServiceTime || 0;
+    const now = Date.now();
+    
+    // If user recently received service recommendations (within last 4 hours)
+    if (lastServiceTime > 0 && now - lastServiceTime < 4 * 60 * 60 * 1000) {
+      // Count total service recommendations today
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      
+      let servicesToday = 0;
+      if (userPrefs.recentlyShownServices) {
+        for (const timestamp in userPrefs.recentlyShownServices) {
+          if (parseInt(timestamp) > todayStart.getTime()) {
+            servicesToday += userPrefs.recentlyShownServices[timestamp].length;
+          }
+        }
+      }
+      
+      // Limit to no more than 9 service recommendations per day
+      if (servicesToday >= 9) {
+        console.log('⚠️ Daily service recommendation limit reached (9 per day) - not showing services');
+        return false;
+      }
+      
+      // If fewer than 5 service recommendations today, require a longer minimum gap
+      if (servicesToday < 5 && now - lastServiceTime < 45 * 60 * 1000) {
+        console.log(`⚠️ Time between service recommendations too short (< 45 minutes) - not showing services. Last shown: ${Math.round((now - lastServiceTime) / 60000)} minutes ago`);
+        return false; // Less than 45 minutes since last recommendation
+      }
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error in shouldShowServicesToday:', err);
+    return true; // Default to showing if there's an error
+  }
+}
+
+/**
+ * Safety check for images using OpenAI's moderation capability with GPT-4o-mini
+ */
