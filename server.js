@@ -3583,6 +3583,63 @@ function extractConversationContextLegacy(history, userMessage) {
     
     const negativeWords = [
       '悲しい', '辛い', '苦しい', '嫌い', '心配', 
+      'かなしい', 'つらい', 'くるしい', 'きらい', 'しんぱい'
+    ];
+    
+    // Check current message for emotion words
+    for (const word of positiveWords) {
+      if (userMessage.includes(word)) emotions.positive++;
+    }
+    
+    for (const word of negativeWords) {
+      if (userMessage.includes(word)) emotions.negative++;
+    }
+    
+    // Return the compiled context
+    return {
+      userInterests: userInterests.length > 0 ? userInterests : null,
+      userEmotion: emotions.positive > emotions.negative ? 'positive' : 
+                   emotions.negative > emotions.positive ? 'negative' : 'neutral',
+      emotionIntensity: Math.max(emotions.positive, emotions.negative),
+      messageCount: history.length,
+      recentTopics: recentMessages
+        .map(msg => msg.content)
+        .join(' ')
+        .split(/。|！|\.|!/)
+        .filter(s => s.length > 5)
+        .slice(-3)
+    };
+  } catch (error) {
+    console.error('Error extracting conversation context:', error);
+    // Return a minimal context object in case of error
+    return {
+      userEmotion: 'neutral',
+      emotionIntensity: 0,
+      messageCount: history.length
+    };
+  }
+}
+
+async function processUserMessage(userId, userMessage, history, initialMode = null) {
+  try {
+    // Start timer for overall processing
+    const overallStartTime = Date.now();
+    console.log(`\n==== PROCESSING USER MESSAGE (${new Date().toISOString()}) ====`);
+    console.log(`User ID: ${userId}`);
+    console.log(`Message: ${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}`);
+    
+    // Get user preferences
+    // ... existing code ...
+  } catch (error) {
+    console.error('Error processing user message:', error);
+    return {
+      type: 'text',
+      text: '申し訳ありません。メッセージの処理中にエラーが発生しました。もう一度お試しください。'
+    };
+  }
+}
+
+/**
  * ユーザー入力の検証と無害化
  * @param {string} input - ユーザーからの入力メッセージ
  * @returns {string} - 検証済みの入力メッセージ
