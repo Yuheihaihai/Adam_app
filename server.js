@@ -2743,6 +2743,11 @@ ${SHARE_URL}
         console.log(`[DEBUG] Analyzing if user understands AI response: "${userMessage}"`);
         
         // 直前のAI回答を取得する
+        // 会話履歴から直前のアシスタントメッセージを取得
+        const lastAssistantMessage = historyForProcessing && historyForProcessing.length > 0 
+          ? historyForProcessing.filter(item => item.role === 'assistant').pop() 
+          : null;
+        
         // lastAssistantMessageが未定義の場合、会話履歴から取得を試みる
         let previousAIResponse = null;
         
