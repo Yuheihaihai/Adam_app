@@ -366,10 +366,6 @@ const config = {
 };
 const client = new line.Client(config);
 
-// グローバル変数として宣言して外部モジュールからアクセスできるようにする
-global.client = client;
-global.storeInteraction = storeInteraction;
-
 // webhookエンドポイントの定義
 app.post('/webhook', rawBodyParser, line.middleware(config), (req, res) => {
   console.log('Webhook was called! Events:', JSON.stringify(req.body, null, 2));
@@ -4184,4 +4180,47 @@ async function shouldShowServicesToday(userId, history, userMessage) {
 
 /**
  * Safety check for images using OpenAI's moderation capability with GPT-4o-mini
+ * @param {string} base64Image - Base64 encoded image
+ * @return {Promise<boolean>} - Whether the image passed the safety check
  */
+async function checkImageSafety(base64Image) {
+  try {
+    // Using OpenAI's GPT-4o-mini model to detect potential safety issues
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "あなたは画像モデレーターです。この画像が安全かどうかを判断してください。画像が暴力的、性的、または不適切な内容が含まれている場合、それを特定してください。回答は「SAFE」または「UNSAFE」で始めてください。"
+        },
+        {
+          role: "user",
+          content: [
+            { 
+              type: "image_url", 
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 150,
+      temperature: 0
+    });
+    
+    const moderationResult = response.choices[0].message.content;
+    console.log(`Image safety check (4o-mini): ${moderationResult}`);
+    
+    // If the response starts with UNSAFE, the image didn't pass the safety check
+    return !moderationResult.startsWith("UNSAFE");
+  } catch (error) {
+    console.error('Error in image safety check:', error);
+    // In case of error, assume the image is safe to not block valid images
+    return true;
+  }
+}
