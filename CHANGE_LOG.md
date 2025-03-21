@@ -655,3 +655,8 @@ Error getting embedding: BadRequestError: 400 This model's maximum context lengt
   - `enhancedImageDecision.js`と`imageGenerationUtils.js`を更新して掘り下げモードリクエストを認識し、画像生成をスキップするように変更
   - すべての変更はユーザー体験の向上を目的とし、混乱検出と画像生成の既存の機能を維持
   - テスト用の`test-standalone.js`スクリプトを作成し、全機能が正常に動作することを確認（全9テスト成功）
+
+## 2025-03-21
+- Improved error handling in `handleASDUsageInquiry.js` to provide multiple fallback methods for replying to users
+- Added robust response delivery system with multiple layers of fallback in case the primary LINE client method fails
+- Added client response tracking using global.pendingResponses to ensure messages can be delivered even if immediate delivery fails

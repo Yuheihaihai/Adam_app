@@ -212,18 +212,18 @@ const asdGuideHandler = new ASDGuideHandler();
  * @returns {Promise<void>}
  */
 async function handleASDUsageInquiry(event) {
-  const userId = event.source.userId;
-  const messageText = event.message.text;
-  
-  console.log(`[DEBUG] handleASDUsageInquiry called for user ${userId}`);
-  
-  // 画像生成中なら処理をスキップ
-  if (global.imageGenerationInProgress?.has(userId)) {
-    console.log(`Image generation in progress for ${userId}, skipping ASD guide`);
-    return;
-  }
-  
   try {
+    const userId = event.source.userId;
+    const messageText = event.message.text;
+    
+    console.log(`[DEBUG] handleASDUsageInquiry called for user ${userId}`);
+    
+    // 画像生成中なら処理をスキップ
+    if (global.imageGenerationInProgress?.has(userId)) {
+      console.log(`Image generation in progress for ${userId}, skipping ASD guide`);
+      return;
+    }
+    
     // ASDガイドを生成
     const response = await asdGuideHandler.generateASDGuide(messageText);
     
@@ -235,26 +235,67 @@ async function handleASDUsageInquiry(event) {
       console.warn('storeInteraction function not found, interaction not stored');
     }
     
-    // ユーザーに返信 - server.jsで定義されたグローバルなLINEクライアントを使用
+    // 返信方法の優先順位付け
+    let replySuccessful = false;
+    
+    // 1. LINEクライアントを使用（グローバル変数またはイベントから）
     if (global.client && typeof global.client.replyMessage === 'function') {
-      await global.client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: response
-      });
-    } else {
-      console.error('LINE client or replyMessage not available');
-      // 代替策: event.replyを使用
-      if (event.reply && typeof event.reply === 'function') {
-        await event.reply(response);
-      } else {
-        throw new Error('No method available to reply to the user');
+      try {
+        await global.client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: response
+        });
+        replySuccessful = true;
+      } catch (lineError) {
+        console.error('LINE client reply failed:', lineError);
       }
     }
     
-    return true;
+    // 2. event.replyを使用
+    if (!replySuccessful && event.reply && typeof event.reply === 'function') {
+      try {
+        await event.reply(response);
+        replySuccessful = true;
+      } catch (replyError) {
+        console.error('event.reply failed:', replyError);
+      }
+    }
+    
+    // 3. 返信トークンを使用したaxiosによる直接APIコール
+    if (!replySuccessful && event.replyToken && process.env.CHANNEL_ACCESS_TOKEN) {
+      try {
+        const axios = require('axios');
+        await axios.post('https://api.line.me/v2/bot/message/reply', {
+          replyToken: event.replyToken,
+          messages: [{
+            type: 'text',
+            text: response
+          }]
+        }, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.CHANNEL_ACCESS_TOKEN}`
+          }
+        });
+        replySuccessful = true;
+      } catch (axiosError) {
+        console.error('Direct LINE API call failed:', axiosError);
+      }
+    }
+    
+    // 4. すべての方法が失敗した場合
+    if (!replySuccessful) {
+      console.error('All reply methods failed, storing response for future delivery');
+      // 応答をキューに追加または別の方法で後で配信するロジックをここに追加
+      if (global.pendingResponses) {
+        global.pendingResponses.set(userId, response);
+      } else {
+        global.pendingResponses = new Map();
+        global.pendingResponses.set(userId, response);
+      }
+    }
   } catch (error) {
     console.error('Error in handleASDUsageInquiry:', error);
-    return false;
   }
 }
 
