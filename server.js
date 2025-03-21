@@ -2821,40 +2821,9 @@ ${SHARE_URL}
     // 画像説明の提案トリガーチェック：isConfusionRequest のみを使用
     let triggerImageExplanation = false;
     
-    // 拡張Embedding機能が利用可能な場合はそちらを使用
-    if (global.enhancedImageDecision) {
-      try {
-        // 前の応答を取得（可能な場合）
-        let previousResponse = null;
-        if (historyForProcessing && historyForProcessing.length > 0) {
-          for (let i = historyForProcessing.length - 1; i >= 0; i--) {
-            if (historyForProcessing[i].role === 'assistant') {
-              previousResponse = historyForProcessing[i].content;
-              break;
-            }
-          }
-        }
-        
-        // 拡張判定を使用
-        const enhancedDecision = await global.enhancedImageDecision.shouldGenerateImage(userMessage, previousResponse);
-        if (enhancedDecision) {
-          console.log(`[DEBUG] Enhanced image generation decision triggered for: "${userMessage}"`);
-          triggerImageExplanation = true;
-        }
-      } catch (error) {
-        console.error('[ERROR] Enhanced image decision failed, falling back to standard method:', error.message);
-        // 従来の方法にフォールバック
-        if (isConfusionRequest(userMessage)) {
-          console.log(`[DEBUG] Fallback: Direct image request detected in message: "${userMessage}"`);
-          triggerImageExplanation = true;
-        }
-      }
-    }
-    // 拡張機能が利用できない場合は従来の方法を使用
-    else if (isConfusionRequest(userMessage)) {
-      console.log(`[DEBUG] Direct image request detected in message: "${userMessage}"`);
-      triggerImageExplanation = true;
-    }
+    // 画像生成機能は無効化されているため、常にLLM処理へ進む
+    console.log(`[DEBUG] 画像生成機能は無効化されています。通常のLLM処理へ進みます。`);
+    triggerImageExplanation = false;
     
     // それ以外のすべてのメッセージはLLMで分析
     if (!triggerImageExplanation) {
@@ -3005,6 +2974,8 @@ ${SHARE_URL}
         await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}, デフォルトテキスト使用`);
       }
       
+      // 以下の提案メッセージと関連するコードを削除
+      /*
       const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
       console.log(`[DEBUG-IMAGE] 画像による説明の提案をユーザーに送信: "${suggestionMessage}"`);
       
@@ -3013,6 +2984,13 @@ ${SHARE_URL}
         type: 'text',
         text: suggestionMessage
       });
+      */
+      
+      // 画像生成提案をスキップし通常のテキスト処理へ進む
+      const skipMessage = "画像生成機能は現在無効化されています。";
+      console.log(`[DEBUG-IMAGE] 画像生成提案をスキップ: ${skipMessage}`);
+      
+      await storeInteraction(userId, 'system', skipMessage);
     }
 
     // 通常のテキスト処理へ進む
