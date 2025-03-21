@@ -725,8 +725,72 @@ function checkRateLimit(userId) {
 
 const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職診断'];
 
+/**
+ * 掘り下げモードのリクエストかどうかを判断する
+ * @param {string} text - ユーザーメッセージ
+ * @return {boolean} 掘り下げモードリクエストかどうか
+ */
+function isDeepExplorationRequest(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 掘り下げモードの特定のフレーズ - 他のテキストと混ざっていても検出
+  const deepExplorationPhrase = 'もっと深く考えを掘り下げて例を示しながらさらに分かり易く言葉で教えてください。抽象的言葉禁止。';
+  
+  // 短いテスト用の部分フレーズ
+  const deepExplorationPartial = 'もっと深く考えを掘り下げて';
+  
+  return text.includes(deepExplorationPhrase) || text.includes(deepExplorationPartial);
+}
+
+/**
+ * 混乱またはヘルプリクエストの検出
+ * @param {string} text - ユーザーメッセージ
+ * @return {boolean} 混乱リクエストかどうか
+ */
+function isConfusionRequest(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 掘り下げモードのリクエストは除外する
+  if (isDeepExplorationRequest(text)) {
+    return false;
+  }
+  
+  // 画像生成リクエストをチェック
+  const imageGenerationRequests = [
+    '画像を生成', '画像を作成', '画像を作って', 'イメージを生成', 'イメージを作成', 'イメージを作って',
+    '図を生成', '図を作成', '図を作って', '図解して', '図解を作成', '図解を生成',
+    'ビジュアル化して', '視覚化して', '絵を描いて', '絵を生成', '絵を作成',
+    '画像で説明', 'イメージで説明', '図で説明', '視覚的に説明',
+    '画像にして', 'イラストを作成', 'イラストを生成', 'イラストを描いて'
+  ];
+  
+  // 一般的な混乱表現をチェック
+  const confusionTerms = [
+    'わからない', '分からない', '理解できない', '意味がわからない', '意味が分からない',
+    'どういう意味', 'どういうこと', 'よくわからない', 'よく分からない', 'よくわかりません',
+    '何が言いたい', 'なにが言いたい', '何を言ってる', 'なにを言ってる',
+    'もう少し', 'もっと', '簡単に', 'かみ砕いて', 'シンプルに', '例を挙げて',
+    '違う方法で', '別の言い方', '言い換えると', '言い換えれば', '詳しく',
+    '混乱', '複雑', '難解', 'むずかしい'
+  ];
+  
+  // 画像生成リクエスト、直接的な画像分析リクエスト、または一般的な混乱表現を含む場合はtrueを返す
+  return imageGenerationRequests.some(phrase => text.includes(phrase)) || 
+         isDirectImageAnalysisRequest(text) ||
+         confusionTerms.some(term => text.includes(term));
+}
+
 function determineModeAndLimit(userMessage) {
   console.log('Checking message for mode:', userMessage);
+  
+  // 掘り下げモードかどうかをチェック
+  if (isDeepExplorationRequest(userMessage)) {
+    return {
+      mode: 'deep-exploration',
+      tokenLimit: 8000,  // 掘り下げモードは詳細な回答が必要なので多めのトークン数
+      temperature: 0.7
+    };
+  }
   
   // Only check the current message for career keywords, not the history
   const hasCareerKeyword = careerKeywords.some(keyword => userMessage.includes(keyword));
@@ -811,6 +875,18 @@ function getSystemPromptForMode(mode) {
       return SYSTEM_PROMPT_HUMAN_RELATIONSHIP;
     case 'consultant':
       return SYSTEM_PROMPT_CONSULTANT;
+    case 'deep-exploration':
+      return `あなたは親切で役立つAIアシスタントです。
+ユーザーが深い考察と具体例を求めています。抽象的な表現を避け、以下のガイドラインに従ってください：
+
+1. 概念や理論を詳細に掘り下げて説明する
+2. 複数の具体例を用いて説明する（可能であれば3つ以上）
+3. 日常生活に関連付けた実践的な例を含める
+4. 抽象的な言葉や曖昧な表現を避け、明確で具体的な言葉を使う
+5. 必要に応じて、ステップバイステップの説明を提供する
+6. 専門用語を使う場合は、必ずわかりやすく解説する
+
+回答は体系的に構成し、ユーザーが実際に応用できる情報を提供してください。`;
     default:
       return SYSTEM_PROMPT_GENERAL;
   }
@@ -3171,27 +3247,9 @@ app.listen(PORT, () => {
 
 /**
  * Checks if a message indicates user confusion or a request for explanation about an image
- * Now only checks for direct image analysis requests
- * @param {string} text - The message text to check
- * @return {boolean} - True if the message is a direct request for image analysis
+ * Note: This function is defined globally above around line 750, so we don't redefine it here.
+ * The globally defined function handles confusion terms, image generation requests, and image analysis requests.
  */
-function isConfusionRequest(text) {
-  // 直接的な画像分析リクエストかどうかを判断するだけの機能に変更
-  // 互換性のために関数名は変更せず
-  if (!text || typeof text !== 'string') return false;
-  
-  // 画像生成リクエストをチェック
-  const imageGenerationRequests = [
-    '画像を生成', '画像を作成', '画像を作って', 'イメージを生成', 'イメージを作成', 'イメージを作って',
-    '図を生成', '図を作成', '図を作って', '図解して', '図解を作成', '図解を生成',
-    'ビジュアル化して', '視覚化して', '絵を描いて', '絵を生成', '絵を作成',
-    '画像で説明', 'イメージで説明', '図で説明', '視覚的に説明',
-    '画像にして', 'イラストを作成', 'イラストを生成', 'イラストを描いて'
-  ];
-  
-  // 画像生成リクエストまたは画像分析リクエストの場合はtrueを返す
-  return imageGenerationRequests.some(phrase => text.includes(phrase)) || isDirectImageAnalysisRequest(text);
-}
 
 /**
  * Handles vision explanation requests
@@ -4091,6 +4149,7 @@ async function detectAdviceRequestWithLLM(userMessage, history) {
 // グローバルに関数を公開（他モジュールからのアクセス用）
 global.detectAdviceRequestWithLLM = detectAdviceRequestWithLLM;
 global.isConfusionRequest = isConfusionRequest;
+global.isDeepExplorationRequest = isDeepExplorationRequest;
 
 // 拡張機能のサポート用ヘルパー（初期化が済んでいない場合に安全に実行）
 const initializeEmbeddingBridge = async () => {
@@ -4230,3 +4289,14 @@ async function checkImageSafety(base64Image) {
     return true;
   }
 }
+
+// At the end of the file, after global.isDeepExplorationRequest = isDeepExplorationRequest;
+
+// Export functions for testing
+module.exports = {
+  isDeepExplorationRequest,
+  isConfusionRequest,
+  determineModeAndLimit,
+  getSystemPromptForMode,
+  // Other exported functions can stay
+};

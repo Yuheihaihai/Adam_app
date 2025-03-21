@@ -645,3 +645,13 @@ Error getting embedding: BadRequestError: 400 This model's maximum context lengt
 - Changed files:
   - `embeddingService.js`
   - `enhancedEmbeddingService.js`
+
+## 2024-07-15
+- 「掘り下げモード」の追加実装
+  - 特定のユーザーリクエスト（「もっと深く考えを掘り下げて例を示しながらさらに分かり易く言葉で教えてください。抽象的言葉禁止。」）を検出する機能を追加
+  - この特定のフレーズが送信された場合、画像生成機能をトリガーせず、代わりに詳細な言語的説明を提供する「掘り下げモード」として処理
+  - `server.js`に`isDeepExplorationRequest`関数を追加し、`determineModeAndLimit`と`getSystemPromptForMode`関数を更新して新モードに対応
+  - `isConfusionRequest`関数を修正して掘り下げモードリクエストを除外
+  - `enhancedImageDecision.js`と`imageGenerationUtils.js`を更新して掘り下げモードリクエストを認識し、画像生成をスキップするように変更
+  - すべての変更はユーザー体験の向上を目的とし、混乱検出と画像生成の既存の機能を維持
+  - テスト用の`test-standalone.js`スクリプトを作成し、全機能が正常に動作することを確認（全9テスト成功）

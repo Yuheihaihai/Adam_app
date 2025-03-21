@@ -4,6 +4,25 @@
 const EnhancedEmbeddingService = require('./enhancedEmbeddingService');
 const crypto = require('crypto');
 
+/**
+ * 掘り下げモードをチェックする関数を取得
+ * @return {Function|null} isDeepExplorationRequest関数またはnull
+ */
+function getIsDeepExplorationRequest() {
+  // グローバルスコープにある場合
+  if (typeof global.isDeepExplorationRequest === 'function') {
+    return global.isDeepExplorationRequest;
+  }
+  
+  // server.jsからインポートできる場合
+  try {
+    return require('./server').isDeepExplorationRequest;
+  } catch (error) {
+    console.warn('Could not import isDeepExplorationRequest from server.js');
+    return null;
+  }
+}
+
 class ImageGenerationUtils {
   constructor() {
     this.embeddingService = null;
@@ -34,6 +53,13 @@ class ImageGenerationUtils {
    */
   async shouldGenerateImage(userMessage, aiResponse) {
     await this.initialize();
+    
+    // 掘り下げモードをチェック - 掘り下げモードの場合は画像生成しない
+    const isDeepExplorationRequest = getIsDeepExplorationRequest();
+    if (isDeepExplorationRequest && isDeepExplorationRequest(userMessage)) {
+      console.log('[DEBUG] Deep exploration mode detected in ImageGenerationUtils - skipping image generation');
+      return false;
+    }
     
     // 短いメッセージや空のメッセージはスキップ
     if (!userMessage || userMessage.length < 10) {

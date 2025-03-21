@@ -48,6 +48,25 @@ function getOriginalIsConfusionRequest() {
 }
 
 /**
+ * 掘り下げモードをチェックする関数を取得
+ * @return {Function|null} isDeepExplorationRequest関数またはnull
+ */
+function getIsDeepExplorationRequest() {
+  // グローバルスコープにある場合
+  if (typeof global.isDeepExplorationRequest === 'function') {
+    return global.isDeepExplorationRequest;
+  }
+  
+  // server.jsからインポートできる場合
+  try {
+    return require('./server').isDeepExplorationRequest;
+  } catch (error) {
+    console.warn('Could not import isDeepExplorationRequest from server.js:', error.message);
+    return null;
+  }
+}
+
+/**
  * 拡張された画像生成判断
  * @param {string} userMessage - ユーザーのメッセージ
  * @param {string} aiResponse - AIの前回の応答（オプション）
@@ -57,6 +76,13 @@ async function enhancedShouldGenerateImage(userMessage, aiResponse = null) {
   // 初期化
   if (!initialized) {
     await initialize();
+  }
+  
+  // 掘り下げモードをチェック
+  const isDeepExplorationRequest = getIsDeepExplorationRequest();
+  if (isDeepExplorationRequest && isDeepExplorationRequest(userMessage)) {
+    console.log('[DEBUG] Deep exploration mode detected - skipping image generation');
+    return false;
   }
   
   // 元のisConfusionRequest関数を取得
