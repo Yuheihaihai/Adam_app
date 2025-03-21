@@ -660,3 +660,10 @@ Error getting embedding: BadRequestError: 400 This model's maximum context lengt
 - Improved error handling in `handleASDUsageInquiry.js` to provide multiple fallback methods for replying to users
 - Added robust response delivery system with multiple layers of fallback in case the primary LINE client method fails
 - Added client response tracking using global.pendingResponses to ensure messages can be delivered even if immediate delivery fails
+
+## 2025-03-22
+- Removed automatic image explanation suggestion feature for confusion detection
+- Modified `isConfusionRequest` function to only detect direct image generation requests
+- Updated General mode system prompt to instruct users to directly request image generation when needed
+- Simplified user experience by removing the "Would you like me to create an image explanation?" prompt and yes/no confirmation flow
+- Maintained existing image generation capability through direct user requests
