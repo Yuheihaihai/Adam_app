@@ -604,3 +604,44 @@ Perplexity APIを活用した新しい検索機能を実装しました。この
 - データ構造の一貫性が確保され、画像生成機能の信頼性が向上
 - オブジェクト形式への統一により、タイムスタンプやソース情報も一緒に管理可能に
 - 互換性のための分岐処理により、古いコードとの互換性も維持
+
+## 2025-03-19: Fixed Token Limit Error in Embedding Service
+
+### Issue:
+When processing large conversation histories, the system would encounter token limit errors when calling the OpenAI embedding API. Specifically, the error was:
+```
+Error getting embedding: BadRequestError: 400 This model's maximum context length is 8192 tokens, however you requested 36545 tokens (36545 in your prompt; 0 for the completion). Please reduce your prompt; or completion length.
+```
+
+### Changes Made:
+1. Added token limit safety measures to `embeddingService.js`:
+   - Added a maximum token limit (8,000 tokens)
+   - Implemented a sophisticated token count estimator that differentiates between Japanese and other characters
+   - Added a safety buffer (70%) to provide extra margin against errors
+   - Added text truncation function to prevent exceeding token limits
+   - Improved error handling for token limit errors with multiple fallback levels
+   - Added triple-fallback retry logic with progressively shorter texts
+
+2. Updated key methods in `embeddingService.js`:
+   - `getEmbedding()`: Now truncates text to fit within token limits
+   - `getTextSimilarity()`: Now supports truncation for both input texts
+   - `semanticSearch()`: Now handles token limits properly
+
+3. Enhanced the `enhancedEmbeddingService.js` file for consistency:
+   - Added a `_sanitizeText()` method to leverage the token limit features from base service
+   - Updated all methods to use sanitized text
+   - Improved error handling with fallback to zero vectors
+   - Added proper truncation throughout the embedding pipeline
+
+### Benefits:
+- Prevents API errors due to token limits
+- Accurately estimates token counts for mixed Japanese/English text
+- Gracefully degrades by truncating inputs when necessary
+- Uses multi-level fallback strategies to ensure service continues
+- Maintains system stability by providing fallback mechanisms
+- Improves error resilience throughout the embedding pipeline
+
+### Code Impact:
+- Changed files:
+  - `embeddingService.js`
+  - `enhancedEmbeddingService.js`

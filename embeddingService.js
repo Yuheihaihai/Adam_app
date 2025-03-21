@@ -14,6 +14,11 @@ class EmbeddingService {
     
     // シンプルなメモリキャッシュ
     this.cache = new Map();
+    
+    // Token limit safety measures
+    this.maxTokenLimit = 8000;              // 余裕を持って8,000トークンまでに制限（APIの上限は8,192）
+    this.avgCharsPerToken = 2.5;            // より保守的な値に調整（日本語では通常1文字で2トークン程度）
+    this.safetyBuffer = 0.7;                // 追加の安全マージン（70%）
   }
 
   /**
@@ -39,6 +44,69 @@ class EmbeddingService {
   }
 
   /**
+   * 文字数からトークン数を粗く見積もる
+   * @param {string} text - 対象テキスト
+   * @returns {number} - 推定トークン数
+   */
+  estimateTokenCount(text) {
+    if (!text) return 0;
+    
+    // 日本語文字とそれ以外を区別して計算
+    let japaneseChars = 0;
+    let otherChars = 0;
+    
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      // ひらがな、カタカナ、漢字の文字コード範囲をチェック
+      if (
+        (char >= '\u3040' && char <= '\u309F') || // ひらがな
+        (char >= '\u30A0' && char <= '\u30FF') || // カタカナ
+        (char >= '\u4E00' && char <= '\u9FFF')    // 漢字
+      ) {
+        japaneseChars++;
+      } else {
+        otherChars++;
+      }
+    }
+    
+    // 日本語は1文字あたり約2トークン、英数字等は4文字あたり約1トークンと見積もる
+    const estimatedTokens = (japaneseChars * 2) + (otherChars / 4);
+    
+    return Math.ceil(estimatedTokens);
+  }
+
+  /**
+   * テキストを最大トークン制限に収まるように切り詰める
+   * @param {string} text - 切り詰めるテキスト
+   * @returns {string} - 切り詰められたテキスト
+   */
+  truncateToTokenLimit(text) {
+    if (!text) return '';
+    
+    // 実際のトークン制限よりさらに安全マージンを設ける
+    const safeTokenLimit = Math.floor(this.maxTokenLimit * this.safetyBuffer);
+    
+    const estimatedTokens = this.estimateTokenCount(text);
+    
+    if (estimatedTokens <= safeTokenLimit) {
+      return text; // トークン制限内なら変更なし
+    }
+    
+    // 制限を超える場合は切り詰め
+    console.warn(`Text exceeds token limit (est. ${estimatedTokens} tokens). Truncating to ~${safeTokenLimit} tokens.`);
+    
+    // 文字数ベースで切り詰め（概算）
+    // 日本語と英数字の比率に基づく切り詰め
+    const ratio = safeTokenLimit / estimatedTokens;
+    const targetLength = Math.floor(text.length * ratio);
+    
+    const truncatedText = text.slice(0, targetLength);
+    
+    console.log(`Truncated from ${text.length} chars to ${truncatedText.length} chars`);
+    return truncatedText;
+  }
+
+  /**
    * テキストのエンベディングを取得
    * @param {string} text - エンベディングに変換するテキスト
    * @returns {Promise<number[]>} エンベディングベクトル
@@ -55,9 +123,15 @@ class EmbeddingService {
       return new Array(this.embeddingDimension).fill(0);
     }
 
-    // キャッシュチェック
-    const cacheKey = `emb_${this.model}_${text}`;
-    if (this.cacheEnabled && this.cache.has(cacheKey)) {
+    // トークン制限を確認し、必要に応じて切り詰め
+    const truncatedText = this.truncateToTokenLimit(text);
+    
+    // テキストが切り詰められた場合はキャッシュを使用しない
+    const wasTextTruncated = truncatedText.length < text.length;
+    
+    // キャッシュチェック (切り詰めがない場合のみ)
+    const cacheKey = `emb_${this.model}_${truncatedText}`;
+    if (this.cacheEnabled && !wasTextTruncated && this.cache.has(cacheKey)) {
       return this.cache.get(cacheKey);
     }
 
@@ -65,14 +139,14 @@ class EmbeddingService {
       // OpenAI APIを呼び出してエンベディングを取得
       const response = await this.client.embeddings.create({
         model: this.model,
-        input: text.trim()
+        input: truncatedText.trim()
       });
 
       // レスポンスからエンベディングを抽出
       const embedding = response.data[0].embedding;
 
-      // キャッシュに保存
-      if (this.cacheEnabled) {
+      // キャッシュに保存 (切り詰めがない場合のみ)
+      if (this.cacheEnabled && !wasTextTruncated) {
         this.cache.set(cacheKey, embedding);
         
         // キャッシュサイズを管理（最大1000アイテム）
@@ -85,7 +159,46 @@ class EmbeddingService {
       return embedding;
     } catch (error) {
       console.error('Error getting embedding:', error);
-      throw error;
+      
+      // トークン制限エラーの場合、さらに厳しく切り詰めて再試行
+      if (error.message && error.message.includes('maximum context length') && truncatedText.length > 100) {
+        console.log('Token limit exceeded even after truncation. Retrying with shorter text...');
+        
+        // より厳しく切り詰め (全体の1/3程度に)
+        const furtherTruncatedText = truncatedText.slice(0, Math.floor(truncatedText.length / 3));
+        
+        try {
+          const retryResponse = await this.client.embeddings.create({
+            model: this.model,
+            input: furtherTruncatedText.trim()
+          });
+          
+          console.log(`Successfully got embedding after further truncation to ${furtherTruncatedText.length} chars`);
+          return retryResponse.data[0].embedding;
+        } catch (retryError) {
+          console.error('Error in retry attempt:', retryError);
+          // 最終手段：非常に短いサンプルだけを使用
+          if (furtherTruncatedText.length > 200) {
+            const finalAttempt = furtherTruncatedText.slice(0, 200);
+            try {
+              const lastResponse = await this.client.embeddings.create({
+                model: this.model,
+                input: finalAttempt.trim()
+              });
+              console.log(`Final attempt succeeded with ${finalAttempt.length} chars`);
+              return lastResponse.data[0].embedding;
+            } catch (finalError) {
+              console.error('All embedding attempts failed:', finalError);
+              return new Array(this.embeddingDimension).fill(0);
+            }
+          }
+          // 失敗した場合はゼロ埋めベクトルを返す
+          return new Array(this.embeddingDimension).fill(0);
+        }
+      }
+      
+      // その他のエラーの場合はゼロ埋めベクトルを返す
+      return new Array(this.embeddingDimension).fill(0);
     }
   }
 
@@ -140,10 +253,14 @@ class EmbeddingService {
    */
   async getTextSimilarity(text1, text2) {
     try {
+      // 入力が大きすぎる場合は切り詰め
+      const truncatedText1 = this.truncateToTokenLimit(text1);
+      const truncatedText2 = this.truncateToTokenLimit(text2);
+      
       // 両方のテキストのエンベディングを取得
       const [embedding1, embedding2] = await Promise.all([
-        this.getEmbedding(text1),
-        this.getEmbedding(text2)
+        this.getEmbedding(truncatedText1),
+        this.getEmbedding(truncatedText2)
       ]);
       
       // 類似度を計算
@@ -167,7 +284,7 @@ class EmbeddingService {
     }
 
     try {
-      // クエリのエンベディングを取得
+      // クエリのエンベディングを取得（トークン制限は getEmbedding 内で適用）
       const queryEmbedding = await this.getEmbedding(query);
       
       // 各ドキュメントのエンベディングを取得し、類似度を計算

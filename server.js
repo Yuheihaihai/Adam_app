@@ -2890,6 +2890,11 @@ ${SHARE_URL}
         return;
       }
       
+      // 会話履歴から直前のアシスタントメッセージを取得
+      const lastAssistantMessage = historyForProcessing && historyForProcessing.length > 0 
+        ? historyForProcessing.filter(item => item.role === 'assistant').pop() 
+        : null;
+      
       // lastAssistantMessageの取得を試みる（未定義の場合は履歴から取得）
       let contentToExplain = null;
       let contentSource = "unknown";

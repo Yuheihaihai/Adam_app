@@ -80,6 +80,30 @@ class EnhancedEmbeddingService {
     global.cleanupIntervalSet = true;
   }
   
+  /**
+   * トークン制限に対応した基本的なサニタイズ
+   * @param {string} text - サニタイズするテキスト
+   * @returns {string} - サニタイズされたテキスト
+   */
+  _sanitizeText(text) {
+    if (!text) return '';
+    
+    // 基本的なサニタイズ（空白の正規化など）
+    let sanitizedText = text.trim();
+    
+    // 初期化確認
+    if (this.embeddingService) {
+      // 基本サービスのトークン制限機能を利用
+      sanitizedText = this.embeddingService.truncateToTokenLimit(sanitizedText);
+    } else if (sanitizedText.length > 32000) {
+      // 基本サービスが利用できない場合の保険
+      console.warn(`Text is very long (${sanitizedText.length} chars). Truncating to 32000 chars as a precaution.`);
+      sanitizedText = sanitizedText.slice(0, 32000);
+    }
+    
+    return sanitizedText;
+  }
+  
   // レート制限付きエンベディング取得
   async getEmbeddingWithRateLimit(text) {
     // 初期化確認
@@ -92,15 +116,23 @@ class EnhancedEmbeddingService {
       return new Array(1536).fill(0);
     }
     
-    // キャッシュチェック
-    const cacheKey = crypto.createHash('md5').update(text).digest('hex');
+    // テキストのサニタイズとトークン制限
+    const sanitizedText = this._sanitizeText(text);
+    
+    // 元のテキストから大幅に短くなった場合はログ出力
+    if (sanitizedText.length < text.length * 0.8) {
+      console.log(`Text was truncated from ${text.length} to ${sanitizedText.length} chars due to token limits`);
+    }
+    
+    // キャッシュチェック（サニタイズ後のテキストでチェック）
+    const cacheKey = crypto.createHash('md5').update(sanitizedText).digest('hex');
     if (global.enhancedEmbeddingCache.has(cacheKey)) {
       return global.enhancedEmbeddingCache.get(cacheKey).embedding;
     }
     
     // バッチ処理のためキューに追加
     return new Promise((resolve, reject) => {
-      this.embeddingQueue.push({ text, cacheKey, resolve, reject });
+      this.embeddingQueue.push({ text: sanitizedText, cacheKey, resolve, reject });
       this._processEmbeddingQueue();
     });
   }
@@ -129,7 +161,11 @@ class EnhancedEmbeddingService {
             const embedding = await this.embeddingService.getEmbedding(item.text);
             return { item, embedding, success: true };
           } catch (error) {
-            return { item, error, success: false };
+            console.warn(`Error getting embedding: ${error.message}`);
+            
+            // エラー時はゼロベクトルを返す（サービス継続性のため）
+            const zeroVector = new Array(1536).fill(0);
+            return { item, embedding: zeroVector, success: true, fallback: true };
           }
         })
       );
@@ -140,7 +176,8 @@ class EnhancedEmbeddingService {
           // キャッシュに保存
           global.enhancedEmbeddingCache.set(result.item.cacheKey, {
             embedding: result.embedding,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            fallback: result.fallback || false
           });
           
           result.item.resolve(result.embedding);
@@ -174,10 +211,14 @@ class EnhancedEmbeddingService {
     }
     
     try {
+      // テキストのサニタイズとトークン制限
+      const sanitizedTextA = this._sanitizeText(textA);
+      const sanitizedTextB = this._sanitizeText(textB);
+      
       // 両方のテキストのエンベディングを取得
       const [embeddingA, embeddingB] = await Promise.all([
-        this.getEmbeddingWithRateLimit(textA),
-        this.getEmbeddingWithRateLimit(textB)
+        this.getEmbeddingWithRateLimit(sanitizedTextA),
+        this.getEmbeddingWithRateLimit(sanitizedTextB)
       ]);
       
       // 類似度を計算
@@ -202,9 +243,12 @@ class EnhancedEmbeddingService {
     }
     
     try {
+      // クエリのサニタイズ
+      const sanitizedQuery = this._sanitizeText(query);
+      
       // キャッシュキー
       const cacheKey = crypto.createHash('md5')
-        .update(`${query}_${documents.length}_${topK}`)
+        .update(`${sanitizedQuery}_${documents.length}_${topK}`)
         .digest('hex');
       
       // キャッシュチェック
@@ -216,7 +260,7 @@ class EnhancedEmbeddingService {
       }
       
       // クエリのエンベディングを取得
-      const queryEmbedding = await this.getEmbeddingWithRateLimit(query);
+      const queryEmbedding = await this.getEmbeddingWithRateLimit(sanitizedQuery);
       
       // 文書をバッチに分割（レート制限対策）
       const BATCH_SIZE = 10;
@@ -225,9 +269,12 @@ class EnhancedEmbeddingService {
       for (let i = 0; i < documents.length; i += BATCH_SIZE) {
         const batch = documents.slice(i, i + BATCH_SIZE);
         
+        // 各文書をサニタイズ
+        const sanitizedBatch = batch.map(doc => this._sanitizeText(doc));
+        
         // 各文書のエンベディングを取得
         const batchEmbeddings = await Promise.all(
-          batch.map(doc => this.getEmbeddingWithRateLimit(doc))
+          sanitizedBatch.map(doc => this.getEmbeddingWithRateLimit(doc))
         );
         
         // 類似度を計算して結果に追加
