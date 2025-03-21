@@ -495,7 +495,10 @@ Xの共有方法を尋ねられた場合は、「もしAdamのことが好きな
 【Adamの使い方-ユーザ向けマニュアル】
 ・お気軽に相談内容や質問をテキストで送信してください。
 ・必要に応じて、送信された画像の内容を解析し、アドバイスに反映します。
-・わからない場合は画像を作って説明できるので、「〇〇（理解できなかったメッセージ）について画像を作って」とお願いしてみてください。イメージ画像を生成します。
+・もし前回の回答が理解できなかった場合は、分かりませんや理解できませんと送ってください。
+・すると、前回の回答について画像による説明を生成しましょうか？
+・『はい』または『いいえ』でお答えいただくよう促すメッセージが届きます。
+・あなたが『はい』と回答された場合、画像付きで詳しい説明を生成してお送りします。
 ・あなたの基本機能は、「適職診断」「特性分析」のほか画像生成や画像解析もできます。
 `;
 
@@ -761,15 +764,20 @@ function isConfusionRequest(text) {
     '画像にして', 'イラストを作成', 'イラストを生成', 'イラストを描いて'
   ];
   
-  // 直接的な画像生成リクエストのみを検出する
-  for (const request of imageGenerationRequests) {
-    if (text.includes(request)) {
-      return true;
-    }
-  }
+  // 一般的な混乱表現をチェック
+  const confusionTerms = [
+    'わからない', '分からない', '理解できない', '意味がわからない', '意味が分からない',
+    'どういう意味', 'どういうこと', 'よくわからない', 'よく分からない',
+    '何が言いたい', 'なにが言いたい', '何を言ってる', 'なにを言ってる',
+    'もう少し', 'もっと', '簡単に', 'かみ砕いて', 'シンプルに', '例を挙げて',
+    '違う方法で', '別の言い方', '言い換えると', '言い換えれば', '詳しく',
+    '混乱', '複雑', '難解', 'むずかしい'
+  ];
   
-  // 混乱表現の検出は行わない (機能を無効化)
-  return false;
+  // 画像生成リクエスト、直接的な画像分析リクエスト、または一般的な混乱表現を含む場合はtrueを返す
+  return imageGenerationRequests.some(phrase => text.includes(phrase)) || 
+         isDirectImageAnalysisRequest(text) ||
+         confusionTerms.some(term => text.includes(term));
 }
 
 function determineModeAndLimit(userMessage) {
@@ -2437,11 +2445,8 @@ async function handleImage(event) {
         text: analysis
       });
       
-      // 分析のサマリーを生成（最初の30文字を抽出）
-      const analysisPreview = analysis.substring(0, 30) + (analysis.length > 30 ? '...' : '');
-      
-      // 会話履歴に画像分析の参照情報のみを記録
-      await storeInteraction(userId, 'assistant', `[画像分析参照] ID:${messageId} - ${analysisPreview}`);
+      // 会話履歴に画像分析を記録
+      await storeInteraction(userId, 'assistant', `[画像分析] ${analysis}`);
       
     } catch (analysisError) {
       console.error('Error in image analysis:', analysisError);
@@ -2824,9 +2829,40 @@ ${SHARE_URL}
     // 画像説明の提案トリガーチェック：isConfusionRequest のみを使用
     let triggerImageExplanation = false;
     
-    // 画像生成機能は無効化されているため、常にLLM処理へ進む
-    console.log(`[DEBUG] 画像生成機能は無効化されています。通常のLLM処理へ進みます。`);
-    triggerImageExplanation = false;
+    // 拡張Embedding機能が利用可能な場合はそちらを使用
+    if (global.enhancedImageDecision) {
+      try {
+        // 前の応答を取得（可能な場合）
+        let previousResponse = null;
+        if (historyForProcessing && historyForProcessing.length > 0) {
+          for (let i = historyForProcessing.length - 1; i >= 0; i--) {
+            if (historyForProcessing[i].role === 'assistant') {
+              previousResponse = historyForProcessing[i].content;
+              break;
+            }
+          }
+        }
+        
+        // 拡張判定を使用
+        const enhancedDecision = await global.enhancedImageDecision.shouldGenerateImage(userMessage, previousResponse);
+        if (enhancedDecision) {
+          console.log(`[DEBUG] Enhanced image generation decision triggered for: "${userMessage}"`);
+          triggerImageExplanation = true;
+        }
+      } catch (error) {
+        console.error('[ERROR] Enhanced image decision failed, falling back to standard method:', error.message);
+        // 従来の方法にフォールバック
+        if (isConfusionRequest(userMessage)) {
+          console.log(`[DEBUG] Fallback: Direct image request detected in message: "${userMessage}"`);
+          triggerImageExplanation = true;
+        }
+      }
+    }
+    // 拡張機能が利用できない場合は従来の方法を使用
+    else if (isConfusionRequest(userMessage)) {
+      console.log(`[DEBUG] Direct image request detected in message: "${userMessage}"`);
+      triggerImageExplanation = true;
+    }
     
     // それ以外のすべてのメッセージはLLMで分析
     if (!triggerImageExplanation) {
@@ -2977,8 +3013,6 @@ ${SHARE_URL}
         await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}, デフォルトテキスト使用`);
       }
       
-      // 以下の提案メッセージと関連するコードを削除
-      /*
       const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
       console.log(`[DEBUG-IMAGE] 画像による説明の提案をユーザーに送信: "${suggestionMessage}"`);
       
@@ -2987,13 +3021,6 @@ ${SHARE_URL}
         type: 'text',
         text: suggestionMessage
       });
-      */
-      
-      // 画像生成提案をスキップし通常のテキスト処理へ進む
-      const skipMessage = "画像生成機能は現在無効化されています。";
-      console.log(`[DEBUG-IMAGE] 画像生成提案をスキップ: ${skipMessage}`);
-      
-      await storeInteraction(userId, 'system', skipMessage);
     }
 
     // 通常のテキスト処理へ進む
@@ -3329,7 +3356,7 @@ async function handleVisionExplanation(event, explanationText) {
         
         // 生成した画像情報を保存 - Store only image reference with concise text
         let storageText = isASDGuide ? "ASD支援機能の視覚的ガイド" : displayText;
-        await storeInteraction(userId, 'assistant', `[生成画像参照] URL:${imageUrl.substring(0, 20)}... - ${storageText.substring(0, 30)}${storageText.length > 30 ? '...' : ''}`);
+        await storeInteraction(userId, 'assistant', `[生成画像] ${storageText}`);
         await storeInteraction(userId, 'system', `[画像生成完了] ${new Date().toISOString()}`);
         
         // Add user to recent image generation tracking with timestamp to prevent ASD guide
@@ -3450,11 +3477,8 @@ async function handleVisionExplanation(event, explanationText) {
       text: analysis
     });
     
-    // 分析のサマリーを生成（最初の30文字を抽出）
-    const analysisPreview = analysis.substring(0, 30) + (analysis.length > 30 ? '...' : '');
-    
     // 会話履歴に画像分析を記録
-    await storeInteraction(userId, 'assistant', `[画像分析参照] ID:${messageId} - ${analysisPreview}`);
+    await storeInteraction(userId, 'assistant', `[画像分析] ${analysis}`);
     
   } catch (error) {
     console.error('Error in handleVisionExplanation:', error);

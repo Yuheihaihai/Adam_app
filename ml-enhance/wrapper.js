@@ -7,7 +7,9 @@
 const localML = require('../localML'); // 既存の機械学習モジュール
 const integration = require('./integration'); // 新しい機械学習モジュール
 const logger = require('./logger');
-const { config } = require('./config');
+// Import the entire config module with both config object and getConfigSummary function
+const configModule = require('./config');
+const { config } = configModule;
 
 // 初期化フラグ
 let initialized = false;
@@ -21,8 +23,8 @@ async function initialize() {
   try {
     logger.info('ML拡張ラッパーの初期化を開始');
     
-    // システム構成の記録
-    logger.info(`ML構成: ${JSON.stringify(config.getConfigSummary())}`);
+    // システム構成の記録 - Use getConfigSummary from the module
+    logger.info(`ML構成: ${JSON.stringify(configModule.getConfigSummary())}`);
     
     // 拡張MLシステムの初期化（メインスイッチがONの場合のみ）
     if (config.enabled) {

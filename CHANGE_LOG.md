@@ -1,5 +1,33 @@
 # Change Log
 
+## 2025-03-21: Deleted Test Files
+
+### Removed all test files from the codebase
+
+#### Changes Made:
+- Deleted the following test files:
+  - `functional-test.js`
+  - `test-integration.js`
+  - `test-image-functions.js`
+  - `test-standalone.js`
+  - `test-deep-exploration-mode.js`
+  - `test-confusion-detection.js`
+  - `test-embedding-limits.js`
+  - `local-test.js`
+  - `testEnhancedFeatures.js`
+  - `test-intent-learning.js`
+  - `test-intent-detection.js`
+  - `test-claude.js`
+  - `test-fallback.js`
+  - `testStore.js`
+  - `test_import.js`
+  - `test_recommendations_table.js`
+  - `scripts/test-db-integration.js`
+  - `scripts/test-fetch-messages.js`
+
+#### Reason for Change:
+Removed all test files from the codebase as per request, to clean up the project structure and remove unnecessary files that are no longer needed.
+
 ## 2025-03-18: lastAssistantMessage参照エラーの修正
 
 ### 画像生成処理での変数未定義エラーの修正
@@ -667,3 +695,18 @@ Error getting embedding: BadRequestError: 400 This model's maximum context lengt
 - Updated General mode system prompt to instruct users to directly request image generation when needed
 - Simplified user experience by removing the "Would you like me to create an image explanation?" prompt and yes/no confirmation flow
 - Maintained existing image generation capability through direct user requests
+
+## 2024-03-21
+- 機能テストスクリプトを作成し、アプリケーションの全機能の動作確認を実施
+  - General モードチャット機能の検証
+  - Career モードチャット機能の検証
+  - Deep Exploration モード機能の検証
+  - Embedding API 機能の検証
+  - 機能のオン/オフ切り替え機能の検証
+  - すべての機能が問題なく動作することを確認
+
+## 2024-03-20
+- ML拡張ラッパーモジュールのバグを修正 (wrapper.js)
+  - config.getConfigSummary is not a function エラーを解決
+  - ML機能の正常動作を確認するテストを実施
+  - すべてのML機能が問題なく動作することを確認
