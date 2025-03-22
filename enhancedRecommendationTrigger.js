@@ -18,13 +18,18 @@ class EnhancedRecommendationTrigger {
       }) : null;
     
     // Model to use
-    this.modelName = "gpt-4o-mini";
-    this.fallbackModel = "gpt-3.5-turbo"; // Fallback model if primary not available
+    this.modelName = "gpt-4o";
+    this.fallbackModel = "gpt-4o-mini"; // Fallback model if primary not available
     
     // Cache for LLM decisions to avoid redundant API calls
     this.decisionCache = new Map();
     this.cacheTTL = 60 * 60 * 1000; // 60 minutes - recommendations can be cached longer
     this.MAX_CACHE_SIZE = 1000;      // Maximum cache entries
+    
+    // レート制限の追加
+    this.requestCounter = 0;
+    this.requestLimit = 20; // 1時間あたりの最大リクエスト数
+    this.requestResetTime = Date.now() + 60 * 60 * 1000; // 1時間後にリセット
     
     // Set up cache cleanup interval
     this.cleanupInterval = setInterval(() => this._cleanupCache(), 15 * 60 * 1000); // Clean every 15 minutes
@@ -33,6 +38,7 @@ class EnhancedRecommendationTrigger {
     this.confidenceThreshold = 0.75;
     
     console.log('Enhanced recommendation trigger system initialized');
+    console.log(`Using model: ${this.modelName} with rate limit: ${this.requestLimit} requests per hour`);
   }
   
   /**
@@ -65,6 +71,31 @@ class EnhancedRecommendationTrigger {
   _safeSubstring(str, maxLength) {
     if (!str) return '';
     return [...str].slice(0, maxLength).join('');
+  }
+  
+  /**
+   * レート制限をチェックし、制限内かどうかを返す
+   * @returns {boolean} - リクエスト可能かどうか
+   * @private
+   */
+  _checkRateLimit() {
+    const now = Date.now();
+    
+    // 時間リセット
+    if (now > this.requestResetTime) {
+      this.requestCounter = 0;
+      this.requestResetTime = now + 60 * 60 * 1000; // 1時間後にリセット
+    }
+    
+    // 制限チェック
+    if (this.requestCounter >= this.requestLimit) {
+      console.log(`Rate limit reached for GPT-4o requests: ${this.requestCounter}/${this.requestLimit}`);
+      return false;
+    }
+    
+    this.requestCounter++;
+    console.log(`GPT-4o request: ${this.requestCounter}/${this.requestLimit}`);
+    return true;
   }
   
   /**
@@ -160,13 +191,25 @@ class EnhancedRecommendationTrigger {
       // Make request with error handling and model fallback
       let response;
       try {
-        response = await this.openai.chat.completions.create({
-          model: this.modelName,
-          messages: messages,
-          max_tokens: 150,
-          temperature: 0.0, // More deterministic for service matching
-          response_format: { type: "json_object" }
-        });
+        // レート制限チェック
+        if (!this._checkRateLimit()) {
+          console.log(`Using fallback model ${this.fallbackModel} due to rate limiting`);
+          response = await this.openai.chat.completions.create({
+            model: this.fallbackModel,
+            messages: messages,
+            max_tokens: 150,
+            temperature: 0.0,
+            response_format: { type: "json_object" }
+          });
+        } else {
+          response = await this.openai.chat.completions.create({
+            model: this.modelName,
+            messages: messages,
+            max_tokens: 150,
+            temperature: 0.0, // More deterministic for service matching
+            response_format: { type: "json_object" }
+          });
+        }
       } catch (modelError) {
         // If primary model not available, try fallback
         if (modelError.message && modelError.message.includes('model') && modelError.message.includes('not found')) {
