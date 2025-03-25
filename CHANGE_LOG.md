@@ -1,5 +1,18 @@
 # Change Log
 
+## 2025-03-22: Updated OpenAI Model to Latest Version
+
+### Changed AI model from gpt-4o to chatgpt-4o-latest
+
+#### Changes Made:
+- Modified `server.js` to update the AI model from 'gpt-4o' to 'chatgpt-4o-latest'
+- Updated the model variable in line 1651: `const model = useGpt4 ? 'chatgpt-4o-latest' : 'chatgpt-4o-latest';`
+- Successfully deployed the change to Heroku
+- Updated application architecture document to note that the application requires chatgpt-4o-latest or GPT 4.5+ series models due to counseling and interpersonal understanding functionality
+
+#### Reason for Change:
+Updated to the latest version of GPT-4o to take advantage of improvements including wider context window (100k tokens vs 30k tokens), better features, and ensured the application always uses the most current version of the model without needing manual updates in the future. This application focuses on counseling and interpersonal understanding, which requires advanced emotion comprehension and expression capabilities that only the latest models can provide.
+
 ## 2025-03-21: Deleted Test Files
 
 ### Removed all test files from the codebase
