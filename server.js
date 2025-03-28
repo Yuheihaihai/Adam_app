@@ -3584,15 +3584,23 @@ async function handleAudio(event) {
   });
   
   const userId = event.source.userId;
-  console.log(`音声メッセージ受信: ${event.message.id} (${userId})`);
+  const messageId = event.message.id;
+  console.log(`音声メッセージ受信: ${messageId} (${userId})`);
 
   try {
     try {
       // 音声ファイルのダウンロード
-      const maxRetries = 3;
+      const audioStream = await client.getMessageContent(messageId);
       let audioContent = null;
       let transcribedText = null;
       let voiceAnalysis = null;
+      
+      // バッファに変換
+      const audioChunks = [];
+      for await (const chunk of audioStream) {
+        audioChunks.push(chunk);
+      }
+      const audioBuffer = Buffer.concat(audioChunks);
       
       // 音声機能（Whisper）利用制限をチェック（音声認識で1リクエストとカウント）
       const limitInfo = await audioHandler.checkVoiceRequestLimit(userId);
@@ -3607,31 +3615,19 @@ async function handleAudio(event) {
       console.log('音声テキスト変換と特性分析開始');
       
       // 音声テキスト変換（Whisper API or Azure）と特性分析を並行して実行
-      const [textResult, analysisResult] = await Promise.all([
-        // 音声テキスト変換
-        audioHandler.getAudioTranscription(event.message.id)
-          .then(transcription => {
-            transcribedText = transcription;
-            console.log(`Whisper音声テキスト変換成功: ${transcribedText.substring(0, 50)}...`);
-            return transcribedText;
-          })
-          .catch(err => {
-            console.error(`音声テキスト変換エラー: ${err.message}`);
-            throw new Error(`音声テキスト変換に失敗しました: ${err.message}`);
-          }),
-        
-        // 音声特性分析（ML拡張機能使用）
-        audioHandler.analyzeVoiceCharacteristics(event.message.id, userId)
-          .then(analysis => {
-            console.log('音声特性分析開始');
-            voiceAnalysis = analysis;
-            return analysis;
-          })
-          .catch(err => {
-            console.error(`音声特性分析エラー: ${err.message}`);
-            return null; // 特性分析はオプションなので、失敗しても処理を続行
-          })
-      ]);
+      const transcriptionResult = await audioHandler.transcribeAudio(audioBuffer, userId, { language: 'ja' });
+      
+      // 利用制限チェック（音声テキスト変換後）
+      if (transcriptionResult.limitExceeded) {
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: transcriptionResult.limitMessage || '音声機能の利用制限に達しています。'
+        });
+        return;
+      }
+      
+      transcribedText = transcriptionResult.text;
+      voiceAnalysis = transcriptionResult.characteristics || {};
       
       // テキストや分析結果が取得できなかった場合
       if (!transcribedText) {
