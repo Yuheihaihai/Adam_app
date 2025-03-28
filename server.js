@@ -3760,3 +3760,46 @@ async function handleAudio(event) {
     }
   }
 }
+
+/**
+ * ユーザー統計情報を更新する関数
+ * @param {string} userId - ユーザーID
+ * @param {string} statType - 統計タイプ（例: 'audio_messages', 'text_messages'）
+ * @param {number} increment - 増加量（デフォルト: 1）
+ */
+function updateUserStats(userId, statType, increment = 1) {
+  try {
+    // 有効なユーザーIDか確認
+    if (!userId || typeof userId !== 'string') {
+      console.error('updateUserStats: 無効なユーザーID', userId);
+      return;
+    }
+
+    // 統計タイプに基づいて適切なinsightsServiceメソッドを呼び出す
+    switch(statType) {
+      case 'text_messages':
+        // テキストメッセージの場合は内容が必要なので、ダミーテキストを使用
+        insightsService.trackTextRequest(userId, "メッセージ統計のみ更新");
+        break;
+      case 'audio_messages':
+      case 'audio_responses':
+        // 音声メッセージはtrackAudioRequestで記録
+        insightsService.trackAudioRequest(userId);
+        break;
+      case 'line_compliant_voice_requests':
+        // LINE準拠の音声リクエストも同様に記録
+        insightsService.trackAudioRequest(userId);
+        break;
+      case 'image_requests':
+        // 画像リクエストの場合
+        insightsService.trackImageRequest(userId, "画像生成統計のみ更新");
+        break;
+      default:
+        console.warn(`updateUserStats: 未知の統計タイプ "${statType}"`);
+    }
+    
+    console.log(`ユーザー統計更新: ${userId}, タイプ: ${statType}, 増加: ${increment}`);
+  } catch (error) {
+    console.error('ユーザー統計更新エラー:', error);
+  }
+}
