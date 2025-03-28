@@ -1,6 +1,14 @@
 # 変更履歴（CHANGELOG）
 
 ## 2025-03-28
+### オブジェクト型処理の強化（サブストリングエラー修正）
+- storeInteraction関数でオブジェクト型レスポンスを適切に文字列に変換するよう修正
+- handleText関数でprocessMessageからのオブジェクトレスポンスを適切に処理するよう修正
+- handleAudio関数でのprocessMessageレスポンス処理を改善
+- audioHandler.jsの音声生成関数でのsubstringエラーを修正
+- 返却されるオブジェクトから適切にテキストを抽出する機能を追加
+
+
 ### オブジェクト型処理の強化
 - processMessage関数内のsubstring呼び出しエラーを修正
 - processWithAI関数内でのオブジェクト型レスポンス処理を強化
