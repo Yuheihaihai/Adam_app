@@ -602,12 +602,9 @@ class AudioHandler {
     // テキストがない場合のチェックを追加
     if (!text) {
       console.error('音声応答生成エラー: テキストが指定されていません');
-      return {
-        buffer: null,
-        filePath: null,
-        text: '',
-        error: '音声テキストが提供されていません'
-      };
+      // デフォルトテキストを設定して処理を続行
+      text = "申し訳ありません、応答テキストの取得に問題が発生しました。もう一度お試しください。";
+      console.log('デフォルトテキストを使用して処理を続行します');
     }
 
     console.log('音声応答生成開始:', text.substring(0, 30) + '...');

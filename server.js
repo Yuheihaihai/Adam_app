@@ -2670,1058 +2670,150 @@ async function handleText(event) {
           replyMessage = `音声設定を更新しました：\n`;
           replyMessage += `・声のタイプ: ${voiceInfo.label}\n`;
           replyMessage += `・話速: ${currentSettings.speed === 0.8 ? 'ゆっくり' : currentSettings.speed === 1.2 ? '速い' : '普通'}\n\n`;
-          replyMessage += `この設定を使って音声メッセージに応答します。確認するには音声メッセージを送ってみてください。`;
-        } else {
-          // 変更できなかった場合、音声設定選択メニューを返信
-          replyMessage = `音声設定の変更リクエストを受け付けました。\n\n`;
-          replyMessage += audioHandler.generateVoiceSelectionMessage();
-        }
-        
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: replyMessage
-        });
-        return;
-      } else if (text.includes("音声") || text.includes("声")) {
-        // 詳細が不明確な音声関連の問い合わせに対して選択肢を提示
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: audioHandler.generateVoiceSelectionMessage()
-        });
-        return;
-      }
-    }
-    
-    // 特殊コマンド：音声特性レポート生成
-    if (text === "音声分析" || text === "音声レポート" || text === "声の分析") {
-      const report = await audioHandler.generateVoiceCharacteristicsReport(userId);
-      await client.replyMessage(event.replyToken, {
-        type: "text",
-        text: report
-      });
-      return;
-    }
-    
-    // 通常の処理を続行
-    // ... 既存の通常メッセージ処理コード ...
-
-    // デバッグ: 初期状態でのpendingImageExplanationsの状態確認
-    console.log(`[DEBUG-IMAGE] Message received for user ${userId}: "${text.substring(0, 20)}${text.length > 20 ? '...' : ''}"`);
-    console.log(`[DEBUG-IMAGE] pendingImageExplanations state: has(${userId})=${pendingImageExplanations.has(userId)}`);
-    
-    // 画像生成リクエストの検出（直接的なリクエスト）
-    if (isConfusionRequest(text)) {
-      console.log(`[DEBUG-IMAGE] Direct image generation request detected: "${text}"`);
-      let contentToExplain = text.replace(/画像を生成|画像を作成|画像を作って|イメージを生成|イメージを作成|イメージを作って|図を生成|図を作成|図を作って|図解して|図解を作成|図解を生成|ビジュアル化して|視覚化して|絵を描いて|絵を生成|絵を作成|画像で説明|イメージで説明|図で説明|視覚的に説明|画像にして|イラストを作成|イラストを生成|イラストを描いて/g, '').trim();
-      return handleVisionExplanation(event, contentToExplain);
-    }
-    
-    // はい/いいえの応答を最初に確認して画像生成を優先処理
-    if (pendingImageExplanations.has(userId)) {
-      const pendingData = pendingImageExplanations.get(userId);
-      // 互換性のため、pendingDataが文字列の場合もオブジェクトの場合も処理できるようにする
-      const isPendingDataObject = typeof pendingData === 'object' && pendingData !== null;
-      
-      // デバッグログを追加
-      if (isPendingDataObject) {
-        console.log(`[DEBUG-IMAGE] Pending data (object): timestamp=${pendingData.timestamp}, age=${Date.now() - pendingData.timestamp}ms, contentLen=${pendingData.content ? pendingData.content.length : 0}`);
-      } else {
-        console.log(`[DEBUG-IMAGE] Pending data (string): length=${pendingData ? pendingData.length : 0}`);
-      }
-      
-      const now = Date.now();
-      // タイムスタンプチェックはオブジェクトの場合のみ
-      if (isPendingDataObject && pendingData.timestamp && (now - pendingData.timestamp > 5 * 60 * 1000)) { // 5分でタイムアウト
-        console.log(`[DEBUG-IMAGE] Pending image request expired for ${userId} - ${Math.round((now - pendingData.timestamp)/1000)}s elapsed (max: 300s)`);
-        pendingImageExplanations.delete(userId);
-        // 通常の処理を続行
-      } else if (text === "はい") {
-        console.log(`[DEBUG-IMAGE] 'はい' detected for user ${userId}, proceeding with image generation`);
-        
-        // pendingDataがオブジェクトか文字列かに応じて処理を分岐
-        let explanationText;
-        if (isPendingDataObject) {
-          console.log(`[DEBUG-IMAGE] pendingData details: timestamp=${new Date(pendingData.timestamp).toISOString()}, contentLength=${pendingData.content ? pendingData.content.length : 0}`);
-          
-          // オブジェクト形式の場合はcontentプロパティから取得
-          if (!pendingData.content) {
-            console.log(`[DEBUG-IMAGE] Error: pendingData.content is ${pendingData.content}`);
-            await client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: "申し訳ありません。画像生成に必要な情報が見つかりませんでした。もう一度お試しください。"
-            });
-            pendingImageExplanations.delete(userId);
-            return;
-          }
-          explanationText = pendingData.content;
-        } else {
-          // 文字列形式の場合はそのまま使用
-          console.log(`[DEBUG-IMAGE] pendingData is string (legacy format): length=${pendingData ? pendingData.length : 0}`);
-          if (!pendingData) {
-            console.log(`[DEBUG-IMAGE] Error: pendingData (string) is ${pendingData}`);
-            await client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: "申し訳ありません。画像生成に必要な情報が見つかりませんでした。もう一度お試しください。"
-            });
-            pendingImageExplanations.delete(userId);
-            return;
-          }
-          explanationText = pendingData;
-        }
-        
-        pendingImageExplanations.delete(userId);
-        console.log(`[DEBUG-IMAGE] ユーザーの「はい」が検出されました。画像生成を開始します。内容: "${explanationText.substring(0, 30)}..."`);
-        return handleVisionExplanation(event, explanationText);
-      } else if (text === "いいえ") {
-        console.log(`[DEBUG-IMAGE] 'いいえ' detected for user ${userId}, cancelling image generation`);
-        pendingImageExplanations.delete(userId);
-        console.log(`[DEBUG-IMAGE] ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。`);
-        return client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: "承知しました。引き続きテキストでの回答を行います。"
-        });
-      }
-      // どちらでもない場合は通常の処理を続行
-    }
-    
-    // 特性分析に関連するメッセージかどうかを検出
-    if (text && (
-      text.includes('特性') || 
-      text.includes('分析') || 
-      text.includes('性格') || 
-      text.includes('過去の記録') || 
-      text.includes('履歴')
-    )) {
-      console.log(`\n======= 特性分析リクエスト検出 =======`);
-      console.log(`→ ユーザーID: ${userId}`);
-      console.log(`→ メッセージ: ${text}`);
-      console.log(`======= 特性分析リクエスト検出終了 =======\n`);
-      
-      // 拡張特性分析が含まれている場合は優先的に実行
-      if (text.includes('特性') || text.includes('性格')) {
-        try {
-          // 会話履歴を取得
-          const historyData = await fetchAndAnalyzeHistory(userId);
-          
-          // 拡張特性分析を実行
-          const analysisResult = await enhancedCharacteristics.analyzeUserCharacteristics(userId, historyData);
-          
-          console.log(`特性分析結果取得: source=${analysisResult.source}`);
-          
-          let responseMessage;
-          if (analysisResult.source === 'cache') {
-            responseMessage = '前回の分析結果をもとに回答します。';
-          } else if (analysisResult.source === 'gemini') {
-            responseMessage = 'あなたの会話パターンを新しく分析しました。';
-          } else {
-            responseMessage = '会話履歴から特性分析を行いました。';
-          }
-          
-          // 特性に基づいた共感的な応答を生成
-          const structuredData = analysisResult.structuredData;
-          const empatheticResponse = await enhancedCharacteristics.generateEmpatheticResponse(structuredData, text);
-          
-          if (empatheticResponse) {
-            await client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: responseMessage + '\n\n' + empatheticResponse
-            });
-            
-            // 会話履歴にアシスタントの応答を保存
-            await storeInteraction(userId, 'assistant', responseMessage + '\n\n' + empatheticResponse);
-            return;
-          }
-          
-          // フォールバック: 通常の応答パイプラインを使用
-        } catch (analysisError) {
-          console.error('特性分析エラー:', analysisError);
-          // エラー時も通常のパイプラインで続行
-        }
-      }
-      
-      // 洞察統計リクエストの処理
-      if (text.includes('統計') || 
-          text.includes('利用状況') || 
-          text.includes('insights') || 
-          text.includes('データ') ||
-          text.includes('洞察')) {
-        
-        try {
-          // 洞察レポートを生成
-          const insightsReport = insightsService.generateInsightsReport(userId);
-          
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: insightsReport
-          });
-          
-          // 会話履歴にアシスタントの応答を保存
-          await storeInteraction(userId, 'assistant', insightsReport);
-          return;
-        } catch (insightsError) {
-          console.error('洞察レポート生成エラー:', insightsError);
-          // エラー時も通常のパイプラインで続行
-        }
-      }
-    }
-    
-    // Define feedback patterns for sentiment detection
-    const FEEDBACK_PATTERNS = {
-      positive: ['ありがとう', 'thank', 'thanks', 'good', 'helpful', 'useful', 'great', 'excellent', '助かる', '役に立つ', 'いいね', 'すごい', '素晴らしい'],
-      negative: ['違う', 'wrong', 'bad', 'not helpful', 'useless', 'poor', 'terrible', '役に立たない', '違います', 'だめ', 'ダメ', '違いますよ', '違うよ']
-    };
-    
-    // Check for general help request
-    if (text.toLowerCase() === 'ヘルプ' || 
-        text.toLowerCase() === 'help' || 
-        text.toLowerCase() === 'へるぷ') {
-      // Return the general help message
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: helpSystem.getGeneralHelp()
-      });
-      return;
-    }
-    
-    // Get user preferences to check for recently shown services
-    const preferences = userPreferences.getUserPreferences(userId);
-    
-    // Check if this is a share mode message
-    const { mode, limit } = determineModeAndLimit(text);
-    
-    // シェアモードが判定された場合のLLM確認処理
-    if (mode === 'share') {
-      console.log(`Share mode triggered by determineModeAndLimit, confirming with LLM...`);
-      const history = await fetchUserHistory(userId, 10);
-      const isHighEngagement = await checkHighEngagement(text, history);
-      
-      if (isHighEngagement) {
-        console.log(`High engagement confirmed by LLM, sending sharing URL to user ${userId}`);
-        // Send sharing message with Twitter URL
-        await storeInteraction(userId, 'user', text);
-        const shareMessage = `お褒めの言葉をいただき、ありがとうございます！😊
-
-Adamをお役立ていただけているようで、開発チーム一同とても嬉しく思います。もしよろしければ、下記のリンクからX(Twitter)でシェアしていただけると、より多くの方にAIカウンセラー「Adam」を知っていただけます。
-
-${SHARE_URL}
-
-通常の会話に戻る場合は、そのまま質問や相談を続けていただければと思います。`;
-
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: shareMessage
-        });
-        await storeInteraction(userId, 'assistant', shareMessage);
-        return;
-      } else {
-        console.log(`LLM did not confirm high engagement despite keywords, processing as normal message`);
-      }
-    }
-    
-    // Track implicit feedback for recently shown services (continue with original handleText implementation)
-    if (preferences && preferences.recentlyShownServices) {
-      // Get services shown in the last hour
-      const oneHourAgo = Date.now() - 3600000;
-      let recentServices = [];
-      
-      // Collect service IDs shown in the last hour
-      Object.entries(preferences.recentlyShownServices).forEach(([timestamp, services]) => {
-        if (parseInt(timestamp) > oneHourAgo) {
-          recentServices = [...recentServices, ...services];
-        }
-      });
-      
-      // If there are recent services, track implicit feedback
-      if (recentServices.length > 0) {
-        console.log(`Tracking implicit feedback for ${recentServices.length} recently shown services`);
-        const feedbackResult = userPreferences.trackImplicitFeedback(userId, text, recentServices);
-        
-        // If positive feedback was detected and preferences were updated, respond accordingly
-        if (feedbackResult === true) {
-          // Respond with a friendly acknowledgement
-          return client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: 'ありがとうございます！今後も役立つサービスをご紹介します。'
-          });
-        }
-        
-        // Clean up old entries
-        const newRecentlyShownServices = {};
-        Object.entries(preferences.recentlyShownServices).forEach(([timestamp, services]) => {
-          if (parseInt(timestamp) > oneHourAgo) {
-            newRecentlyShownServices[timestamp] = services;
-          }
-        });
-        preferences.recentlyShownServices = newRecentlyShownServices;
-        userPreferences.updateUserPreferences(userId, preferences);
-      }
-    }
-
-    // Check for user preference commands
-    const updatedPreferences = userPreferences.processPreferenceCommand(userId, text);
-    if (updatedPreferences) {
-      let responseMessage = '';
-      
-      // Handle help request
-      if (updatedPreferences.helpRequested) {
-        responseMessage = userPreferences.getHelpMessage();
-      } 
-      // Handle settings check request
-      else if (updatedPreferences.settingsRequested) {
-        responseMessage = userPreferences.getCurrentSettingsMessage(userId);
-      }
-      // Handle preference updates
-      else {
-        // Create a more conversational response based on what was changed
-        if (updatedPreferences.showServiceRecommendations !== undefined) {
-          if (updatedPreferences.showServiceRecommendations) {
-            // Check if this was triggered by positive feedback
-            const lowerMessage = text.toLowerCase();
-            const isPositiveFeedback = FEEDBACK_PATTERNS.positive.some(pattern => lowerMessage.includes(pattern)) && 
-                                      !FEEDBACK_PATTERNS.negative.some(pattern => lowerMessage.includes(pattern));
-            
-            if (isPositiveFeedback) {
-              // Friendly response for positive feedback
-              responseMessage = `ありがとうございます！今後も役立つサービスをご紹介します。`;
-            } else {
-              responseMessage = `サービス表示をオンにしました。お役立ちそうなサービスがあれば、会話の中でご紹介します。`;
-            }
-          } else {
-            // Check if this was triggered by negative feedback
-            const lowerMessage = text.toLowerCase();
-            const isNegativeFeedback = FEEDBACK_PATTERNS.negative.some(pattern => lowerMessage.includes(pattern));
-            
-            if (isNegativeFeedback) {
-              // Minimal response for negative feedback
-              responseMessage = `わかりました。`;
-            } else {
-              responseMessage = `サービス表示をオフにしました。`;
-            }
-          }
-        } else if (updatedPreferences.maxRecommendations !== undefined) {
-          if (updatedPreferences.maxRecommendations === 0) {
-            responseMessage = `サービスを表示しない設定にしました。`;
-          } else {
-            responseMessage = `表示するサービスの数を${updatedPreferences.maxRecommendations}件に設定しました。`;
-          }
-        } else if (updatedPreferences.minConfidenceScore !== undefined) {
-          responseMessage = `信頼度${Math.round(updatedPreferences.minConfidenceScore * 100)}%以上のサービスのみ表示するように設定しました。`;
-        } else {
-          // Fallback to current settings if we can't determine what changed
-          responseMessage = userPreferences.getCurrentSettingsMessage(userId);
-        }
-      }
-      
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: responseMessage
-      });
-      
-      // Store the interaction
-      await storeInteraction(userId, 'user', text);
-      await storeInteraction(userId, 'assistant', responseMessage);
-      
-      return;
-    }
-    
-    // 特定の問い合わせ（ASD支援の質問例や使い方の案内）を検出
-    if (text.includes("ASD症支援であなたが対応できる具体的な質問例") && text.includes("使い方")) {
-      // Check if this user recently received an image generation - if so, skip ASD guide
-      const recentImageTimestamp = recentImageGenerationUsers.get(userId);
-      console.log(`[DEBUG] ASD Guide check - User ${userId} has recentImageTimestamp: ${recentImageTimestamp ? 'YES' : 'NO'}`);
-      if (recentImageTimestamp) {
-        const timeSinceImage = Date.now() - recentImageTimestamp;
-        console.log(`[DEBUG] ASD Guide check - Time since image generation: ${timeSinceImage}ms, Protection threshold: 30000ms`);
-      }
-      
-      if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 30000)) { // 30 seconds protection
-        console.log(`User ${userId} recently received image generation, skipping ASD guide`);
-        recentImageGenerationUsers.delete(userId); // Clean up after use
-        return;
-      }
-      
-      return handleASDUsageInquiry(event);
-    }
-    
-    // Check if image generation is in progress for this user - if so, skip further processing
-    if (imageGenerationInProgress.has(userId)) {
-      console.log(`Image generation in progress for ${userId}, skipping additional message handling`);
-      return;
-    }
-    
-    // pendingImageExplanations のチェック（はい/いいえ 判定）は冒頭で実施済み
-    // 以下の重複するコードを削除
-    /*
-    if (pendingImageExplanations.has(userId)) {
-      const pendingData = pendingImageExplanations.get(userId);
-      const now = Date.now();
-      if (pendingData.timestamp && (now - pendingData.timestamp > 5 * 60 * 1000)) { // 5分でタイムアウト
-        console.log(`[DEBUG-IMAGE] Pending image request expired for ${userId} - ${Math.round((now - pendingData.timestamp)/1000)}s elapsed (max: 300s)`);
-        pendingImageExplanations.delete(userId);
-        // 通常の処理を続行
-      } else if (text === "はい") {
-        console.log(`[DEBUG-IMAGE] 'はい' detected for user ${userId}, proceeding with image generation`);
-        console.log(`[DEBUG-IMAGE] pendingData details: timestamp=${new Date(pendingData.timestamp).toISOString()}, contentLength=${pendingData.content ? pendingData.content.length : 0}`);
-        
-        // contentが存在するか確認
-        if (!pendingData.content) {
-          console.log(`[DEBUG-IMAGE] Error: pendingData.content is ${pendingData.content}`);
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: "申し訳ありません。画像生成に必要な情報が見つかりませんでした。もう一度お試しください。"
-          });
-          pendingImageExplanations.delete(userId);
-          return;
-        }
-        
-        const explanationText = pendingData.content;
-        pendingImageExplanations.delete(userId);
-        console.log(`[DEBUG-IMAGE] ユーザーの「はい」が検出されました。画像生成を開始します。内容: "${explanationText.substring(0, 30)}..."`);
-        return handleVisionExplanation(event, explanationText);
-      } else if (text === "いいえ") {
-        console.log(`[DEBUG-IMAGE] 'いいえ' detected for user ${userId}, cancelling image generation`);
-        pendingImageExplanations.delete(userId);
-        console.log(`[DEBUG-IMAGE] ユーザーの「いいえ」が検出されました。画像生成をキャンセルします。`);
-        return client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: "承知しました。引き続きテキストでの回答を行います。"
-        });
-      }
-    }
-    */
-
-    // Add prevention check for users who just received image generation (prevents ASD guide sending)
-    const recentImageTimestamp = recentImageGenerationUsers.get(userId);
-    if (recentImageTimestamp) {
-      const timeSinceImage = Date.now() - recentImageTimestamp;
-      console.log(`[DEBUG] Recent image check - User ${userId}, time since image: ${timeSinceImage}ms, threshold: 10000ms`);
-    }
-
-    if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 10000)) {
-      console.log("画像生成直後のため、重複応答を防止します。");
-      recentImageGenerationUsers.delete(userId);
-      return;
-    }
-
-    // セキュリティチェック
-    const isSafe = await securityFilterPrompt(text);
-    if (!isSafe) {
-      const refusal = '申し訳ありません。このリクエストには対応できません。';
-      await storeInteraction(userId, 'assistant', refusal);
-      await client.replyMessage(event.replyToken, { type: 'text', text: refusal });
-      return null;
-    }
-
-    // 最近の会話履歴の取得
-    const historyData = await fetchUserHistory(userId, 10);
-    const historyForProcessing = historyData.history || [];
-    const historyMetadata = historyData.metadata || {};
-    const systemPrompt = getSystemPromptForMode(mode);
-
-    // 画像説明の提案トリガーチェック：isConfusionRequest のみを使用
-    let triggerImageExplanation = false;
-    
-    // 画像生成リクエストの検出
-    if (isDirectImageGenerationRequest(text)) {
-      console.log(`[DEBUG] 直接的な画像生成リクエストを検出: "${text}"`);
-      triggerImageExplanation = true;
-    } 
-    // 混乱検出による画像生成提案
-    else if (isConfusionRequest(text)) {
-      console.log(`[DEBUG] 混乱リクエストを検出、画像生成を検討します: "${text}"`);
-      triggerImageExplanation = true;
-    }
-    
-    // それ以外のすべてのメッセージはLLMで分析
-    if (!triggerImageExplanation) {
-      try {
-        console.log(`[DEBUG] Analyzing if user understands AI response: "${text}"`);
-        
-        // 直前のAI回答を取得する
-        // 会話履歴から直前のアシスタントメッセージを取得
-        const lastAssistantMessage = historyForProcessing && historyForProcessing.length > 0 
-          ? historyForProcessing.filter(item => item.role === 'assistant').pop() 
-          : null;
-        
-        // lastAssistantMessageが未定義の場合、会話履歴から取得を試みる
-        let previousAIResponse = null;
-        
-        if (lastAssistantMessage && lastAssistantMessage.content) {
-          previousAIResponse = lastAssistantMessage.content;
-          console.log(`[DEBUG-IMAGE] Using cached lastAssistantMessage: "${previousAIResponse.substring(0, 30)}..."`);
-        } else if (historyForProcessing && historyForProcessing.length > 0) {
-          // 会話履歴から最新のアシスタントメッセージを検索
-          for (let i = historyForProcessing.length - 1; i >= 0; i--) {
-            if (historyForProcessing[i].role === 'assistant') {
-              previousAIResponse = historyForProcessing[i].content;
-              console.log(`[DEBUG-IMAGE] Found assistant message in history: "${previousAIResponse.substring(0, 30)}..."`);
-              break;
-            }
-          }
-        }
-        
-        // 直前のAI回答がない場合はスキップ
-        if (!previousAIResponse) {
-          console.log(`[DEBUG-IMAGE] No previous AI response found in cache or history, skipping confusion detection`);
-        } else {
-          // OpenAI APIを使用して混乱度を判定
-          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-          
-          const systemPrompt = `あなたはユーザーとAIの会話を分析し、ユーザーがAIの発言を理解できているかどうかを判断する専門家です。
-
-あなたの任務は、「ユーザーがAIの直前の回答を理解していないかどうか」を判断することです。
-ユーザーの発言から、AIの回答に対する混乱や理解困難が示されていると判断できる場合は、その確度（0〜100%）を評価してください。
-
-確度が95%以上の場合のみ「CONFUSED:95」と回答し、それ以外は「NOT_CONFUSED」と回答してください。
-
-判断の際は、以下のポイントに注意してください：
-1. ユーザーの発言がAIの回答内容に関連しているか
-2. ユーザーが「わからない」「理解できない」などの表現を使っているか
-3. ユーザーが説明の簡略化や別の言い方を求めているか
-4. ユーザーの質問がAIの回答内容を正しく理解していないことを示しているか
-
-「億劫」などの表現は通常、混乱ではなく単に気が進まないという意味なので混乱とは判断しないでください。
-純粋に会話を継続する意図の発言は混乱とみなさないでください。
-
-回答は「CONFUSED:95」または「NOT_CONFUSED」の形式のみで返してください。`;
-
-          // メッセージ配列を作成
-          const messages = [
-            { role: "system", content: systemPrompt },
-            { role: "system", content: `直前のAIの回答: "${previousAIResponse.substring(0, 500)}${previousAIResponse.length > 500 ? '...' : ''}"` },
-            { role: "user", content: text }
-          ];
-          
-          const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: messages,
-            max_tokens: 10,
-            temperature: 0.0
-          });
-          
-          const content = response.choices[0].message.content.trim();
-          console.log(`[DEBUG] LLM understanding analysis result: ${content}`);
-          
-          if (content.startsWith('CONFUSED:')) {
-            const confidenceParts = content.split(':');
-            if (confidenceParts.length > 1) {
-              const confidence = parseFloat(confidenceParts[1]);
-              if (confidence >= 95) {
-                console.log(`[DEBUG] LLM determined user doesn't understand AI response with high confidence (${confidence}%)`);
-                triggerImageExplanation = true;
-              } else {
-                console.log(`[DEBUG] LLM detected some confusion but confidence too low (${confidence}%)`);
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error(`[DEBUG] Error in LLM understanding analysis: ${error.message}`);
-      }
-    }
-
-    if (triggerImageExplanation) {
-      console.log(`[DEBUG-IMAGE] Image explanation triggered for user ${userId}`);
-      
-      // Check if this user recently received an image generation - if so, skip image generation prompt
-      const recentImageTimestamp = recentImageGenerationUsers.get(userId);
-      if (recentImageTimestamp) {
-        console.log(`[DEBUG-IMAGE] User ${userId} has recent image timestamp: ${recentImageTimestamp}, now: ${Date.now()}, diff: ${Date.now() - recentImageTimestamp}ms`);
-      }
-      
-      if (recentImageTimestamp && (Date.now() - recentImageTimestamp < 30000)) { // 30 seconds protection
-        console.log(`[DEBUG-IMAGE] User ${userId} recently received image generation, skipping image explanation offer`);
-        recentImageGenerationUsers.delete(userId); // Clean up after use
-        return;
-      }
-      
-      // 会話履歴から直前のアシスタントメッセージを取得
-      const lastAssistantMessage = historyForProcessing && historyForProcessing.length > 0 
-        ? historyForProcessing.filter(item => item.role === 'assistant').pop() 
-        : null;
-      
-      // lastAssistantMessageの取得を試みる（未定義の場合は履歴から取得）
-      let contentToExplain = null;
-      let contentSource = "unknown";
-      
-      if (lastAssistantMessage && lastAssistantMessage.content) {
-        contentToExplain = lastAssistantMessage.content;
-        contentSource = "cached";
-        console.log(`[DEBUG-IMAGE] Using cached lastAssistantMessage for explanation: "${contentToExplain.substring(0, 30)}..."`);
-      } else if (historyForProcessing && historyForProcessing.length > 0) {
-        // 履歴から最新のアシスタントメッセージを検索
-        for (let i = historyForProcessing.length - 1; i >= 0; i--) {
-          if (historyForProcessing[i].role === 'assistant') {
-            contentToExplain = historyForProcessing[i].content;
-            contentSource = "history";
-            console.log(`[DEBUG-IMAGE] Using message from history for explanation: "${contentToExplain.substring(0, 30)}..."`);
-            break;
-          }
-        }
-      }
-      
-      if (contentToExplain) {
-        console.log(`[DEBUG-IMAGE] Setting pendingImageExplanations for user ${userId} with content from ${contentSource}: "${contentToExplain.substring(0, 30)}..."`);
-        // タイムスタンプ付きで保存
-        pendingImageExplanations.set(userId, {
-          content: contentToExplain,
-          timestamp: Date.now(),
-          source: contentSource
-        });
-        // 画像生成提案状態をConversationHistoryに記録
-        await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}, ソース: ${contentSource}`);
-      } else {
-        console.log(`[DEBUG-IMAGE] No content found for explanation, using default message`);
-        pendingImageExplanations.set(userId, {
-          content: "日常会話の基本とコミュニケーションのポイント",
-          timestamp: Date.now(),
-          source: "default"
-        });
-        // 画像生成提案状態をConversationHistoryに記録
-        await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}, デフォルトテキスト使用`);
-      }
-      
-      // 画像生成提案メッセージを送信
-      const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
-      console.log(`[DEBUG-IMAGE] 画像による説明の提案をユーザーに送信: "${suggestionMessage}"`);
-      
-      await storeInteraction(userId, 'assistant', suggestionMessage);
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: suggestionMessage
-      });
-    }
-
-    // 通常のテキスト処理へ進む
-    await storeInteraction(userId, 'user', text);
-
-    const historyForAIProcessing = await fetchUserHistory(userId, limit);
-    // systemPrompt is already defined above
-
-    // アドバイス要求の検出（非同期処理に対応）
-    const adviceRequested = await detectAdviceRequestWithLLM(text, historyForAIProcessing);
-    
-    // 会話履歴取得のデバッグログ
-    console.log(`[会話履歴診断] ユーザー: ${userId}, モード: ${mode}, 取得履歴数: ${historyForAIProcessing.history?.length || 0}件`);
-    
-    // systemPrompt is already defined above
-    
-    // サービス表示の判断
-    const showServices = await shouldShowServicesToday(userId, historyForAIProcessing, text);
-
-    // AIでの処理を実行
-    const result = await processWithAI(systemPrompt, text, historyForAIProcessing, mode, userId, client);
-    
-    // サービス推奨がある場合、それを応答に追加
-    let finalResponse = result.response;
-    
-    // 応答が空の場合のフォールバック（LINE APIの400エラー防止）
-    if (!finalResponse || finalResponse.trim() === '') {
-      console.log(`⚠️ 警告: AIから空の応答を受け取りました。フォールバックメッセージを使用します。`);
-      finalResponse = "申し訳ありません、処理中に問題が発生しました。しばらく経ってからもう一度お試しください。";
-    }
-    
-    const serviceRecommendations = result.recommendations;
-    
-    if (serviceRecommendations && serviceRecommendations.length > 0) {
-      console.log(`Adding ${serviceRecommendations.length} service recommendations to response`);
-      
-      // サービス推奨の表示用カテゴリを決定
-      const category = mode === 'mental_health' ? 'mental_health' : 
-                      mode === 'career' ? 'career' : 'general';
-      
-      // 自然な移行テキストを作成
-      const transitionText = createNaturalTransition(finalResponse, category, false);
-      
-      // サービス情報を構築
-      let serviceText = '';
-      
-      // 最大3つのサービスを表示
-      const displayServices = serviceRecommendations.slice(0, 3);
-      
-      // サービス情報を追加
-      displayServices.forEach((service, index) => {
-        // サービス名の取得
-        let serviceName;
-        let serviceDescription = '';
-        let serviceUrl = '';
-        
-        if (typeof service === 'string') {
-          // サービスIDからサービス情報を取得
-          const serviceInfo = servicesData.find(s => s.id === service);
-          if (serviceInfo) {
-            serviceName = serviceInfo.name;
-            serviceDescription = serviceInfo.description;
-            serviceUrl = serviceInfo.url;
-          } else {
-            serviceName = service;
-          }
-        } else if (service.name) {
-          serviceName = service.name;
-          serviceDescription = service.description || '';
-          serviceUrl = service.url || '';
-        } else if (service.serviceName) {
-          serviceName = service.serviceName;
-          serviceDescription = service.description || '';
-          serviceUrl = service.url || '';
-        } else if (service.id) {
-          // サービスIDからサービス情報を取得
-          const serviceInfo = servicesData.find(s => s.id === service.id);
-          if (serviceInfo) {
-            serviceName = serviceInfo.name;
-            serviceDescription = serviceInfo.description;
-            serviceUrl = serviceInfo.url;
-          } else {
-            serviceName = service.id;
-          }
-        }
-        
-        // サービス情報をテキストに追加
-        serviceText += `${index + 1}. ${serviceName}`;
-        if (serviceUrl) {
-          serviceText += `\n   URL: ${serviceUrl}`;
-        }
-        if (serviceDescription) {
-          // 説明文の切り捨て長さを80から150に拡大し、より自然な切り捨てを実現
-          const maxDescLength = 150;
-          let trimmedDesc = serviceDescription;
-          if (serviceDescription.length > maxDescLength) {
-            // 文の区切りで切る
-            const lastSentenceEnd = serviceDescription.substring(0, maxDescLength).lastIndexOf('。');
-            if (lastSentenceEnd > maxDescLength * 0.7) { // 70%以上の位置にある場合
-              trimmedDesc = serviceDescription.substring(0, lastSentenceEnd + 1) + '...';
-            } else {
-              trimmedDesc = serviceDescription.substring(0, maxDescLength) + '...';
-            }
-          }
-          serviceText += `\n   ${trimmedDesc}`;
-        }
-        serviceText += '\n\n'; // サービス間の区切りを改善
-      });
-      
-      // 最終的な応答を構築
-      finalResponse = `${finalResponse}${transitionText}${serviceText}`;
-      
-      // 推奨されたサービスを記録（将来のユーザーフィードバック追跡のため）
-      const preferences = userPreferences.getUserPreferences(userId);
-      if (preferences) {
-        const timestamp = Date.now().toString();
-        const serviceIds = displayServices.map(service => 
-          typeof service === 'string' ? service : 
-          service.id ? service.id : 
-          service.serviceName ? service.serviceName : '');
-          
-        // 以前の表示済みサービス情報を読み込み
-        preferences.recentlyShownServices = preferences.recentlyShownServices || {};
-        
-        // 新しい表示済みサービス情報を追加
-        preferences.recentlyShownServices[timestamp] = serviceIds;
-        
-        // ユーザー設定を更新
-        userPreferences.updateUserPreferences(userId, preferences);
-      }
-    }
-    
-    // サービス推奨が表示されない理由をユーザーに通知するための関数
-    function getServiceNotificationMessage(userId, showServiceReason) {
-      // 通知メッセージ - 実際のUI表示には使用せず、内部的に記録のみ
-      if (!showServiceReason) {
-        return null; // 理由が指定されていない場合は何も表示しない
-      }
-
-      const userPrefs = userPreferences.getUserPreferences(userId);
-      
-      switch (showServiceReason) {
-        case 'disabled':
-          return '（現在サービス推奨は無効になっています。「サービス表示オン」と入力すると有効になります）';
-        case 'no_request':
-          return '（明示的なアドバイス要求がない場合、サービス推奨は表示されません。「アドバイスください」などと入力すると表示されます）';
-        case 'daily_limit':
-          return '（1日の推奨上限に達しました。明日以降に再度ご利用ください）';
-        case 'cooldown':
-          return '（最近サービスを推奨したため、しばらく表示を控えています。少し時間をおいてから再度お試しください）';
-        default:
-          return null;
-      }
-    }
-
-    // デバッグ情報として表示されない理由を取得
-    // (serviceNotificationReasonの初期化が不足していたため、ここで適切に設定)
-    let serviceNotificationReason = null;
-    
-    // ユーザー設定を取得
-    const userPrefs = userPreferences.getUserPreferences(userId);
-    
-    // サービス表示がオフの場合に理由を設定
-    if (!showServices && userPrefs && !userPrefs.showServiceRecommendations) {
-      serviceNotificationReason = 'disabled';
-    } else if (!showServices && !adviceRequested) {
-      serviceNotificationReason = 'no_request';
-    }
-    
-    // サービス推奨の通知メッセージを取得
-    const notificationMessage = getServiceNotificationMessage(userId, serviceNotificationReason);
-    if (notificationMessage) {
-      console.log('Service notification message (debug only):', notificationMessage);
-      // デバッグモードの場合のみ、AIの応答に追記（本番環境では表示しない）
-      if (process.env.DEBUG_MODE === 'true') {
-        finalResponse += '\n\n' + notificationMessage;
-      }
-    }
-    
-    // LINEのリプライ処理
-    console.log(`Replying to ${event.replyToken} with message: ${finalResponse.substring(0, 50)}...`);
-    
-    // メッセージが空でないことを確認
-    if (!finalResponse || finalResponse.trim() === '') {
-      finalResponse = "申し訳ありません、エラーが発生しました。後でもう一度お試しください。";
-      console.error(`⚠ LINE送信直前に空のメッセージを検出。デフォルトメッセージに置き換えました。`);
-    }
-    
-    try {
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: finalResponse
-      });
-    } catch (replyError) {
-      console.error(`LINE応答送信エラー: ${replyError.message}`);
-      console.error(`応答の長さ: ${finalResponse.length}文字`);
-      
-      // メッセージが長すぎる場合は分割して送信を試みる
-      if (finalResponse.length > 5000) {
-        try {
-          const shortenedResponse = finalResponse.substring(0, 4000) + "\n\n(メッセージが長すぎるため省略されました)";
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: shortenedResponse
-          });
-          console.log(`長いメッセージを短縮して送信しました。`);
-        } catch (fallbackError) {
-          console.error(`短縮メッセージの送信にも失敗: ${fallbackError.message}`);
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error handling text message:', error);
-    return Promise.resolve(null);
-  }
-}
-
-/**
- * 音声メッセージを処理する関数
- * @param {Object} event - LINEのメッセージイベント
- * @returns {Promise}
- */
-async function handleAudio(event) {
-  try {
-    console.log(`音声メッセージを受信しました: ユーザーID = ${event.source.userId}`);
-
-    // 音声メッセージ利用の制限チェック
-    const userId = event.source.userId;
-    const audioLimitCheck = insightsService.trackAudioRequest(userId);
-    
-    if (!audioLimitCheck.allowed) {
-      console.log(`音声メッセージの制限に達しました: ${audioLimitCheck.reason}`);
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: audioLimitCheck.message
-      });
-      return;
-    }
-
-    const messageId = event.message.id;
-    
-    try {
-      console.log(`音声メッセージ受信: ${messageId} (${userId})`);
-      
-      // 音声データをLINEプラットフォームから取得
-      const audioStream = await client.getMessageContent(messageId);
-      
-      // バッファに変換
-      const audioChunks = [];
-      for await (const chunk of audioStream) {
-        audioChunks.push(chunk);
-      }
-      const audioBuffer = Buffer.concat(audioChunks);
-      
-      // 音声をテキストに変換（特性データも一緒に取得）
-      const transcriptionResult = await audioHandler.transcribeAudio(audioBuffer, userId, { language: 'ja' });
-      
-      // 利用制限チェック
-      if (transcriptionResult.limitExceeded) {
-        // 利用制限に達している場合
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: transcriptionResult.limitMessage || '音声機能の利用制限に達しています。'
-        });
-        return;
-      }
-      
-      const transcribedText = transcriptionResult.text;
-      const characteristics = transcriptionResult.characteristics || {};
-      const limitInfo = transcriptionResult.limitInfo || {};
-      
-      if (!transcribedText) {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: '申し訳ありません、音声を認識できませんでした。もう一度お試しいただくか、テキストでお送りください。'
-        });
-        return;
-      }
-      
-      console.log(`音声テキスト変換結果: "${transcribedText}"`);
-      console.log('音声特性:', JSON.stringify(characteristics, null, 2).substring(0, 200) + '...');
-      
-      // 利用状況情報をログ出力
-      if (limitInfo) {
-        console.log(`音声機能利用状況 (${userId}): 本日=${limitInfo.dailyCount}/${limitInfo.dailyLimit}, 全体=${limitInfo.globalCount}/${limitInfo.globalLimit}`);
-      }
-      
-      // 音声設定変更リクエストの検出と処理
-      let voiceChangeRequestDetected = characteristics.isVoiceChangeRequest;
-      let replyMessage;
-      let audioResponse;
-      
-      if (voiceChangeRequestDetected) {
-        // 音声設定変更リクエストを解析
-        const parseResult = await audioHandler.parseVoiceChangeRequest(transcribedText, userId);
-        
-        // LINE Voice Message準拠フラグを設定（統計用）
-        const isLineCompliant = parseResult.lineCompliant || false;
-        
-        if (parseResult.isVoiceChangeRequest && parseResult.confidence > 0.7) {
-          // 明確な設定変更リクエストがあった場合
-          if (parseResult.voiceChanged || parseResult.speedChanged) {
-            // 設定が変更された場合、変更内容を返信
-            const currentSettings = parseResult.currentSettings;
-            const voiceInfo = audioHandler.availableVoices[currentSettings.voice] || { label: currentSettings.voice };
-            
-            replyMessage = `音声設定を更新しました：\n`;
-            replyMessage += `・声のタイプ: ${voiceInfo.label}\n`;
-            replyMessage += `・話速: ${currentSettings.speed === 0.8 ? 'ゆっくり' : currentSettings.speed === 1.2 ? '速い' : '普通'}\n\n`;
-            replyMessage += `新しい設定で応答します。いかがでしょうか？`;
-            
-            // LINE統計記録
-            if (isLineCompliant) {
-              updateUserStats(userId, 'line_compliant_voice_requests', 1);
-            }
-            
-            // 新しい設定で音声応答
-            audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
-          } else {
-            // 変更できなかった場合、音声設定選択メニューを返信
-            replyMessage = `音声設定の変更リクエストを受け付けました。\n\n`;
-            replyMessage += audioHandler.generateVoiceSelectionMessage();
-            
-            // LINE統計記録
-            if (isLineCompliant) {
-              updateUserStats(userId, 'line_compliant_voice_requests', 1);
-            }
-            
-            // デフォルト設定で音声応答
-            audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
-          }
-        } else if (transcribedText.includes("音声") || transcribedText.includes("声")) {
-          // 詳細が不明確な音声関連の問い合わせに対して選択肢を提示
-          replyMessage = audioHandler.generateVoiceSelectionMessage();
+          replyMessage += `新しい設定で応答します。いかがでしょうか？`;
           
           // LINE統計記録
           if (isLineCompliant) {
             updateUserStats(userId, 'line_compliant_voice_requests', 1);
           }
           
+          // replyMessageが空でないことを確認
+          if (!replyMessage) {
+            console.error('警告: 音声設定更新のreplyMessageが空です。デフォルトメッセージを使用します。');
+            replyMessage = "音声設定を更新しました。新しい設定で応答します。いかがでしょうか？";
+          }
+          
+          // 新しい設定で音声応答
           audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
         } else {
-          // 通常の応答処理へフォールバック
-          replyMessage = await processMessage(userId, transcribedText);
+          // 変更できなかった場合、音声設定選択メニューを返信
+          replyMessage = `音声設定の変更リクエストを受け付けました。\n\n`;
+          replyMessage += audioHandler.generateVoiceSelectionMessage();
+          
+          // LINE統計記録
+          if (isLineCompliant) {
+            updateUserStats(userId, 'line_compliant_voice_requests', 1);
+          }
+          
+          // replyMessageが空でないことを確認
+          if (!replyMessage) {
+            console.error('警告: 音声設定選択のreplyMessageが空です。デフォルトメッセージを使用します。');
+            replyMessage = "音声設定の変更リクエストを受け付けました。設定を選択してください。";
+          }
+          
+          // デフォルト設定で音声応答
           audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
         }
+      } else if (transcribedText.includes("音声") || transcribedText.includes("声")) {
+        // 詳細が不明確な音声関連の問い合わせに対して選択肢を提示
+        replyMessage = audioHandler.generateVoiceSelectionMessage();
+        
+        // LINE統計記録
+        if (isLineCompliant) {
+          updateUserStats(userId, 'line_compliant_voice_requests', 1);
+        }
+        
+        // replyMessageが空でないことを確認
+        if (!replyMessage) {
+          console.error('警告: 音声選択のreplyMessageが空です。デフォルトメッセージを使用します。');
+          replyMessage = "音声設定を選択してください。";
+        }
+        
+        audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
       } else {
-        // 通常のメッセージ処理
+        // 通常の応答処理へフォールバック
         replyMessage = await processMessage(userId, transcribedText);
+        
+        // replyMessageが空の場合のチェックを追加
+        if (!replyMessage) {
+          console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
+          replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
+        }
         
         // ユーザー設定を反映した音声応答生成
         const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
         audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
       }
+    } else {
+      // 通常のメッセージ処理
+      replyMessage = await processMessage(userId, transcribedText);
       
-      // 利用制限チェック（音声応答生成後）
-      if (audioResponse && audioResponse.limitExceeded) {
-        // 制限に達している場合はテキストのみを返信し、制限メッセージを追加
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: replyMessage + '\n\n' + audioResponse.limitMessage
-        });
-        return;
+      // replyMessageが空の場合のチェックを追加
+      if (!replyMessage) {
+        console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
+        replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
       }
       
-      if (!audioResponse || !audioResponse.buffer) {
-        // 音声生成に失敗した場合はテキストのみ返信
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: replyMessage
-        });
-        return;
-      }
-      
-      // 正しいURLを構築（audioResponse.filePathがnullの場合に対応）
-      let audioUrl = '';
-      try {
-        if (audioResponse.filePath) {
-          const fileBaseName = path.basename(audioResponse.filePath);
-          audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
-        } else {
-          throw new Error('音声ファイルパスが見つかりません');
-        }
-      } catch (error) {
-        console.error('音声URL生成エラー:', error.message);
-        // 音声なしでテキストのみ返信
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: replyMessage
-        });
-        return;
-      }
-      
-      // テキストと音声の両方を返信
-      await client.replyMessage(event.replyToken, [
-        {
-          type: 'text',
-          text: replyMessage
-        },
-        {
-          type: 'audio',
-          originalContentUrl: audioUrl,
-          duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
-        }
-      ]);
-      
-      // 音声使用状況の追加メッセージ（毎回は表示せず、特定の閾値に達した場合のみ）
-      if (limitInfo && limitInfo.dailyCount >= Math.floor(limitInfo.dailyLimit * 0.7)) {
-        // 残り回数が少なくなった場合（例: 70%以上使用）に警告を送信
-        const usageMessage = audioHandler.generateUsageLimitMessage(limitInfo);
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: usageMessage
-        });
-      }
-      
-      // 統計データ更新
-      updateUserStats(userId, 'audio_messages', 1);
-      updateUserStats(userId, 'audio_responses', 1);
-      
-    } catch (error) {
-      console.error('音声メッセージ処理エラー:', error);
-      
-      try {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: '申し訳ありません、音声処理中にエラーが発生しました。もう一度お試しいただくか、テキストでメッセージをお送りください。'
-        });
-      } catch (replyError) {
-        console.error('エラー応答送信エラー:', replyError);
-      }
+      // ユーザー設定を反映した音声応答生成
+      const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
+      audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
     }
+    
+    // 利用制限チェック（音声応答生成後）
+    if (audioResponse && audioResponse.limitExceeded) {
+      // 制限に達している場合はテキストのみを返信し、制限メッセージを追加
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: replyMessage + '\n\n' + audioResponse.limitMessage
+      });
+      return;
+    }
+    
+    if (!audioResponse || !audioResponse.buffer) {
+      // 音声生成に失敗した場合はテキストのみ返信
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: replyMessage
+      });
+      return;
+    }
+    
+    // 正しいURLを構築（audioResponse.filePathがnullの場合に対応）
+    let audioUrl = '';
+    try {
+      if (audioResponse.filePath) {
+        const fileBaseName = path.basename(audioResponse.filePath);
+        audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
+      } else {
+        throw new Error('音声ファイルパスが見つかりません');
+      }
+    } catch (error) {
+      console.error('音声URL生成エラー:', error.message);
+      // 音声なしでテキストのみ返信
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: replyMessage
+      });
+      return;
+    }
+    
+    // テキストと音声の両方を返信
+    await client.replyMessage(event.replyToken, [
+      {
+        type: 'text',
+        text: replyMessage
+      },
+      {
+        type: 'audio',
+        originalContentUrl: audioUrl,
+        duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
+      }
+    ]);
+    
+    // 音声使用状況の追加メッセージ（毎回は表示せず、特定の閾値に達した場合のみ）
+    if (limitInfo && limitInfo.dailyCount >= Math.floor(limitInfo.dailyLimit * 0.7)) {
+      // 残り回数が少なくなった場合（例: 70%以上使用）に警告を送信
+      const usageMessage = audioHandler.generateUsageLimitMessage(limitInfo);
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: usageMessage
+      });
+    }
+    
+    // 統計データ更新
+    updateUserStats(userId, 'audio_messages', 1);
+    updateUserStats(userId, 'audio_responses', 1);
+    
   } catch (error) {
     console.error('音声メッセージ処理エラー:', error);
     
