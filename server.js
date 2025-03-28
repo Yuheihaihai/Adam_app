@@ -3477,19 +3477,33 @@ async function handleAudio(event) {
     console.log(`音声機能利用状況 (${userId}): 本日=${limitInfo.dailyCount}/${limitInfo.dailyLimit}, 全体=${limitInfo.totalCount}/${limitInfo.totalLimit}`);
     
     // 音声コマンド（設定変更など）かどうかチェック
-    const isVoiceCommand = await audioHandler.isVoiceCommand(transcribedText);
+    const isVoiceCommand = await audioHandler.detectVoiceChangeRequest(transcribedText, userId);
     
     let replyMessage;
     
     if (isVoiceCommand) {
       // 音声コマンド処理
-      const commandResult = await audioHandler.processVoiceCommand(transcribedText, userId);
-      replyMessage = commandResult.text;
+      const parseResult = await audioHandler.parseVoiceChangeRequest(transcribedText, userId);
       
-      // replyMessageが空の場合のチェック
-      if (!replyMessage) {
-        console.error('警告: 音声コマンド処理のreplyMessageが空です。デフォルトメッセージを使用します。');
-        replyMessage = "申し訳ありません、音声コマンドの処理中に問題が発生しました。もう一度お試しください。";
+      if (parseResult.isVoiceChangeRequest && parseResult.confidence > 0.7) {
+        // 明確な設定変更リクエストがあった場合
+        if (parseResult.voiceChanged || parseResult.speedChanged) {
+          // 設定が変更された場合、変更内容を返信
+          const currentSettings = parseResult.currentSettings;
+          const voiceInfo = audioHandler.availableVoices[currentSettings.voice] || { label: currentSettings.voice };
+          
+          replyMessage = `音声設定を更新しました：\n`;
+          replyMessage += `・声のタイプ: ${voiceInfo.label}\n`;
+          replyMessage += `・話速: ${currentSettings.speed === 0.8 ? 'ゆっくり' : currentSettings.speed === 1.2 ? '速い' : '普通'}\n\n`;
+          replyMessage += `次回の音声応答から新しい設定が適用されます。`;
+        } else {
+          // 変更できなかった場合、音声設定選択メニューを返信
+          replyMessage = `音声設定の変更リクエストを受け付けました。\n\n`;
+          replyMessage += audioHandler.generateVoiceSelectionMessage();
+        }
+      } else {
+        // 詳細が不明確な音声関連の問い合わせに対して選択肢を提示
+        replyMessage = audioHandler.generateVoiceSelectionMessage();
       }
       
       // 音声コマンドの場合はテキストで返信
