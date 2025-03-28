@@ -1,0 +1,21 @@
+{
+  "timestamp": 1743125130284,
+  "data": {
+    "communication": {
+      "style": "丁寧で親しみやすい",
+      "expression": "ポジティブな感情表現が多い",
+      "vocabulary": [
+        "プログラミング",
+        "趣味"
+      ]
+    },
+    "thinking": {
+      "approach": "論理的思考",
+      "interests": [
+        "技術",
+        "プログラミング"
+      ],
+      "problem_solving": "自己解決型"
+    }
+  }
+}

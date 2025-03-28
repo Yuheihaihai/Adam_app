@@ -1,0 +1,22 @@
+{
+  "textRequests": 2,
+  "imageRequests": 0,
+  "totalInputLength": 16,
+  "longestInput": 8,
+  "shortestInput": 8,
+  "lastInputPreview": "テストメッセージ",
+  "firstSeen": 1743122761230,
+  "lastSeen": 1743125092478,
+  "recentQueries": [
+    {
+      "type": "text",
+      "content": "テストメッセージ",
+      "timestamp": 1743125092478
+    },
+    {
+      "type": "text",
+      "content": "テストメッセージ",
+      "timestamp": 1743122761230
+    }
+  ]
+}

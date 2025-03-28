@@ -1,0 +1,41 @@
+{
+  "textRequests": 0,
+  "imageRequests": 0,
+  "audioRequests": 5,
+  "audioRequestsToday": 5,
+  "lastAudioRequestDate": 1743139235321,
+  "lastAudioNotificationDate": 1743139235323,
+  "totalInputLength": 0,
+  "longestInput": 0,
+  "shortestInput": null,
+  "lastInputPreview": "",
+  "firstSeen": 1743139235318,
+  "lastSeen": 1743139235321,
+  "recentQueries": [
+    {
+      "type": "audio",
+      "content": "音声メッセージ",
+      "timestamp": 1743139235321
+    },
+    {
+      "type": "audio",
+      "content": "音声メッセージ",
+      "timestamp": 1743139235319
+    },
+    {
+      "type": "audio",
+      "content": "音声メッセージ",
+      "timestamp": 1743139235319
+    },
+    {
+      "type": "audio",
+      "content": "音声メッセージ",
+      "timestamp": 1743139235319
+    },
+    {
+      "type": "audio",
+      "content": "音声メッセージ",
+      "timestamp": 1743139235318
+    }
+  ]
+}

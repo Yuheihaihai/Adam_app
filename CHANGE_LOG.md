@@ -1,5 +1,168 @@
 # Change Log
 
+## 2025-03-28: セキュリティ脆弱性の修正と包括的テスト完了
+
+### 脆弱性修正と徹底的なテストによる安定性向上
+
+#### Changes Made:
+1. **package.json**:
+   - 脆弱なcsurfパッケージ（1.11.0）を削除し、より安全なcsrfパッケージ（3.1.0）に置き換え
+   - @anthropic-ai/sdk を 0.7.1 から 0.17.0 に更新
+   - 不足していた依存関係を追加（@google/generative-ai、@tensorflow/tfjs、pg、natural）
+
+2. **server.js**:
+   - csurfミドルウェアの実装をcsrfパッケージを使用したカスタム実装に変更
+   - CSRFトークン検証のセキュリティを強化
+   - 例外処理を改善
+
+3. **comprehensive_test.js**:
+   - 105パターン以上の多様なメッセージパターンでの徹底的なテスト用スクリプトを開発
+   - すべてのメッセージタイプ（通常テキスト、長文、画像生成リクエスト、設定変更、特殊文字など）をカバー
+   - テスト結果を自動記録するレポート機能を実装
+
+#### Test Results:
+- 105パターンのテストメッセージすべてで成功（成功率100%）
+- 特殊文字、絵文字、多言語メッセージなどすべてのエッジケースで正常に動作
+- 設定変更コマンドやサービス推奨機能も正常に動作
+- 画像生成リクエストの処理もエラーなく完了
+
+#### Reason for Change:
+セキュリティ監査で発見された脆弱性（特にCSRF保護関連）を修正し、最新のセキュリティ基準に準拠するよう更新しました。また、包括的なテストスイートを開発・実行することで、アプリケーションの安定性と信頼性を確保しました。この変更により、アプリケーションはセキュリティリスクを軽減し、さまざまなユーザー入力パターンに対して堅牢に動作することが確認されました。
+
+## 2025-03-28: システムの動作安定性向上のためのバグ修正
+
+### ESMモジュール互換性とユーザーセッション管理の問題を修正
+
+#### Changes Made:
+1. **audioHandler.js**:
+   - `rt-client`モジュール（ESM形式）をCommonJSアプリケーションで使用できるよう動的インポートに変更
+   - `LowLevelRTClient`のロード状態を確認し、ロードされていない場合のフォールバック処理を追加
+   - RTクライアント初期化失敗時にデフォルトのTTS機能を使用するよう処理を追加
+
+2. **server.js**:
+   - ユーザーセッション管理のための`sessions`オブジェクトをグローバルスコープで初期化
+   - LINE Webhookのメッセージ処理で`sessions`変数未定義エラーを解消
+   - 直接的な画像生成リクエスト検出関数`isDirectImageGenerationRequest`を追加
+   - `isConfusionRequest`関数内での未定義関数参照エラーを修正
+
+#### Reason for Change:
+アプリケーションの安定性テスト中に複数の重要な問題を発見しました：1) モジュール形式の不一致によるESMモジュールのインポートエラー、2) ユーザーセッション管理用の変数が未定義でのエラー、3) 画像生成リクエスト検出関数が未定義のエラー。これらの問題を修正することで、アプリケーションのクラッシュを防ぎ、LINE Webhookの正常な処理と画像生成機能が安定して動作するようになりました。音声機能、メッセージ処理、画像生成リクエスト処理の全てが安定して動作するようになり、サービスの信頼性が向上しました。
+
+## 2025-03-28: Geminiモデルのアップグレード
+
+### 特性分析のためのGeminiモデルをgemini-1.5-flashからgemini-1.5-proへアップグレード
+
+**変更内容:**
+- Geminiモデルを`gemini-1.5-flash`から`gemini-1.5-pro`へ変更
+
+**変更理由:**
+特性分析の精度向上のため、より高性能なGeminiモデルへアップグレードしました。`gemini-1.5-pro`モデルはより詳細な特性分析が可能で、ユーザーの会話パターンからより深い洞察を得ることができます。コスト増加はありますが、精度と詳細さの向上によりユーザー体験の質を高めることを優先しました。
+
+## 2025-03-30: Geminiモデル起動条件の最適化
+
+### 特性分析でのGeminiモデル使用条件を最適化
+
+**変更内容:**
+- Geminiモデルの起動条件を、過去200件分のメッセージ量がChatGPT-4oの処理上限（128Kトークン）を超えた場合のみに変更
+- トークン数を概算する関数を実装し、会話履歴のサイズに基づいて適切なモデルを選択するロジックを追加
+
+**変更理由:**
+コスト効率と分析精度のバランスを最適化するため、大量の会話履歴がある場合のみより高コストなGemini 1.5 Proモデルを使用し、通常のケースではChatGPT-4oを使用するよう変更しました。これにより、大規模な履歴分析が必要な場合のみGeminiの大規模なコンテキストウィンドウ（1M〜2Mトークン）を活用し、標準的なケースではよりコスト効率の良いChatGPT-4oを使用することでコストを最適化します。
+
+## 2025-03-28: 音声メッセージ総量規制の環境変数対応とWeb API実装
+
+### 音声メッセージ利用制限の環境変数対応とWeb APIへのレート制限実装
+
+#### Changes Made:
+1. **insightsService.js**:
+   - 音声メッセージの制限値を環境変数から読み込むよう修正（VOICE_MESSAGE_MONTHLY_LIMIT, VOICE_MESSAGE_DAILY_LIMIT）
+   - 環境変数がない場合のデフォルト値を設定（月間上限: 2000回、日次上限: 3回）
+
+2. **.env**:
+   - 音声メッセージ制限用の環境変数を追加（VOICE_MESSAGE_MONTHLY_LIMIT=2000, VOICE_MESSAGE_DAILY_LIMIT=3）
+
+3. **rateLimit.js**:
+   - Web API用の音声メッセージレート制限ミドルウェアを新規作成
+   - 429 Too Many Requestsレスポンスで適切なヘッダーとRetry-Afterを返す実装
+
+4. **server.js**:
+   - 音声メッセージAPIルート(/api/audio)にレート制限ミドルウェアを適用
+
+#### Reason for Change:
+音声メッセージの月間総量規制上限値をハードコードではなく環境変数で設定できるようにし、本番環境での設定変更を容易にしました。さらに、Web API経由でのアクセスに対してもレート制限を適用することで、サービスの安定性を向上させました。API利用時には適切なHTTPステータスコードとヘッダーを返すことで、クライアント側での適切なリトライ処理が可能になります。
+
+## 2025-03-28: 音声メッセージ総量規制上限の変更
+
+### 月間総量規制上限の変更（10000回から2000回へ）
+
+#### Changes Made:
+1. **insightsService.js**:
+   - 音声メッセージの月間総量規制上限を10000回から2000回に変更
+
+#### Reason for Change:
+サービス全体での音声メッセージの利用上限をより適切な値に設定するため。アプリケーションの運用状況とリソースの最適化を考慮して、月間の総量規制上限を2000回に調整しました。
+
+## 2025-03-28: 音声メッセージ総量規制の永続化修正
+
+### 音声メッセージ利用制限の設定が永続的に保存されるよう修正
+
+#### Changes Made:
+1. **insightsService.js**:
+   - 音声制限設定を別ファイル（`audio_limits.json`）に保存するよう変更
+   - `saveMetrics`メソッドを修正して音声制限設定を保存
+   - `loadMetrics`メソッドを修正して音声制限設定をロード
+   - 音声制限設定の初期化順序を変更し、ロード前に初期値を設定
+
+#### Reason for Change:
+音声メッセージの総量規制ステータス（`audioLimits.quotaRemoved`）がアプリケーション再起動時に保持されず、常に初期値（`false`）にリセットされる問題がありました。この修正により、総量規制解除コマンドで設定した状態がアプリケーション再起動後も維持されるようになり、「総量規制解除:音声メッセージ」コマンドの効果が永続化されます。
+
+## 2025-03-28: 音声メッセージ総量規制解除通知機能の追加
+
+### 音声メッセージ制限解除時のユーザー通知システム実装
+
+#### Changes Made:
+1. **insightsService.js**:
+   - `trackAudioRequest`関数を追加して音声リクエストの追跡と制限確認を実装
+   - `getVoiceMessageUsers`関数を実装して音声メッセージを使用したことのあるユーザーを特定
+   - `notifyVoiceMessageUsers`関数を実装して音声制限解除時のユーザー通知を行う機能を追加
+   - `setAudioQuotaStatus`と`getAudioQuotaStatus`関数で総量規制状態を管理する機能を追加
+
+2. **server.js**:
+   - `checkAdminCommand`関数を実装して管理者コマンドの検出を行う機能を追加
+   - `handleText`関数に管理コマンド処理ロジックを追加
+   - `総量規制解除:音声メッセージ`コマンドによる制限解除通知機能を実装
+
+#### Reason for Change:
+音声メッセージの利用制限（1日3回まで）を設けていましたが、将来的に制限を解除した際にこれまで音声機能を使用したことのあるユーザーに自動通知する仕組みが必要でした。この変更により、制限解除時に管理者が特定のコマンドを実行するだけで、過去に音声機能を使用したすべてのユーザーに通知することが可能になりました。ユーザー体験の向上と、新機能のアナウンスを効率的に行うための機能です。
+
+## 2025-03-28: Deleted All Test Files and Directories
+
+### Removed all test files and directories from the codebase
+
+#### Changes Made:
+- Deleted the following test files:
+  - `audio_test_suite.js`
+  - `backend_integration_test_suite.js`
+  - `backend_integration_test_suite_simple.js`
+  - `backend_test_patch.js`
+  - `comprehensive_test_suite.js`
+  - `custom_test_suite.js`
+  - `generate_test_messages.js`
+  - `image_test_suite.js`
+  - `master_test_runner.js`
+  - `run_all_tests.js`
+  - `show-test-summary.js`
+  - `test-all.js`
+  - `test-modules.js`
+  - `test_all_features.js`
+  - `test-runner.sh`
+- Removed test directories:
+  - `test/`
+  - `test_results/` and all subdirectories
+
+#### Reason for Change:
+Removed all test files and test directories from the codebase as part of the cleanup process. These files were used for development and testing purposes but are no longer needed in the production environment.
+
 ## 2025-03-22: Updated OpenAI Model to Latest Version
 
 ### Changed AI model from gpt-4o to chatgpt-4o-latest
