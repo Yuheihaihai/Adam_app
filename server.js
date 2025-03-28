@@ -2338,9 +2338,9 @@ async function processMessage(userId, messageText) {
     
     // 管理者コマンドのチェック
     const adminCommand = checkAdminCommand(sanitizedMessage);
-    if (adminCommand) {
+    if (adminCommand && adminCommand.isCommand) {
       console.log('管理者コマンドを検出しました');
-      return adminCommand;
+      return `管理者コマンドを検出: ${adminCommand.type || 'unknown'}`; // 文字列を返す
     }
     
     // モードと履歴制限を決定
