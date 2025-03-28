@@ -2180,29 +2180,39 @@ ${additionalPromptData.jobTrends.analysis}`;
             
             if (message.content) {
               aiResponse = message.content;
-              console.log(`→ content直接抽出: ${aiResponse.substring(0, 100)}`);
+              // 安全にsubstringを使用するために文字列に変換
+              const contentStr = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
+              console.log(`→ content直接抽出: ${contentStr.substring(0, 100)}`);
             }
           } else if (response.choices[0].text) {
             aiResponse = response.choices[0].text;
-            console.log(`→ text直接抽出: ${aiResponse.substring(0, 100)}`);
+            // 安全にsubstringを使用するために文字列に変換
+            const textStr = typeof response.choices[0].text === 'string' ? response.choices[0].text : JSON.stringify(response.choices[0].text);
+            console.log(`→ text直接抽出: ${textStr.substring(0, 100)}`);
           } else if (response.choices[0].delta && response.choices[0].delta.content) {
             aiResponse = response.choices[0].delta.content;
-            console.log(`→ delta.content抽出: ${aiResponse.substring(0, 100)}`);
+            // 安全にsubstringを使用するために文字列に変換
+            const deltaStr = typeof response.choices[0].delta.content === 'string' ? response.choices[0].delta.content : JSON.stringify(response.choices[0].delta.content);
+            console.log(`→ delta.content抽出: ${deltaStr.substring(0, 100)}`);
           }
         }
         
         // 最終手段：レスポンス自体が直接コンテンツを含む場合
         if (!aiResponse && response.content) {
           aiResponse = response.content;
-          console.log(`→ ルートレベルのcontent抽出: ${aiResponse.substring(0, 100)}`);
+          // 安全にsubstringを使用するために文字列に変換
+          const contentStr = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
+          console.log(`→ ルートレベルのcontent抽出: ${contentStr.substring(0, 100)}`);
         }
       }
       
       // それでも空の場合はデフォルトメッセージを設定（上位関数でのフォールバック用）
       if (!aiResponse || aiResponse.trim() === '') {
         console.log(`→ すべての抽出方法を試行しましたが、有効なコンテンツを見つけられませんでした`);
-          } else {
-        console.log(`→ 代替抽出方法でコンテンツを復旧しました: ${aiResponse.substring(0, 50)}...`);
+      } else {
+        // 安全にsubstringを使用するために文字列に変換
+        const responseStr = typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse);
+        console.log(`→ 代替抽出方法でコンテンツを復旧しました: ${responseStr.substring(0, 50)}...`);
       }
     }
     
@@ -2212,18 +2222,21 @@ ${additionalPromptData.jobTrends.analysis}`;
       // エラーをスローせず、空の応答をそのまま返す（上位関数でフォールバックメッセージが適用される）
     }
     
+    // 安全に文字列として扱えるようにする
+    const logText = typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse);
+    
     // 【新規】AIレスポンスのデバッグログ
     console.log(`\n===== AIレスポンス詳細 =====`);
     console.log(`→ レスポンス取得時間: ${aiResponseTime}ms`);
-    console.log(`→ レスポンス長: ${aiResponse.length}文字`);
-    console.log(`→ レスポンス冒頭: ${aiResponse.substring(0, 100)}...`);
+    console.log(`→ レスポンス長: ${logText.length}文字`);
+    console.log(`→ レスポンス冒頭: ${logText.substring(0, 100)}...`);
     
     // 会話履歴に関する言及をチェック
     const memoryKeywords = ['覚えてい', '記憶', '会話履歴', '過去の記録', '履歴'];
     let containsMemoryRef = false;
     
     for (const keyword of memoryKeywords) {
-      if (aiResponse.includes(keyword)) {
+      if (logText.includes(keyword)) {
         containsMemoryRef = true;
         console.log(`⚠ 警告: AIレスポンスに記憶関連キーワード「${keyword}」が含まれています`);
       }
@@ -2237,7 +2250,7 @@ ${additionalPromptData.jobTrends.analysis}`;
     if (mode === 'memoryTest') {
       const negativeMemoryTerms = ['覚えていません', '記憶していません', '履歴がありません', '情報がありません', '申し訳ありません', '持っていません'];
       for (const term of negativeMemoryTerms) {
-        if (aiResponse.includes(term)) {
+        if (logText.includes(term)) {
           console.log(`⚠⚠⚠ 重大な警告: memoryTestモードなのに「${term}」と回答しています。会話履歴の処理に問題があります。`);
         }
       }
@@ -2246,11 +2259,11 @@ ${additionalPromptData.jobTrends.analysis}`;
     console.log(`===== AIレスポンス詳細終了 =====\n`);
     
     // Check if response contains certain phrases that indicate a problem with history
-    if (aiResponse.includes('過去の記録がない') || 
-        aiResponse.includes('会話履歴がない') ||
-        aiResponse.includes('過去の会話履歴がない') ||
-        aiResponse.includes('履歴の記憶機能は持っていません') ||
-        aiResponse.includes('記憶機能は持っていません')) {
+    if (logText.includes('過去の記録がない') || 
+        logText.includes('会話履歴がない') ||
+        logText.includes('過去の会話履歴がない') ||
+        logText.includes('履歴の記憶機能は持っていません') ||
+        logText.includes('記憶機能は持っていません')) {
       // Log that might help diagnose the problem
       console.log(`\n⚠⚠⚠ 重大な警告: AIが履歴なしと応答しました ⚠⚠⚠`);
       console.log(`→ モード: ${mode}`);
@@ -2356,11 +2369,20 @@ async function processMessage(userId, messageText) {
     
     // AIを使用して応答を生成
     const result = await processWithAI(systemPrompt, sanitizedMessage, historyData, mode, validatedUserId);
-    console.log(`AI応答生成完了: "${result.substring(0, 50)}${result.length > 50 ? '...' : ''}"`);
+    
+    // 結果がオブジェクトかどうかをチェック
+    let responseText = result;
+    if (result && typeof result === 'object' && result.text) {
+      responseText = result.text;
+    }
+    
+    // 安全に文字列として扱えるようにする
+    const textToLog = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
+    console.log(`AI応答生成完了: "${textToLog.substring(0, 50)}${textToLog.length > 50 ? '...' : ''}"`);
     
     // 会話履歴を保存
     await storeInteraction(validatedUserId, 'user', sanitizedMessage);
-    await storeInteraction(validatedUserId, 'assistant', result);
+    await storeInteraction(validatedUserId, 'assistant', responseText);
     
     return result;
   } catch (error) {
@@ -2476,12 +2498,21 @@ async function fetchAndAnalyzeHistory(userId) {
     // 結合したデータを使用して分析を実行
     const response = await generateHistoryResponse(combinedHistory);
     
+    // レスポンスがオブジェクトかどうかをチェック
+    let responseText = response;
+    if (response && typeof response === 'object' && response.text) {
+      responseText = response.text;
+    }
+    
+    // 安全に文字列として扱えるようにする
+    const textToLog = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
+    
     console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
-    console.log(`→ 特性分析レスポンス生成完了: ${response.substring(0, 50)}...`);
+    console.log(`→ 特性分析レスポンス生成完了: ${textToLog.substring(0, 50)}...`);
     console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
     return {
       type: 'text',
-      text: response
+      text: responseText
     };
     
   } catch (error) {
