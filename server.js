@@ -382,6 +382,9 @@ const csrfProtection = (req, res, next) => {
 // 静的ファイルを提供する際に使用（実際のアプリで使用している場合）
 app.use(express.static(path.join(__dirname, 'public')));
 
+// 音声ファイル用のtempディレクトリを静的に提供
+app.use('/temp', express.static(path.join(__dirname, 'temp')));
+
 // APIルートの登録
 const intentRoutes = require('./routes/api/intent');
 app.use('/api/intent', intentRoutes);
