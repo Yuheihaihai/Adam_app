@@ -2326,7 +2326,48 @@ async function processMessage(userId, messageText) {
   if (sanitizedMessage.includes('思い出して') || sanitizedMessage.includes('記憶')) {
     return handleChatRecallWithRetries(validatedUserId, sanitizedMessage);
   }
-  // ... existing message handling code ...
+
+  try {
+    console.log(`メッセージ処理開始: "${sanitizedMessage.substring(0, 50)}${sanitizedMessage.length > 50 ? '...' : ''}"`);
+    
+    // 混乱状態のチェック
+    if (isConfusionRequest(sanitizedMessage)) {
+      console.log('混乱状態の質問を検出しました');
+      return '申し訳ありませんが、質問の意図が明確ではありません。もう少し詳しく教えていただけますか？';
+    }
+    
+    // 管理者コマンドのチェック
+    const adminCommand = checkAdminCommand(sanitizedMessage);
+    if (adminCommand) {
+      console.log('管理者コマンドを検出しました');
+      return adminCommand;
+    }
+    
+    // モードと履歴制限を決定
+    const { mode, limit } = determineModeAndLimit(sanitizedMessage);
+    console.log(`選択されたモード: ${mode}, 履歴制限: ${limit}`);
+    
+    // 履歴データを取得
+    const historyData = await fetchUserHistory(validatedUserId, limit);
+    console.log(`${historyData.length}件の履歴を取得しました`);
+    
+    // 会話内容からシステムプロンプトを決定
+    const systemPrompt = getSystemPromptForMode(mode);
+    
+    // AIを使用して応答を生成
+    const result = await processWithAI(systemPrompt, sanitizedMessage, historyData, mode, validatedUserId);
+    console.log(`AI応答生成完了: "${result.substring(0, 50)}${result.length > 50 ? '...' : ''}"`);
+    
+    // 会話履歴を保存
+    await storeInteraction(validatedUserId, 'user', sanitizedMessage);
+    await storeInteraction(validatedUserId, 'assistant', result);
+    
+    return result;
+  } catch (error) {
+    console.error(`メッセージ処理エラー: ${error.message}`);
+    console.error(error.stack);
+    return '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
+  }
 }
 
 async function handleChatRecallWithRetries(userId, messageText) {
