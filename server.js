@@ -3425,6 +3425,43 @@ async function handleAudio(event) {
   console.log(`音声メッセージ受信: ${messageId} (${userId})`);
 
   try {
+    // APIを起動する前に、まず音声機能の利用制限をチェック
+    const limitInfo = await audioHandler.checkVoiceRequestLimit(userId);
+    if (!limitInfo.allowed) {
+      console.log(`音声メッセージ制限: ユーザー=${userId}, 理由=${limitInfo.reason}`);
+      
+      // 制限理由に応じたメッセージを表示
+      let limitMessage = limitInfo.message;
+      
+      // デイリーリミットかグローバル月間リミットかに応じて詳細情報を追加
+      if (limitInfo.reason === 'user_daily_limit') {
+        // 日次リミットの場合、次回リセット時刻を計算して表示（日本時間の深夜0時）
+        const now = new Date();
+        const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+        const resetTime = tomorrow.getTime() - now.getTime();
+        const resetHours = Math.floor(resetTime / (1000 * 60 * 60));
+        const resetMinutes = Math.floor((resetTime % (1000 * 60 * 60)) / (1000 * 60));
+        
+        limitMessage += `\n\n制限は${resetHours}時間${resetMinutes}分後にリセットされます。`;
+      } else if (limitInfo.reason === 'global_monthly_limit') {
+        // 月間リミットの場合、次月の開始日を表示
+        const now = new Date();
+        const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+        const daysUntilNextMonth = Math.ceil((nextMonth - now) / (1000 * 60 * 60 * 24));
+        
+        limitMessage += `\n\n制限は${daysUntilNextMonth}日後（翌月1日）にリセットされます。`;
+      }
+      
+      // 限界到達メッセージを送信して終了（これ以上の処理は行わない）
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: limitMessage
+      });
+      return;
+    }
+    
+    // ここから先は制限内のユーザーのみ実行される
+    
     // 音声ファイルのダウンロード
     const audioStream = await client.getMessageContent(messageId);
     
@@ -3434,16 +3471,6 @@ async function handleAudio(event) {
       audioChunks.push(chunk);
     }
     const audioBuffer = Buffer.concat(audioChunks);
-    
-    // 音声機能（Whisper）利用制限をチェック（音声認識で1リクエストとカウント）
-    const limitInfo = await audioHandler.checkVoiceRequestLimit(userId);
-    if (!limitInfo.allowed) {
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: limitInfo.message
-      });
-      return;
-    }
     
     console.log('音声テキスト変換と特性分析開始');
     
@@ -3474,7 +3501,7 @@ async function handleAudio(event) {
     console.log(`音声テキスト変換結果: "${transcribedText}"`);
     
     // 利用制限の状況をログ出力
-    console.log(`音声機能利用状況 (${userId}): 本日=${limitInfo.dailyCount}/${limitInfo.dailyLimit}, 全体=${limitInfo.totalCount}/${limitInfo.totalLimit}`);
+    console.log(`音声機能利用状況 (${userId}): 本日=${limitInfo.dailyCount}/${limitInfo.dailyLimit}, 全体=${limitInfo.globalCount}/${limitInfo.globalLimit}`);
     
     // 音声コマンド（設定変更など）かどうかチェック
     const isVoiceCommand = await audioHandler.detectVoiceChangeRequest(transcribedText, userId);

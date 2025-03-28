@@ -103,12 +103,7 @@ class AudioHandler {
       console.log(`音声リクエスト制限: ${userId} - ${limitResult.reason}`);
       return {
         allowed: false,
-        message: limitResult.message,
-        reason: limitResult.reason,
-        dailyCount: limitResult.userDailyCount,
-        dailyLimit: limitResult.userDailyLimit,
-        globalCount: limitResult.globalMonthlyCount,
-        globalLimit: limitResult.globalMonthlyLimit
+        message: limitResult.message
       };
     }
     
@@ -175,15 +170,17 @@ class AudioHandler {
   async transcribeAudio(audioBuffer, userId, options = {}) {
     console.log('音声テキスト変換と特性分析開始');
     
-    // 音声リクエスト制限をチェック
+    // 音声リクエスト制限をチェック - 既にhandleAudio関数でチェック済みのため、ここでは省略可能
+    // しかし、他の場所からこの関数が呼ばれる可能性を考慮して、冗長チェックとして残しておく
     const limitCheck = await this.checkVoiceRequestLimit(userId);
     if (!limitCheck.allowed) {
-      console.log(`音声リクエスト制限により処理中止: ${userId}`);
+      console.log(`音声リクエスト制限により変換処理中止: ${userId} (${limitCheck.reason})`);
       return {
         text: null,
         characteristics: {},
         limitExceeded: true,
-        limitMessage: limitCheck.message
+        limitMessage: limitCheck.message,
+        reason: limitCheck.reason
       };
     }
     
