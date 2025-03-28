@@ -958,8 +958,23 @@ function getSystemPromptForMode(mode) {
 
 async function storeInteraction(userId, role, content) {
   try {
+    // 内容がオブジェクトの場合は文字列に変換
+    let contentToStore = content;
+    if (content && typeof content === 'object') {
+      if (content.response) {
+        // response プロパティがある場合はそれを使用
+        contentToStore = content.response;
+      } else if (content.text) {
+        // text プロパティがある場合はそれを使用
+        contentToStore = content.text;
+      } else {
+        // それ以外の場合は JSON 文字列に変換
+        contentToStore = JSON.stringify(content);
+      }
+    }
+    
     console.log(
-      `Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`
+      `Storing interaction => userId: ${userId}, role: ${role}, content: ${contentToStore}`
     );
     
     // 一意のメッセージIDを生成
@@ -973,7 +988,7 @@ async function storeInteraction(userId, role, content) {
             fields: {
               UserID: userId,
               Role: role,
-              Content: content,
+              Content: contentToStore,
               Timestamp: new Date().toISOString(),
               Mode: 'general', // デフォルトのモードを追加
               MessageType: 'text', // デフォルトのメッセージタイプを追加
@@ -981,7 +996,7 @@ async function storeInteraction(userId, role, content) {
           },
         ]);
         
-        console.log(`会話履歴の保存成功 => ユーザー: ${userId}, タイプ: ${role}, 長さ: ${content.length}文字`);
+        console.log(`会話履歴の保存成功 => ユーザー: ${userId}, タイプ: ${role}, 長さ: ${contentToStore.length}文字`);
         return true;
       } catch (airtableErr) {
         console.error('Error storing to ConversationHistory:', airtableErr);
@@ -996,7 +1011,7 @@ async function storeInteraction(userId, role, content) {
               fields: {
                 UserID: userId,
                 Role: role,
-                Content: content,
+                Content: contentToStore,
                 Timestamp: new Date().toISOString(),
                 // フォールバックテーブルには追加のフィールドは含めない（エラーの原因になる可能性あり）
               },
@@ -2729,14 +2744,15 @@ async function handleText(event) {
     // 音声タイプ変更リクエストの検出と処理
     const isVoiceChangeRequest = await audioHandler.detectVoiceChangeRequest(text, userId);
     
+    let replyMessage;
+    let audioResponse;
+    
     if (isVoiceChangeRequest) {
       // 音声設定変更リクエストを解析
       const parseResult = await audioHandler.parseVoiceChangeRequest(text, userId);
       
       if (parseResult.isVoiceChangeRequest && parseResult.confidence > 0.7) {
         // 明確な設定変更リクエストがあった場合
-        let replyMessage;
-        let audioResponse;
         // LINE Voice Message準拠フラグを設定（統計用）
         const isLineCompliant = parseResult.lineCompliant || false;
         
@@ -2798,10 +2814,29 @@ async function handleText(event) {
           replyMessage = "音声設定を選択してください。";
         }
         
-        let audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
+        audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
       } else {
         // 通常の応答処理へフォールバック
-        replyMessage = await processMessage(userId, text);
+        const processedResult = await processMessage(userId, text);
+        
+        // processMessageの結果が空の場合のチェックを追加
+        if (!processedResult) {
+          console.error('警告: processMessageの結果が空です');
+          replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
+        } else {
+          // processMessageの結果がオブジェクトの場合、テキストを抽出
+          replyMessage = processedResult;
+          if (typeof processedResult === 'object') {
+            if (processedResult.response) {
+              replyMessage = processedResult.response;
+            } else if (processedResult.text) {
+              replyMessage = processedResult.text;
+            } else {
+              console.error('警告: processMessageの結果オブジェクトにtext/responseプロパティがありません');
+              replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
+            }
+          }
+        }
         
         // replyMessageが空の場合のチェックを追加
         if (!replyMessage) {
@@ -2815,7 +2850,26 @@ async function handleText(event) {
       }
     } else {
       // 通常のメッセージ処理
-      replyMessage = await processMessage(userId, text);
+      const processedResult = await processMessage(userId, text);
+      
+      // processMessageの結果が空の場合のチェックを追加
+      if (!processedResult) {
+        console.error('警告: processMessageの結果が空です');
+        replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
+      } else {
+        // processMessageの結果がオブジェクトの場合、テキストを抽出
+        replyMessage = processedResult;
+        if (typeof processedResult === 'object') {
+          if (processedResult.response) {
+            replyMessage = processedResult.response;
+          } else if (processedResult.text) {
+            replyMessage = processedResult.text;
+          } else {
+            console.error('警告: processMessageの結果オブジェクトにtext/responseプロパティがありません');
+            replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
+          }
+        }
+      }
       
       // replyMessageが空の場合のチェックを追加
       if (!replyMessage) {
@@ -3525,167 +3579,124 @@ async function handleVisionExplanation(event, explanationText) {
  * @returns {Promise}
  */
 async function handleAudio(event) {
+  const client = new line.Client({
+    channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  });
+  
+  const userId = event.source.userId;
+  console.log(`音声メッセージ受信: ${event.message.id} (${userId})`);
+
   try {
-    console.log(`音声メッセージを受信しました: ユーザーID = ${event.source.userId}`);
-
-    // 音声メッセージ利用の制限チェック
-    const userId = event.source.userId;
-    const audioLimitCheck = insightsService.trackAudioRequest(userId);
-    
-    if (!audioLimitCheck.allowed) {
-      console.log(`音声メッセージの制限に達しました: ${audioLimitCheck.reason}`);
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: audioLimitCheck.message
-      });
-      return;
-    }
-
-    const messageId = event.message.id;
-    
     try {
-      console.log(`音声メッセージ受信: ${messageId} (${userId})`);
+      // 音声ファイルのダウンロード
+      const maxRetries = 3;
+      let audioContent = null;
+      let transcribedText = null;
+      let voiceAnalysis = null;
       
-      // 音声データをLINEプラットフォームから取得
-      const audioStream = await client.getMessageContent(messageId);
-      
-      // バッファに変換
-      const audioChunks = [];
-      for await (const chunk of audioStream) {
-        audioChunks.push(chunk);
-      }
-      const audioBuffer = Buffer.concat(audioChunks);
-      
-      // 音声をテキストに変換（特性データも一緒に取得）
-      const transcriptionResult = await audioHandler.transcribeAudio(audioBuffer, userId, { language: 'ja' });
-      
-      // 利用制限チェック
-      if (transcriptionResult.limitExceeded) {
-        // 利用制限に達している場合
+      // 音声機能（Whisper）利用制限をチェック（音声認識で1リクエストとカウント）
+      const limitInfo = await audioHandler.checkVoiceRequestLimit(userId);
+      if (!limitInfo.allowed) {
         await client.replyMessage(event.replyToken, {
           type: 'text',
-          text: transcriptionResult.limitMessage || '音声機能の利用制限に達しています。'
+          text: limitInfo.message
         });
         return;
       }
       
-      const transcribedText = transcriptionResult.text;
-      const characteristics = transcriptionResult.characteristics || {};
-      const limitInfo = transcriptionResult.limitInfo || {};
+      console.log('音声テキスト変換と特性分析開始');
       
+      // 音声テキスト変換（Whisper API or Azure）と特性分析を並行して実行
+      const [textResult, analysisResult] = await Promise.all([
+        // 音声テキスト変換
+        audioHandler.getAudioTranscription(event.message.id)
+          .then(transcription => {
+            transcribedText = transcription;
+            console.log(`Whisper音声テキスト変換成功: ${transcribedText.substring(0, 50)}...`);
+            return transcribedText;
+          })
+          .catch(err => {
+            console.error(`音声テキスト変換エラー: ${err.message}`);
+            throw new Error(`音声テキスト変換に失敗しました: ${err.message}`);
+          }),
+        
+        // 音声特性分析（ML拡張機能使用）
+        audioHandler.analyzeVoiceCharacteristics(event.message.id, userId)
+          .then(analysis => {
+            console.log('音声特性分析開始');
+            voiceAnalysis = analysis;
+            return analysis;
+          })
+          .catch(err => {
+            console.error(`音声特性分析エラー: ${err.message}`);
+            return null; // 特性分析はオプションなので、失敗しても処理を続行
+          })
+      ]);
+      
+      // テキストや分析結果が取得できなかった場合
       if (!transcribedText) {
         await client.replyMessage(event.replyToken, {
           type: 'text',
-          text: '申し訳ありません、音声を認識できませんでした。もう一度お試しいただくか、テキストでお送りください。'
+          text: "申し訳ありません、音声からテキストを認識できませんでした。もう一度お試しいただくか、テキストでメッセージをお送りください。"
         });
         return;
       }
       
+      // 音声テキスト変換結果とボイス特性をログ出力
       console.log(`音声テキスト変換結果: "${transcribedText}"`);
-      console.log('音声特性:', JSON.stringify(characteristics, null, 2).substring(0, 200) + '...');
-      
-      // 利用状況情報をログ出力
-      if (limitInfo) {
-        console.log(`音声機能利用状況 (${userId}): 本日=${limitInfo.dailyCount}/${limitInfo.dailyLimit}, 全体=${limitInfo.globalCount}/${limitInfo.globalLimit}`);
+      if (voiceAnalysis) {
+        console.log(`音声特性: ${JSON.stringify(voiceAnalysis, null, 2)}`);
       }
       
-      // 音声設定変更リクエストの検出と処理
-      let voiceChangeRequestDetected = characteristics.isVoiceChangeRequest;
+      // 利用制限の状況をログ出力
+      console.log(`音声機能利用状況 (${userId}): 本日=${limitInfo.dailyCount}/${limitInfo.dailyLimit}, 全体=${limitInfo.totalCount}/${limitInfo.totalLimit}`);
+      
+      // 音声コマンド（設定変更など）かどうかチェック
+      const isVoiceCommand = await audioHandler.isVoiceCommand(transcribedText);
+      
       let replyMessage;
       let audioResponse;
       
-      if (voiceChangeRequestDetected) {
-        // 音声設定変更リクエストを解析
-        const parseResult = await audioHandler.parseVoiceChangeRequest(transcribedText, userId);
+      if (isVoiceCommand) {
+        // 音声コマンド処理
+        const commandResult = await audioHandler.processVoiceCommand(transcribedText, userId);
+        replyMessage = commandResult.text;
         
-        // LINE Voice Message準拠フラグを設定（統計用）
-        const isLineCompliant = parseResult.lineCompliant || false;
-        
-        if (parseResult.isVoiceChangeRequest && parseResult.confidence > 0.7) {
-          // 明確な設定変更リクエストがあった場合
-          if (parseResult.voiceChanged || parseResult.speedChanged) {
-            // 設定が変更された場合、変更内容を返信
-            const currentSettings = parseResult.currentSettings;
-            const voiceInfo = audioHandler.availableVoices[currentSettings.voice] || { label: currentSettings.voice };
-            
-            replyMessage = `音声設定を更新しました：\n`;
-            replyMessage += `・声のタイプ: ${voiceInfo.label}\n`;
-            replyMessage += `・話速: ${currentSettings.speed === 0.8 ? 'ゆっくり' : currentSettings.speed === 1.2 ? '速い' : '普通'}\n\n`;
-            replyMessage += `新しい設定で応答します。いかがでしょうか？`;
-            
-            // LINE統計記録
-            if (isLineCompliant) {
-              updateUserStats(userId, 'line_compliant_voice_requests', 1);
-            }
-            
-            // replyMessageが空でないことを確認
-            if (!replyMessage) {
-              console.error('警告: 音声設定更新のreplyMessageが空です。デフォルトメッセージを使用します。');
-              replyMessage = "音声設定を更新しました。新しい設定で応答します。いかがでしょうか？";
-            }
-            
-            // 新しい設定で音声応答
-            audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
-          } else {
-            // 変更できなかった場合、音声設定選択メニューを返信
-            replyMessage = `音声設定の変更リクエストを受け付けました。\n\n`;
-            replyMessage += audioHandler.generateVoiceSelectionMessage();
-            
-            // LINE統計記録
-            if (isLineCompliant) {
-              updateUserStats(userId, 'line_compliant_voice_requests', 1);
-            }
-            
-            // replyMessageが空でないことを確認
-            if (!replyMessage) {
-              console.error('警告: 音声設定選択のreplyMessageが空です。デフォルトメッセージを使用します。');
-              replyMessage = "音声設定の変更リクエストを受け付けました。設定を選択してください。";
-            }
-            
-            // デフォルト設定で音声応答
-            audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
-          }
-        } else if (transcribedText.includes("音声") || transcribedText.includes("声")) {
-          // 詳細が不明確な音声関連の問い合わせに対して選択肢を提示
-          replyMessage = audioHandler.generateVoiceSelectionMessage();
-          
-          // LINE統計記録
-          if (isLineCompliant) {
-            updateUserStats(userId, 'line_compliant_voice_requests', 1);
-          }
-          
-          // replyMessageが空でないことを確認
-          if (!replyMessage) {
-            console.error('警告: 音声選択のreplyMessageが空です。デフォルトメッセージを使用します。');
-            replyMessage = "音声設定を選択してください。";
-          }
-          
-          audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
-        } else {
-          // 通常の応答処理へフォールバック
-          replyMessage = await processMessage(userId, transcribedText);
-          
-          // replyMessageが空の場合のチェックを追加
-          if (!replyMessage) {
-            console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
-            replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
-          }
-          
-          audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
+        // replyMessageが空の場合のチェック
+        if (!replyMessage) {
+          console.error('警告: 音声コマンド処理のreplyMessageが空です。デフォルトメッセージを使用します。');
+          replyMessage = "申し訳ありません、音声コマンドの処理中に問題が発生しました。もう一度お試しください。";
         }
+        
+        // 音声応答生成
+        audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
       } else {
         // 通常のメッセージ処理
-        replyMessage = await processMessage(userId, transcribedText);
+        let processedResult = await processMessage(userId, transcribedText);
         
-        // replyMessageが空の場合のチェックを追加
-        // processMessageの戻り値がオブジェクトの場合、テキストフィールドを抽出
-        if (replyMessage && typeof replyMessage === "object" && replyMessage.text) {
-          replyMessage = replyMessage.text;
+        // processMessageの結果が空の場合のチェックを追加
+        if (!processedResult) {
+          console.error('警告: processMessageの結果が空です');
+          processedResult = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
         }
+        
+        // processMessageの結果がオブジェクトの場合、テキストを抽出
+        replyMessage = processedResult;
+        if (typeof processedResult === 'object') {
+          if (processedResult.response) {
+            replyMessage = processedResult.response;
+          } else if (processedResult.text) {
+            replyMessage = processedResult.text;
+          } else {
+            console.error('警告: processMessageの結果オブジェクトにtext/responseプロパティがありません');
+            replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
+          }
+        }
+        
         // replyMessageが空の場合のチェックを追加
         if (!replyMessage) {
           console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
-          replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
+          replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。";
         }
         
         // ユーザー設定を反映した音声応答生成
@@ -3790,23 +3801,6 @@ async function handleAudio(event) {
           console.error('テキスト送信エラー:', textError);
         }
       }
-      
-      // 音声使用状況の追加メッセージ（毎回は表示せず、特定の閾値に達した場合のみ）
-      if (limitInfo && limitInfo.dailyCount >= Math.floor(limitInfo.dailyLimit * 0.7)) {
-        // 残り回数が少なくなった場合（例: 70%以上使用）に警告を送信
-        const usageMessage = audioHandler.generateUsageLimitMessage(limitInfo);
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: usageMessage
-        }).catch(error => {
-          console.error('使用状況メッセージ送信エラー:', error.message);
-        });
-      }
-      
-      // 統計データ更新
-      updateUserStats(userId, 'audio_messages', 1);
-      updateUserStats(userId, 'audio_responses', 1);
-      
     } catch (error) {
       console.error('音声メッセージ処理エラー:', error);
       

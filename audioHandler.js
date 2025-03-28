@@ -599,14 +599,30 @@ class AudioHandler {
   
   // テキストからの音声応答処理（Azure GPT-4o Audio対応）
   async generateAudioResponse(text, userId, options = {}) {
-    // テキストがない場合のチェックを追加
+    // テキストがない場合または文字列でない場合のチェックを追加
     if (!text) {
-      console.error('音声応答生成エラー: テキストが指定されていません');
+      console.error(`音声応答生成エラー: テキストが空です。`);
       // デフォルトテキストを設定して処理を続行
-      text = "申し訳ありません、応答テキストの取得に問題が発生しました。もう一度お試しください。";
+      text = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。";
       console.log('デフォルトテキストを使用して処理を続行します');
+    } else if (typeof text !== 'string') {
+      console.error(`音声応答生成エラー: 不正なテキスト形式です。type=${typeof text}, value=${JSON.stringify(text).substring(0, 100)}`);
+      
+      // オブジェクトからテキストを抽出する試み
+      if (text.response) {
+        text = text.response;
+      } else if (text.text) {
+        text = text.text;
+      } else {
+        // デフォルトテキストを設定して処理を続行
+        text = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。";
+      }
+      console.log(`抽出されたテキスト: ${text.substring(0, 50)}...`);
     }
 
+    // 確実に文字列であることを保証
+    text = String(text);
+    
     console.log('音声応答生成開始:', text.substring(0, 30) + '...');
     
     // 音声リクエスト制限をチェック（生成も1リクエストとしてカウント）
@@ -763,6 +779,30 @@ class AudioHandler {
   
   // OpenAI TTSを使用したテキスト音声変換（従来の実装）
   async synthesizeSpeech(text, userId, options = {}) {
+    // テキストがない場合または文字列でない場合のチェックを追加
+    if (!text) {
+      console.error(`OpenAI TTS音声合成エラー: テキストが空です。`);
+      // デフォルトテキストを設定して処理を続行
+      text = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。";
+      console.log('デフォルトテキストを使用して処理を続行します');
+    } else if (typeof text !== 'string') {
+      console.error(`OpenAI TTS音声合成エラー: 不正なテキスト形式です。type=${typeof text}, value=${JSON.stringify(text).substring(0, 100)}`);
+      
+      // オブジェクトからテキストを抽出する試み
+      if (text.response) {
+        text = text.response;
+      } else if (text.text) {
+        text = text.text;
+      } else {
+        // デフォルトテキストを設定して処理を続行
+        text = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。";
+      }
+      console.log(`抽出されたテキスト: ${text.substring(0, 50)}...`);
+    }
+
+    // 確実に文字列であることを保証
+    text = String(text);
+    
     console.log('OpenAI TTS音声合成開始:', text.substring(0, 30) + '...');
     
     // ユーザー設定を取得
