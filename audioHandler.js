@@ -622,10 +622,38 @@ class AudioHandler {
       };
     }
     
-    if (this.useAzure) {
-      return this._generateWithAzureRT(text, userId, options);
-    } else {
-      return this.synthesizeSpeech(text, userId, options);
+    try {
+      let result;
+      if (this.useAzure) {
+        result = await this._generateWithAzureRT(text, userId, options);
+      } else {
+        result = await this.synthesizeSpeech(text, userId, options);
+      }
+      
+      // ファイルが実際に生成されたか確認
+      if (result && result.filePath) {
+        if (!fs.existsSync(result.filePath)) {
+          console.error(`警告: 音声ファイルが生成されていません: ${result.filePath}`);
+          // ファイルが存在しない場合は、バッファからファイルを再作成してみる
+          if (result.buffer) {
+            try {
+              fs.writeFileSync(result.filePath, result.buffer);
+              console.log(`音声ファイルを再作成しました: ${result.filePath}`);
+            } catch (writeError) {
+              console.error(`音声ファイル再作成エラー: ${writeError.message}`);
+            }
+          }
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('音声応答生成エラー:', error.message);
+      return {
+        buffer: null,
+        filePath: null,
+        text: text
+      };
     }
   }
   
@@ -758,7 +786,12 @@ class AudioHandler {
       }
     } catch (error) {
       console.error('OpenAI TTS音声合成エラー:', error.message);
-      return null;
+      // エラー時も何らかの情報を返す
+      return {
+        buffer: null,
+        filePath: null,
+        text: text
+      };
     }
   }
   
@@ -780,6 +813,13 @@ class AudioHandler {
       const tempFilePath = path.join(this.tempDir, `tts_${Date.now()}.mp3`);
       fs.writeFileSync(tempFilePath, buffer);
       
+      // ファイルが実際に保存されたか確認
+      if (!fs.existsSync(tempFilePath)) {
+        console.error(`警告: 音声ファイルが保存されていません: ${tempFilePath}`);
+        // 再試行
+        fs.writeFileSync(tempFilePath, buffer);
+      }
+      
       console.log('OpenAI TTS音声合成成功:', tempFilePath);
       return {
         buffer,
@@ -788,7 +828,12 @@ class AudioHandler {
       };
     } catch (error) {
       console.error('OpenAI TTS変換エラー:', error.message);
-      throw error;
+      // エラー時も情報を返す
+      return {
+        buffer: null,
+        filePath: null,
+        text: text
+      };
     }
   }
   

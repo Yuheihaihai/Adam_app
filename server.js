@@ -2770,10 +2770,18 @@ async function handleText(event) {
     
     // 正しいURLを構築（audioResponse.filePathがnullの場合に対応）
     let audioUrl = '';
+    let audioFileExists = false;
     try {
       if (audioResponse.filePath) {
-        const fileBaseName = path.basename(audioResponse.filePath);
-        audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
+        // ファイルが実際に存在するか確認
+        if (fs.existsSync(audioResponse.filePath)) {
+          const fileBaseName = path.basename(audioResponse.filePath);
+          audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
+          audioFileExists = true;
+        } else {
+          console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
+          throw new Error('音声ファイルが見つかりません');
+        }
       } else {
         throw new Error('音声ファイルパスが見つかりません');
       }
@@ -2787,18 +2795,57 @@ async function handleText(event) {
       return;
     }
     
-    // テキストと音声の両方を返信
-    await client.replyMessage(event.replyToken, [
-      {
-        type: 'text',
-        text: replyMessage
-      },
-      {
-        type: 'audio',
-        originalContentUrl: audioUrl,
-        duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
+    // テキストと音声の両方を返信（ファイルが存在する場合のみ）
+    if (audioFileExists) {
+      try {
+        await client.replyMessage(event.replyToken, [
+          {
+            type: 'text',
+            text: replyMessage
+          },
+          {
+            type: 'audio',
+            originalContentUrl: audioUrl,
+            duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
+          }
+        ]).catch(error => {
+          console.error('LINE返信エラー:', error.message);
+          // 音声メッセージ送信に失敗した場合、テキストのみで再試行
+          if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
+            console.log('音声メッセージ送信失敗、テキストのみで再試行します');
+            return client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: replyMessage
+            }).catch(retryError => {
+              console.error('テキストのみの再試行も失敗:', retryError.message);
+            });
+          }
+        });
+      } catch (replyError) {
+        console.error('メッセージ送信エラー:', replyError);
+        // エラー時はテキストのみでの送信を試みる
+        try {
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: replyMessage
+          }).catch(e => console.error('テキスト送信も失敗:', e.message));
+        } catch (textError) {
+          console.error('テキストのみの送信も失敗:', textError);
+        }
       }
-    ]);
+    } else {
+      // テキストのみ返信
+      try {
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: replyMessage
+        }).catch(error => {
+          console.error('テキスト送信エラー:', error.message);
+        });
+      } catch (textError) {
+        console.error('テキスト送信エラー:', textError);
+      }
+    }
     
     // 音声使用状況の追加メッセージ（毎回は表示せず、特定の閾値に達した場合のみ）
     if (limitInfo && limitInfo.dailyCount >= Math.floor(limitInfo.dailyLimit * 0.7)) {
@@ -2807,6 +2854,8 @@ async function handleText(event) {
       await client.pushMessage(userId, {
         type: 'text',
         text: usageMessage
+      }).catch(error => {
+        console.error('使用状況メッセージ送信エラー:', error.message);
       });
     }
     
@@ -3581,10 +3630,18 @@ async function handleAudio(event) {
       
       // 正しいURLを構築（audioResponse.filePathがnullの場合に対応）
       let audioUrl = '';
+      let audioFileExists = false;
       try {
         if (audioResponse.filePath) {
-          const fileBaseName = path.basename(audioResponse.filePath);
-          audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
+          // ファイルが実際に存在するか確認
+          if (fs.existsSync(audioResponse.filePath)) {
+            const fileBaseName = path.basename(audioResponse.filePath);
+            audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
+            audioFileExists = true;
+          } else {
+            console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
+            throw new Error('音声ファイルが見つかりません');
+          }
         } else {
           throw new Error('音声ファイルパスが見つかりません');
         }
@@ -3598,18 +3655,57 @@ async function handleAudio(event) {
         return;
       }
       
-      // テキストと音声の両方を返信
-      await client.replyMessage(event.replyToken, [
-        {
-          type: 'text',
-          text: replyMessage
-        },
-        {
-          type: 'audio',
-          originalContentUrl: audioUrl,
-          duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
+      // テキストと音声の両方を返信（ファイルが存在する場合のみ）
+      if (audioFileExists) {
+        try {
+          await client.replyMessage(event.replyToken, [
+            {
+              type: 'text',
+              text: replyMessage
+            },
+            {
+              type: 'audio',
+              originalContentUrl: audioUrl,
+              duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
+            }
+          ]).catch(error => {
+            console.error('LINE返信エラー:', error.message);
+            // 音声メッセージ送信に失敗した場合、テキストのみで再試行
+            if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
+              console.log('音声メッセージ送信失敗、テキストのみで再試行します');
+              return client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: replyMessage
+              }).catch(retryError => {
+                console.error('テキストのみの再試行も失敗:', retryError.message);
+              });
+            }
+          });
+        } catch (replyError) {
+          console.error('メッセージ送信エラー:', replyError);
+          // エラー時はテキストのみでの送信を試みる
+          try {
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: replyMessage
+            }).catch(e => console.error('テキスト送信も失敗:', e.message));
+          } catch (textError) {
+            console.error('テキストのみの送信も失敗:', textError);
+          }
         }
-      ]);
+      } else {
+        // テキストのみ返信
+        try {
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: replyMessage
+          }).catch(error => {
+            console.error('テキスト送信エラー:', error.message);
+          });
+        } catch (textError) {
+          console.error('テキスト送信エラー:', textError);
+        }
+      }
       
       // 音声使用状況の追加メッセージ（毎回は表示せず、特定の閾値に達した場合のみ）
       if (limitInfo && limitInfo.dailyCount >= Math.floor(limitInfo.dailyLimit * 0.7)) {
@@ -3618,6 +3714,8 @@ async function handleAudio(event) {
         await client.pushMessage(userId, {
           type: 'text',
           text: usageMessage
+        }).catch(error => {
+          console.error('使用状況メッセージ送信エラー:', error.message);
         });
       }
       
@@ -3641,10 +3739,18 @@ async function handleAudio(event) {
     console.error('音声メッセージ処理エラー:', error);
     
     try {
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '申し訳ありません、音声処理中にエラーが発生しました。もう一度お試しいただくか、テキストでメッセージをお送りください。'
-      });
+      // replyTokenが有効かつイベントが存在する場合のみ返信を試みる
+      if (event && event.replyToken && event.replyToken !== '00000000000000000000000000000000') {
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: '申し訳ありません、音声処理中にエラーが発生しました。もう一度お試しいただくか、テキストでメッセージをお送りください。'
+        }).catch(replyError => {
+          // LINEへの返信が失敗した場合も静かに失敗
+          console.error('LINE返信エラー:', replyError.message);
+        });
+      } else {
+        console.log('有効なreplyTokenがないため、エラーメッセージを送信できません');
+      }
     } catch (replyError) {
       console.error('エラー応答送信エラー:', replyError);
     }
