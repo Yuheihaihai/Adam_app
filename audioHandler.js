@@ -103,7 +103,12 @@ class AudioHandler {
       console.log(`音声リクエスト制限: ${userId} - ${limitResult.reason}`);
       return {
         allowed: false,
-        message: limitResult.message
+        message: limitResult.message,
+        reason: limitResult.reason,
+        dailyCount: limitResult.userDailyCount,
+        dailyLimit: limitResult.userDailyLimit,
+        globalCount: limitResult.globalMonthlyCount,
+        globalLimit: limitResult.globalMonthlyLimit
       };
     }
     
