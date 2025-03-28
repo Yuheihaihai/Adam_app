@@ -2224,7 +2224,7 @@ ${additionalPromptData.jobTrends.analysis}`;
       // それでも空の場合はデフォルトメッセージを設定（上位関数でのフォールバック用）
       if (!aiResponse || aiResponse.trim() === '') {
         console.log(`→ すべての抽出方法を試行しましたが、有効なコンテンツを見つけられませんでした`);
-      } else {
+          } else {
         // 安全にsubstringを使用するために文字列に変換
         const responseStr = typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse);
         console.log(`→ 代替抽出方法でコンテンツを復旧しました: ${responseStr.substring(0, 50)}...`);
@@ -2745,7 +2745,6 @@ async function handleText(event) {
     const isVoiceChangeRequest = await audioHandler.detectVoiceChangeRequest(text, userId);
     
     let replyMessage;
-    let audioResponse;
     
     if (isVoiceChangeRequest) {
       // 音声設定変更リクエストを解析
@@ -2764,21 +2763,13 @@ async function handleText(event) {
           replyMessage = `音声設定を更新しました：\n`;
           replyMessage += `・声のタイプ: ${voiceInfo.label}\n`;
           replyMessage += `・話速: ${currentSettings.speed === 0.8 ? 'ゆっくり' : currentSettings.speed === 1.2 ? '速い' : '普通'}\n\n`;
-          replyMessage += `新しい設定で応答します。いかがでしょうか？`;
+          replyMessage += `新しい設定が保存されました。次回音声メッセージを送信すると、新しい設定で応答します。`;
           
           // LINE統計記録
           if (isLineCompliant) {
             updateUserStats(userId, 'line_compliant_voice_requests', 1);
           }
           
-          // replyMessageが空でないことを確認
-          if (!replyMessage) {
-            console.error('警告: 音声設定更新のreplyMessageが空です。デフォルトメッセージを使用します。');
-            replyMessage = "音声設定を更新しました。新しい設定で応答します。いかがでしょうか？";
-          }
-          
-          // 新しい設定で音声応答
-          audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
         } else {
           // 変更できなかった場合、音声設定選択メニューを返信
           replyMessage = `音声設定の変更リクエストを受け付けました。\n\n`;
@@ -2788,40 +2779,16 @@ async function handleText(event) {
           if (isLineCompliant) {
             updateUserStats(userId, 'line_compliant_voice_requests', 1);
           }
-          
-          // replyMessageが空でないことを確認
-          if (!replyMessage) {
-            console.error('警告: 音声設定選択のreplyMessageが空です。デフォルトメッセージを使用します。');
-            replyMessage = "音声設定の変更リクエストを受け付けました。設定を選択してください。";
-          }
-          
-          // デフォルト設定で音声応答
-          audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
         }
       } else if (text.includes("音声") || text.includes("声")) {
         // 詳細が不明確な音声関連の問い合わせに対して選択肢を提示
         replyMessage = audioHandler.generateVoiceSelectionMessage();
-        
-        // LINE統計記録
-        const isLineCompliant = false; // デフォルトではLINE準拠ではない
-        if (isLineCompliant) {
-          updateUserStats(userId, 'line_compliant_voice_requests', 1);
-        }
-        
-        // replyMessageが空でないことを確認
-        if (!replyMessage) {
-          console.error('警告: 音声選択のreplyMessageが空です。デフォルトメッセージを使用します。');
-          replyMessage = "音声設定を選択してください。";
-        }
-        
-        audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
       } else {
         // 通常の応答処理へフォールバック
         const processedResult = await processMessage(userId, text);
         
         // processMessageの結果が空の場合のチェックを追加
         if (!processedResult) {
-          console.error('警告: processMessageの結果が空です');
           replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
         } else {
           // processMessageの結果がオブジェクトの場合、テキストを抽出
@@ -2832,21 +2799,10 @@ async function handleText(event) {
             } else if (processedResult.text) {
               replyMessage = processedResult.text;
             } else {
-              console.error('警告: processMessageの結果オブジェクトにtext/responseプロパティがありません');
               replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
             }
           }
         }
-        
-        // replyMessageが空の場合のチェックを追加
-        if (!replyMessage) {
-          console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
-          replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
-        }
-        
-        // ユーザー設定を反映した音声応答生成
-        const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
-        audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
       }
     } else {
       // 通常のメッセージ処理
@@ -2854,7 +2810,6 @@ async function handleText(event) {
       
       // processMessageの結果が空の場合のチェックを追加
       if (!processedResult) {
-        console.error('警告: processMessageの結果が空です');
         replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
       } else {
         // processMessageの結果がオブジェクトの場合、テキストを抽出
@@ -2865,144 +2820,26 @@ async function handleText(event) {
           } else if (processedResult.text) {
             replyMessage = processedResult.text;
           } else {
-            console.error('警告: processMessageの結果オブジェクトにtext/responseプロパティがありません');
             replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
           }
         }
       }
-      
-      // replyMessageが空の場合のチェックを追加
-      if (!replyMessage) {
-        console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
-        replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
-      }
-      
-      // ユーザー設定を反映した音声応答生成
-      const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
-      audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
     }
     
-    // 利用制限チェック（音声応答生成後）
-    if (audioResponse && audioResponse.limitExceeded) {
-      // 制限に達している場合はテキストのみを返信し、制限メッセージを追加
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: replyMessage + '\n\n' + audioResponse.limitMessage
-      });
-      return;
-    }
-    
-    if (!audioResponse || !audioResponse.buffer) {
-      // 音声生成に失敗した場合はテキストのみ返信
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: replyMessage
-      });
-      return;
-    }
-    
-    // 正しいURLを構築（audioResponse.filePathがnullの場合に対応）
-    let audioUrl = '';
-    let audioFileExists = false;
-    try {
-      if (audioResponse.filePath) {
-        // ファイルが実際に存在するか確認
-        if (fs.existsSync(audioResponse.filePath)) {
-          const fileBaseName = path.basename(audioResponse.filePath);
-          audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
-          audioFileExists = true;
-        } else {
-          console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
-          throw new Error('音声ファイルが見つかりません');
-        }
-      } else {
-        throw new Error('音声ファイルパスが見つかりません');
-      }
-    } catch (error) {
-      console.error('音声URL生成エラー:', error.message);
-      // 音声なしでテキストのみ返信
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: replyMessage
-      });
-      return;
-    }
-    
-    // テキストと音声の両方を返信（ファイルが存在する場合のみ）
-    if (audioFileExists) {
-      try {
-        await client.replyMessage(event.replyToken, [
-          {
-            type: 'text',
-            text: replyMessage
-          },
-          {
-            type: 'audio',
-            originalContentUrl: audioUrl,
-            duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
-          }
-        ]).catch(error => {
-          console.error('LINE返信エラー:', error.message);
-          // 音声メッセージ送信に失敗した場合、テキストのみで再試行
-          if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
-            console.log('音声メッセージ送信失敗、テキストのみで再試行します');
-            return client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: replyMessage
-            }).catch(retryError => {
-              console.error('テキストのみの再試行も失敗:', retryError.message);
-            });
-          }
-        });
-      } catch (replyError) {
-        console.error('メッセージ送信エラー:', replyError);
-        // エラー時はテキストのみでの送信を試みる
-        try {
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: replyMessage
-          }).catch(e => console.error('テキスト送信も失敗:', e.message));
-        } catch (textError) {
-          console.error('テキストのみの送信も失敗:', textError);
-        }
-      }
-    } else {
-      // テキストのみ返信
-      try {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: replyMessage
-        }).catch(error => {
-          console.error('テキスト送信エラー:', error.message);
-        });
-      } catch (textError) {
-        console.error('テキスト送信エラー:', textError);
-      }
-    }
-    
-    // 音声使用状況の追加メッセージ（毎回は表示せず、特定の閾値に達した場合のみ）
-    if (audioResponse && audioResponse.limitInfo && audioResponse.limitInfo.dailyCount >= Math.floor(audioResponse.limitInfo.dailyLimit * 0.7)) {
-      // 残り回数が少なくなった場合（例: 70%以上使用）に警告を送信
-      const usageMessage = audioHandler.generateUsageLimitMessage(audioResponse.limitInfo);
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: usageMessage
-      }).catch(error => {
-        console.error('使用状況メッセージ送信エラー:', error.message);
-      });
-    }
-    
-    // 統計データ更新
-    updateUserStats(userId, 'audio_messages', 1);
-    updateUserStats(userId, 'audio_responses', 1);
-    
+    // テキストのみ返信
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: replyMessage
+    }).catch(error => {
+      console.error('テキスト送信エラー:', error.message);
+    });
   } catch (error) {
-    console.error('音声メッセージ処理エラー:', error);
+    console.error('テキストメッセージ処理エラー:', error);
     
     try {
       await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: '申し訳ありません、音声処理中にエラーが発生しました。もう一度お試しいただくか、テキストでメッセージをお送りください。'
+        text: '申し訳ありません、メッセージの処理中にエラーが発生しました。もう一度お試しください。'
       });
     } catch (replyError) {
       console.error('エラー応答送信エラー:', replyError);
@@ -3588,243 +3425,158 @@ async function handleAudio(event) {
   console.log(`音声メッセージ受信: ${messageId} (${userId})`);
 
   try {
-    try {
-      // 音声ファイルのダウンロード
-      const audioStream = await client.getMessageContent(messageId);
-      let audioContent = null;
-      let transcribedText = null;
-      let voiceAnalysis = null;
+    // 音声ファイルのダウンロード
+    const audioStream = await client.getMessageContent(messageId);
+    
+    // バッファに変換
+    const audioChunks = [];
+    for await (const chunk of audioStream) {
+      audioChunks.push(chunk);
+    }
+    const audioBuffer = Buffer.concat(audioChunks);
+    
+    // 音声機能（Whisper）利用制限をチェック（音声認識で1リクエストとカウント）
+    const limitInfo = await audioHandler.checkVoiceRequestLimit(userId);
+    if (!limitInfo.allowed) {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: limitInfo.message
+      });
+      return;
+    }
+    
+    console.log('音声テキスト変換と特性分析開始');
+    
+    // 音声テキスト変換（Whisper API or Azure）
+    const transcriptionResult = await audioHandler.transcribeAudio(audioBuffer, userId, { language: 'ja' });
+    
+    // 利用制限チェック（音声テキスト変換後）
+    if (transcriptionResult.limitExceeded) {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: transcriptionResult.limitMessage || '音声機能の利用制限に達しています。'
+      });
+      return;
+    }
+    
+    const transcribedText = transcriptionResult.text;
+    
+    // テキストが取得できなかった場合
+    if (!transcribedText) {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: "申し訳ありません、音声からテキストを認識できませんでした。もう一度お試しいただくか、テキストでメッセージをお送りください。"
+      });
+      return;
+    }
+    
+    // 音声テキスト変換結果をログ出力
+    console.log(`音声テキスト変換結果: "${transcribedText}"`);
+    
+    // 利用制限の状況をログ出力
+    console.log(`音声機能利用状況 (${userId}): 本日=${limitInfo.dailyCount}/${limitInfo.dailyLimit}, 全体=${limitInfo.totalCount}/${limitInfo.totalLimit}`);
+    
+    // 音声コマンド（設定変更など）かどうかチェック
+    const isVoiceCommand = await audioHandler.isVoiceCommand(transcribedText);
+    
+    let replyMessage;
+    
+    if (isVoiceCommand) {
+      // 音声コマンド処理
+      const commandResult = await audioHandler.processVoiceCommand(transcribedText, userId);
+      replyMessage = commandResult.text;
       
-      // バッファに変換
-      const audioChunks = [];
-      for await (const chunk of audioStream) {
-        audioChunks.push(chunk);
+      // replyMessageが空の場合のチェック
+      if (!replyMessage) {
+        console.error('警告: 音声コマンド処理のreplyMessageが空です。デフォルトメッセージを使用します。');
+        replyMessage = "申し訳ありません、音声コマンドの処理中に問題が発生しました。もう一度お試しください。";
       }
-      const audioBuffer = Buffer.concat(audioChunks);
       
-      // 音声機能（Whisper）利用制限をチェック（音声認識で1リクエストとカウント）
-      const limitInfo = await audioHandler.checkVoiceRequestLimit(userId);
-      if (!limitInfo.allowed) {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: limitInfo.message
-        });
-        return;
-      }
-      
-      console.log('音声テキスト変換と特性分析開始');
-      
-      // 音声テキスト変換（Whisper API or Azure）と特性分析を並行して実行
-      const transcriptionResult = await audioHandler.transcribeAudio(audioBuffer, userId, { language: 'ja' });
-      
-      // 利用制限チェック（音声テキスト変換後）
-      if (transcriptionResult.limitExceeded) {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: transcriptionResult.limitMessage || '音声機能の利用制限に達しています。'
-        });
-        return;
-      }
-      
-      transcribedText = transcriptionResult.text;
-      voiceAnalysis = transcriptionResult.characteristics || {};
-      
-      // テキストや分析結果が取得できなかった場合
-      if (!transcribedText) {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: "申し訳ありません、音声からテキストを認識できませんでした。もう一度お試しいただくか、テキストでメッセージをお送りください。"
-        });
-        return;
-      }
-      
-      // 音声テキスト変換結果とボイス特性をログ出力
-      console.log(`音声テキスト変換結果: "${transcribedText}"`);
-      if (voiceAnalysis) {
-        console.log(`音声特性: ${JSON.stringify(voiceAnalysis, null, 2)}`);
-      }
-      
-      // 利用制限の状況をログ出力
-      console.log(`音声機能利用状況 (${userId}): 本日=${limitInfo.dailyCount}/${limitInfo.dailyLimit}, 全体=${limitInfo.totalCount}/${limitInfo.totalLimit}`);
-      
-      // 音声コマンド（設定変更など）かどうかチェック
-      const isVoiceCommand = await audioHandler.isVoiceCommand(transcribedText);
-      
-      let replyMessage;
-      let audioResponse;
-      
-      if (isVoiceCommand) {
-        // 音声コマンド処理
-        const commandResult = await audioHandler.processVoiceCommand(transcribedText, userId);
-        replyMessage = commandResult.text;
-        
-        // replyMessageが空の場合のチェック
-        if (!replyMessage) {
-          console.error('警告: 音声コマンド処理のreplyMessageが空です。デフォルトメッセージを使用します。');
-          replyMessage = "申し訳ありません、音声コマンドの処理中に問題が発生しました。もう一度お試しください。";
-        }
-        
-        // 音声応答生成
-        audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
+      // 音声コマンドの場合はテキストで返信
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: replyMessage
+      });
+      return;
+    } 
+    
+    // 通常のメッセージ処理
+    let processedResult = await processMessage(userId, transcribedText);
+    
+    // processMessageの結果が空の場合のチェックを追加
+    if (!processedResult) {
+      console.error('警告: processMessageの結果が空です');
+      processedResult = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
+    }
+    
+    // processMessageの結果がオブジェクトの場合、テキストを抽出
+    if (typeof processedResult === 'object') {
+      if (processedResult.response) {
+        processedResult = processedResult.response;
+      } else if (processedResult.text) {
+        processedResult = processedResult.text;
       } else {
-        // 通常のメッセージ処理
-        let processedResult = await processMessage(userId, transcribedText);
-        
-        // processMessageの結果が空の場合のチェックを追加
-        if (!processedResult) {
-          console.error('警告: processMessageの結果が空です');
-          processedResult = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
-        }
-        
-        // processMessageの結果がオブジェクトの場合、テキストを抽出
-        replyMessage = processedResult;
-        if (typeof processedResult === 'object') {
-          if (processedResult.response) {
-            replyMessage = processedResult.response;
-          } else if (processedResult.text) {
-            replyMessage = processedResult.text;
-          } else {
-            console.error('警告: processMessageの結果オブジェクトにtext/responseプロパティがありません');
-            replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
-          }
-        }
-        
-        // replyMessageが空の場合のチェックを追加
-        if (!replyMessage) {
-          console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
-          replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。";
-        }
-        
-        // ユーザー設定を反映した音声応答生成
-        const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
-        audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
-      }
-      
-      // 利用制限チェック（音声応答生成後）
-      if (audioResponse && audioResponse.limitExceeded) {
-        // 制限に達している場合はテキストのみを返信し、制限メッセージを追加
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: replyMessage + '\n\n' + audioResponse.limitMessage
-        });
-        return;
-      }
-      
-      if (!audioResponse || !audioResponse.buffer) {
-        // 音声生成に失敗した場合はテキストのみ返信
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: replyMessage
-        });
-        return;
-      }
-      
-      // 正しいURLを構築（audioResponse.filePathがnullの場合に対応）
-      let audioUrl = '';
-      let audioFileExists = false;
-      try {
-        if (audioResponse.filePath) {
-          // ファイルが実際に存在するか確認
-          if (fs.existsSync(audioResponse.filePath)) {
-            const fileBaseName = path.basename(audioResponse.filePath);
-            audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
-            audioFileExists = true;
-          } else {
-            console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
-            throw new Error('音声ファイルが見つかりません');
-          }
-        } else {
-          throw new Error('音声ファイルパスが見つかりません');
-        }
-      } catch (error) {
-        console.error('音声URL生成エラー:', error.message);
-        // 音声なしでテキストのみ返信
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: replyMessage
-        });
-        return;
-      }
-      
-      // テキストと音声の両方を返信（ファイルが存在する場合のみ）
-      if (audioFileExists) {
-        try {
-          await client.replyMessage(event.replyToken, [
-            {
-              type: 'text',
-              text: replyMessage
-            },
-            {
-              type: 'audio',
-              originalContentUrl: audioUrl,
-              duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
-            }
-          ]).catch(error => {
-            console.error('LINE返信エラー:', error.message);
-            // 音声メッセージ送信に失敗した場合、テキストのみで再試行
-            if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
-              console.log('音声メッセージ送信失敗、テキストのみで再試行します');
-              return client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: replyMessage
-              }).catch(retryError => {
-                console.error('テキストのみの再試行も失敗:', retryError.message);
-              });
-            }
-          });
-        } catch (replyError) {
-          console.error('メッセージ送信エラー:', replyError);
-          // エラー時はテキストのみでの送信を試みる
-          try {
-            await client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: replyMessage
-            }).catch(e => console.error('テキスト送信も失敗:', e.message));
-          } catch (textError) {
-            console.error('テキストのみの送信も失敗:', textError);
-          }
-        }
-      } else {
-        // テキストのみ返信
-        try {
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: replyMessage
-          }).catch(error => {
-            console.error('テキスト送信エラー:', error.message);
-          });
-        } catch (textError) {
-          console.error('テキスト送信エラー:', textError);
-        }
-      }
-    } catch (error) {
-      console.error('音声メッセージ処理エラー:', error);
-      
-      try {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: '申し訳ありません、音声処理中にエラーが発生しました。もう一度お試しいただくか、テキストでメッセージをお送りください。'
-        });
-      } catch (replyError) {
-        console.error('エラー応答送信エラー:', replyError);
+        console.error('警告: processMessageの結果オブジェクトにtext/responseプロパティがありません');
+        processedResult = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
       }
     }
+    
+    // ユーザー設定を反映した音声応答生成
+    const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
+    const audioResponse = await audioHandler.generateAudioResponse(processedResult, userId, userVoicePrefs);
+    
+    // 音声が生成できなかった場合はテキストで返信
+    if (!audioResponse || !audioResponse.buffer || !audioResponse.filePath) {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: processedResult
+      });
+      return;
+    }
+    
+    // 音声ファイルが存在するか確認
+    if (!fs.existsSync(audioResponse.filePath)) {
+      console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: processedResult
+      });
+      return;
+    }
+    
+    // 音声URLを構築
+    const fileBaseName = path.basename(audioResponse.filePath);
+    const audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
+    
+    // 音声のみを返信
+    await client.replyMessage(event.replyToken, {
+      type: 'audio',
+      originalContentUrl: audioUrl,
+      duration: 60000 // 適当な値（実際の長さを正確に計算するのは難しい）
+    }).catch(error => {
+      console.error('音声送信エラー:', error.message);
+      // 音声メッセージ送信に失敗した場合、テキストで再試行
+      if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
+        console.log('音声メッセージ送信失敗、テキストで再試行します');
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: processedResult
+        });
+      }
+    });
+    
+    // 統計データ更新
+    updateUserStats(userId, 'audio_messages', 1);
+    updateUserStats(userId, 'audio_responses', 1);
+    
   } catch (error) {
     console.error('音声メッセージ処理エラー:', error);
     
     try {
-      // replyTokenが有効かつイベントが存在する場合のみ返信を試みる
-      if (event && event.replyToken && event.replyToken !== '00000000000000000000000000000000') {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: '申し訳ありません、音声処理中にエラーが発生しました。もう一度お試しいただくか、テキストでメッセージをお送りください。'
-        }).catch(replyError => {
-          // LINEへの返信が失敗した場合も静かに失敗
-          console.error('LINE返信エラー:', replyError.message);
-        });
-      } else {
-        console.log('有効なreplyTokenがないため、エラーメッセージを送信できません');
-      }
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '申し訳ありません、音声処理中にエラーが発生しました。もう一度お試しいただくか、テキストでメッセージをお送りください。'
+      });
     } catch (replyError) {
       console.error('エラー応答送信エラー:', replyError);
     }
