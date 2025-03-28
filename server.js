@@ -1676,6 +1676,46 @@ async function checkEngagementWithLLM(userMessage, history) {
   }
 }
 
+/**
+ * Extracts relevant conversation context from the chat history
+ * @param {Array} history - The conversation history
+ * @param {string} userMessage - The current user message
+ * @returns {Object} - The extracted context, including relevant history
+ */
+function extractConversationContext(history, userMessage) {
+  try {
+    console.log(`📊 Extracting conversation context from ${history.length} messages...`);
+    
+    // Skip if history is empty
+    if (!history || history.length === 0) {
+      console.log('No conversation history available for context extraction.');
+      return { relevantHistory: [] };
+    }
+    
+    // Get the last 10 messages as the most relevant context
+    const recentMessages = history.slice(-10);
+    
+    // Format them for readability
+    const formattedMessages = recentMessages.map((msg, index) => {
+      const role = msg.role || 'unknown';
+      let content = msg.content || '';
+      
+      // Trim extremely long messages
+      if (content.length > 200) {
+        content = content.substring(0, 200) + '...';
+      }
+      
+      return `[${index + 1}] ${role}: ${content}`;
+    });
+    
+    console.log(`📊 Extracted ${formattedMessages.length} relevant conversation elements for context`);
+    return { relevantHistory: formattedMessages };
+  } catch (error) {
+    console.error('Error extracting conversation context:', error);
+    return { relevantHistory: [] };
+  }
+}
+
 async function processWithAI(systemPrompt, userMessage, historyData, mode, userId, client) {
   try {
     console.log(`Processing message in mode: ${mode}`);

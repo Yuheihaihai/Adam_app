@@ -13,10 +13,16 @@ const insightsService = require('./insightsService');
 // ESMモジュールを動的にロードする関数
 async function loadRTClient() {
   try {
-    const rtClient = await import('rt-client');
-    LowLevelRTClient = rtClient.LowLevelRTClient;
-    console.log('RT Client モジュールを正常にロードしました');
-    return true;
+    // Check if the rt-client module exists before attempting to import it
+    if (fs.existsSync(path.join(__dirname, 'node_modules', 'rt-client'))) {
+      const rtClient = await import('rt-client');
+      LowLevelRTClient = rtClient.LowLevelRTClient;
+      console.log('RT Client モジュールを正常にロードしました');
+      return true;
+    } else {
+      console.log('RT Client モジュールが存在しません。音声機能は制限されたモードで動作します。');
+      return false;
+    }
   } catch (error) {
     console.error('RT Client モジュールのロードに失敗しました:', error.message);
     return false;
