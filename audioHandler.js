@@ -599,6 +599,17 @@ class AudioHandler {
   
   // テキストからの音声応答処理（Azure GPT-4o Audio対応）
   async generateAudioResponse(text, userId, options = {}) {
+    // テキストがない場合のチェックを追加
+    if (!text) {
+      console.error('音声応答生成エラー: テキストが指定されていません');
+      return {
+        buffer: null,
+        filePath: null,
+        text: '',
+        error: '音声テキストが提供されていません'
+      };
+    }
+
     console.log('音声応答生成開始:', text.substring(0, 30) + '...');
     
     // 音声リクエスト制限をチェック（生成も1リクエストとしてカウント）

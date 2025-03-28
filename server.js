@@ -2064,6 +2064,23 @@ ${additionalPromptData.jobTrends.analysis}`;
     console.log(`  - 内訳: システムx1, 履歴x${history.length}, 現在のメッセージx1`);
     console.log(`===== AIモデルへの会話履歴送信デバッグ終了 =====\n`);
     
+    // 履歴が長すぎる場合は削減（コンテキスト長の制限に対応）
+    if (messages.length > 2000) {
+      console.log(`⚠ 警告: メッセージ配列が長すぎます (${messages.length} > 2000)。最新の会話に重点を置いて削減します。`);
+      
+      // システムメッセージと最後のユーザーメッセージを保持
+      const systemMessage = messages[0];
+      const userMessage = messages[messages.length - 1];
+      
+      // 中間の会話履歴を最大1500件に制限（重要な文脈を保持するため、新しいものを優先）
+      const reducedHistory = messages.slice(1, -1).slice(-1500);
+      
+      // 新しいメッセージ配列を構築
+      messages = [systemMessage, ...reducedHistory, userMessage];
+      
+      console.log(`会話履歴を ${messages.length} メッセージに削減しました`);
+    }
+    
     // 3.2 Prepare API model parameters
     const temperature = 0.7;
     const maxTokens = 1500;
@@ -3645,6 +3662,25 @@ async function handleAudio(event) {
         return;
       }
       
+      // 正しいURLを構築（audioResponse.filePathがnullの場合に対応）
+      let audioUrl = '';
+      try {
+        if (audioResponse.filePath) {
+          const fileBaseName = path.basename(audioResponse.filePath);
+          audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
+        } else {
+          throw new Error('音声ファイルパスが見つかりません');
+        }
+      } catch (error) {
+        console.error('音声URL生成エラー:', error.message);
+        // 音声なしでテキストのみ返信
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: replyMessage
+        });
+        return;
+      }
+      
       // テキストと音声の両方を返信
       await client.replyMessage(event.replyToken, [
         {
@@ -3653,7 +3689,7 @@ async function handleAudio(event) {
         },
         {
           type: 'audio',
-          originalContentUrl: `${process.env.SERVER_URL}/temp/${path.basename(audioResponse.filePath)}`,
+          originalContentUrl: audioUrl,
           duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
         }
       ]);
