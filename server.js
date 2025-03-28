@@ -17,6 +17,9 @@ const xss = require('xss');
 const Tokens = require('csrf');
 const crypto = require('crypto');
 
+// 画像生成モジュールをインポート
+const imageGenerator = require('./imageGenerator');
+
 // ユーザーセッション管理のためのオブジェクト
 const sessions = {};
 
@@ -3118,9 +3121,16 @@ ${SHARE_URL}
     // 画像説明の提案トリガーチェック：isConfusionRequest のみを使用
     let triggerImageExplanation = false;
     
-    // 画像生成機能は無効化されているため、常にLLM処理へ進む
-    console.log(`[DEBUG] 画像生成機能は無効化されています。通常のLLM処理へ進みます。`);
-    triggerImageExplanation = false;
+    // 画像生成リクエストの検出
+    if (isDirectImageGenerationRequest(text)) {
+      console.log(`[DEBUG] 直接的な画像生成リクエストを検出: "${text}"`);
+      triggerImageExplanation = true;
+    } 
+    // 混乱検出による画像生成提案
+    else if (isConfusionRequest(text)) {
+      console.log(`[DEBUG] 混乱リクエストを検出、画像生成を検討します: "${text}"`);
+      triggerImageExplanation = true;
+    }
     
     // それ以外のすべてのメッセージはLLMで分析
     if (!triggerImageExplanation) {
@@ -3271,8 +3281,7 @@ ${SHARE_URL}
         await storeInteraction(userId, 'system', `[画像生成提案] 提案時刻: ${new Date().toISOString()}, デフォルトテキスト使用`);
       }
       
-      // 以下の提案メッセージと関連するコードを削除
-      /*
+      // 画像生成提案メッセージを送信
       const suggestionMessage = "前回の回答について、画像による説明を生成しましょうか？「はい」または「いいえ」でお答えください。";
       console.log(`[DEBUG-IMAGE] 画像による説明の提案をユーザーに送信: "${suggestionMessage}"`);
       
@@ -3281,13 +3290,6 @@ ${SHARE_URL}
         type: 'text',
         text: suggestionMessage
       });
-      */
-      
-      // 画像生成提案をスキップし通常のテキスト処理へ進む
-      const skipMessage = "画像生成機能は現在無効化されています。";
-      console.log(`[DEBUG-IMAGE] 画像生成提案をスキップ: ${skipMessage}`);
-      
-      await storeInteraction(userId, 'system', skipMessage);
     }
 
     // 通常のテキスト処理へ進む
@@ -4284,3 +4286,13 @@ module.exports = {
   containsConfusionTerms,
   // Add other functions as needed
 };
+
+/**
+ * 画像生成処理を行う関数
+ * @param {Object} event - LINEのメッセージイベント
+ * @param {string} explanationText - 画像生成の元となるテキスト説明
+ * @returns {Promise}
+ */
+async function handleVisionExplanation(event, explanationText) {
+  return imageGenerator.generateImage(event, explanationText, storeInteraction, client);
+}
