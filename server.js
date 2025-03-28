@@ -2661,6 +2661,9 @@ async function handleText(event) {
       if (parseResult.isVoiceChangeRequest && parseResult.confidence > 0.7) {
         // 明確な設定変更リクエストがあった場合
         let replyMessage;
+        let audioResponse;
+        // LINE Voice Message準拠フラグを設定（統計用）
+        const isLineCompliant = parseResult.lineCompliant || false;
         
         if (parseResult.voiceChanged || parseResult.speedChanged) {
           // 設定が変更された場合、変更内容を返信
@@ -2704,11 +2707,12 @@ async function handleText(event) {
           // デフォルト設定で音声応答
           audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
         }
-      } else if (transcribedText.includes("音声") || transcribedText.includes("声")) {
+      } else if (text.includes("音声") || text.includes("声")) {
         // 詳細が不明確な音声関連の問い合わせに対して選択肢を提示
         replyMessage = audioHandler.generateVoiceSelectionMessage();
         
         // LINE統計記録
+        const isLineCompliant = false; // デフォルトではLINE準拠ではない
         if (isLineCompliant) {
           updateUserStats(userId, 'line_compliant_voice_requests', 1);
         }
@@ -2719,10 +2723,10 @@ async function handleText(event) {
           replyMessage = "音声設定を選択してください。";
         }
         
-        audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
+        let audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
       } else {
         // 通常の応答処理へフォールバック
-        replyMessage = await processMessage(userId, transcribedText);
+        replyMessage = await processMessage(userId, text);
         
         // replyMessageが空の場合のチェックを追加
         if (!replyMessage) {
@@ -2736,7 +2740,7 @@ async function handleText(event) {
       }
     } else {
       // 通常のメッセージ処理
-      replyMessage = await processMessage(userId, transcribedText);
+      replyMessage = await processMessage(userId, text);
       
       // replyMessageが空の場合のチェックを追加
       if (!replyMessage) {
@@ -2848,9 +2852,9 @@ async function handleText(event) {
     }
     
     // 音声使用状況の追加メッセージ（毎回は表示せず、特定の閾値に達した場合のみ）
-    if (limitInfo && limitInfo.dailyCount >= Math.floor(limitInfo.dailyLimit * 0.7)) {
+    if (audioResponse && audioResponse.limitInfo && audioResponse.limitInfo.dailyCount >= Math.floor(audioResponse.limitInfo.dailyLimit * 0.7)) {
       // 残り回数が少なくなった場合（例: 70%以上使用）に警告を送信
-      const usageMessage = audioHandler.generateUsageLimitMessage(limitInfo);
+      const usageMessage = audioHandler.generateUsageLimitMessage(audioResponse.limitInfo);
       await client.pushMessage(userId, {
         type: 'text',
         text: usageMessage
