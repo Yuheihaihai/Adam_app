@@ -3643,11 +3643,19 @@ async function handleAudio(event) {
           audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
         }
       } else {
+        audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
+      } else {
         // 通常のメッセージ処理
-        replyMessage = await processMessage(userId, transcribedText);
+        let processedResponse = await processMessage(userId, transcribedText);
+        
+        // processMessageの戻り値がオブジェクトの場合、テキストフィールドを抽出
+        if (processedResponse && typeof processedResponse === 'object' && processedResponse.text) {
+          replyMessage = processedResponse.text;
+        } else {
+          replyMessage = processedResponse;
+        }
         
         // replyMessageが空の場合のチェックを追加
-        if (!replyMessage) {
           console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
           replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
         }
