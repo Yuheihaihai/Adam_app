@@ -3194,9 +3194,15 @@ async function generateHistoryResponse(history) {
   try {
     console.log(`\n======= 特性分析詳細ログ =======`);
     
-    // 会話履歴が空の場合
-    if (!history || history.length === 0) {
-      console.log(`→ 会話履歴なし: 空のhistoryオブジェクト`);
+    // historyがオブジェクトで、text属性を持っている場合の処理を追加
+    if (history && typeof history === 'object' && history.text) {
+      console.log(`→ history: オブジェクト形式 (text属性あり)`);
+      history = [{ role: 'user', content: history.text }];
+    }
+    
+    // 会話履歴が空の場合またはhistoryが配列でない場合
+    if (!history || !Array.isArray(history) || history.length === 0) {
+      console.log(`→ 会話履歴なし: 無効なhistoryオブジェクト`);
       return "会話履歴がありません。もう少し会話を続けると、あなたの特性について分析できるようになります。";
     }
 
