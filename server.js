@@ -4019,7 +4019,7 @@ async function processMessage(userId, messageText) {
     
     // AIへの送信前に、過去の関連メッセージをセマンティック検索で取得
     let contextMessages = [];
-    if (semanticSearch) {
+    if (semanticSearch && typeof semanticSearch.findSimilarMessages === 'function') {
       try {
         const similarMessages = await semanticSearch.findSimilarMessages(userId, messageText);
         if (similarMessages && similarMessages.length > 0) {
@@ -4032,6 +4032,8 @@ async function processMessage(userId, messageText) {
       } catch (searchErr) {
         console.error('セマンティック検索エラー:', searchErr);
       }
+    } else {
+      console.log('セマンティック検索が利用できないか、findSimilarMessages関数がありません');
     }
     
     // 会話履歴の取得（最新の会話を優先）
@@ -4052,7 +4054,7 @@ async function processMessage(userId, messageText) {
     }
     
     // 重要なメッセージまたは質問をセマンティック検索用に保存
-    if (semanticSearch) {
+    if (semanticSearch && typeof semanticSearch.saveMessage === 'function') {
       try {
         // 重要なメッセージかどうかを判断
         const isImportant = await checkIfImportantMessage(messageText);
@@ -4078,6 +4080,8 @@ async function processMessage(userId, messageText) {
       } catch (saveErr) {
         console.error('セマンティック検索保存エラー:', saveErr);
       }
+    } else {
+      console.log('セマンティック検索が利用できないか、saveMessage関数がありません');
     }
     
     return response;
@@ -4277,7 +4281,7 @@ async function checkImageGenerationRequest(userMessage, aiResponse) {
     }
     
     // 既存モデルを用いた判定でも対応
-    if (enhancedImageDecision) {
+    if (enhancedImageDecision && typeof enhancedImageDecision.detectImageRequest === 'function') {
       try {
         const result = await enhancedImageDecision.detectImageRequest(userMessage, aiResponse);
         if (result && result.score > 0.75) {
@@ -4287,6 +4291,8 @@ async function checkImageGenerationRequest(userMessage, aiResponse) {
       } catch (modelError) {
         console.error('拡張モデルによる画像生成判定エラー:', modelError);
       }
+    } else {
+      console.log('拡張画像判定モデルが利用できないか、detectImageRequest関数がありません');
     }
     
     return false;
