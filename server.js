@@ -2604,9 +2604,7 @@ async function processMessage(userId, messageText) {
 async function handleChatRecallWithRetries(userId, messageText) {
   let attempts = 0;
   const maxAttempts = 3;
-  
-  // タイマー開始
-  const startTime = Date.now();
+  const startTime = Date.now(); // この行を追加: startTime変数を定義
   
   // Generate specialized history analysis based on message content
   // First check if this is a career-related request
