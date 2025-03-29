@@ -352,6 +352,70 @@ ${userMessage}
       return null;
     }
   }
+
+  /**
+   * 一般的な検索クエリを処理するメソッド - 全てのトピックに対応
+   * @param {string} query - 検索クエリ
+   * @returns {Promise<string>} - 検索結果
+   */
+  async generalSearch(query) {
+    try {
+      if (!query || query.length < 5) {
+        return "検索クエリが短すぎます。もう少し具体的な質問をしてください。";
+      }
+
+      console.log('\n🔍 [PERPLEXITY SEARCH] GENERAL SEARCH PROCESS');
+      console.log('   ├─ Search query:', query);
+      console.log('   ├─ Query length:', query.length, 'characters');
+      console.log('   ├─ Making API call to Perplexity Sonar model...');
+
+      const startTime = Date.now();
+      const response = await this.client.chat.completions.create({
+        model: "sonar",
+        messages: [{
+          role: 'system',
+          content: `あなたは検索アシスタントです。ユーザーからの質問に対して、最新の正確な情報を提供してください。
+以下の指針に従ってください：
+
+1. 事実に基づいた情報を提供する
+2. 情報が不確かな場合はその旨を明示する
+3. 検索結果は簡潔かつ詳細に、日本語で提供する
+4. 複雑なトピックについては、理解しやすいように説明する
+5. 最新の情報を提供し、その情報がいつ現在のものか明示する
+6. 可能であれば信頼できる情報源を示す
+
+回答は以下の形式で構成してください：
+
+【検索結果】
+(質問に対する直接的な回答と詳細情報)
+
+【情報源】
+(関連する情報源やウェブサイトへの言及、もしあれば)`
+        }, {
+          role: 'user',
+          content: `以下の質問について、最新かつ正確な情報を教えてください：
+
+${query}`
+        }],
+        max_tokens: 1000,
+        temperature: 0.7,
+        timeout: 25000
+      });
+
+      const timeTaken = Date.now() - startTime;
+      const resultContent = response.choices[0]?.message?.content;
+
+      console.log('   ├─ API call completed in', timeTaken, 'ms');
+      console.log('   ├─ Response tokens:', response.usage?.total_tokens || 'unknown');
+      console.log('   ├─ Result length:', resultContent?.length || 0, 'characters');
+      console.log('   └─ Sample of search result:', resultContent?.substring(0, 50), '...');
+
+      return resultContent || '情報を取得できませんでした。';
+    } catch (error) {
+      console.error('   └─ ❌ ERROR in general search:', error.message);
+      return `申し訳ありません。検索中にエラーが発生しました：${error.message}`;
+    }
+  }
 }
 
 // モジュール関数としてneedsKnowledgeを実装

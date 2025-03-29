@@ -1746,6 +1746,41 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     const startTime = Date.now();
     const overallStartTime = startTime; // Add this line to fix the ReferenceError
     
+    // 特殊コマンドをチェック
+    const specialCommands = containsSpecialCommand(userMessage);
+    console.log(`特殊コマンドチェック:`, JSON.stringify(specialCommands));
+    
+    // Web検索コマンドの処理
+    if (specialCommands.hasSearchCommand && specialCommands.searchQuery) {
+      console.log(`\n🌐 [WEB検索] 検索クエリ: "${specialCommands.searchQuery}"`);
+      
+      try {
+        // Perplexityで検索を実行
+        const searchResult = await perplexity.generalSearch(specialCommands.searchQuery);
+        
+        // 検索結果をユーザーに送信
+        console.log(`\n✅ [WEB検索] 検索完了: ${searchResult.length}文字の結果を返却`);
+        
+        // 検索結果をデータベースに保存する形式
+        const assistantMessage = { 
+          role: 'assistant', 
+          content: `🔍 **「${specialCommands.searchQuery}」の検索結果**\n\n${searchResult}`
+        };
+        
+        // 結果を返す - 通常の会話処理をスキップ
+        return {
+          response: assistantMessage.content,
+          updatedHistory: [...historyData.history || [], 
+                          { role: 'user', content: userMessage }, 
+                          assistantMessage]
+        };
+      } catch (error) {
+        console.error(`\n❌ [WEB検索] エラー発生:`, error);
+        // エラーが発生した場合は通常の会話処理に進む
+        console.log(`\n→ 検索エラー、通常の会話処理に進みます`);
+      }
+    }
+    
     // historyDataからhistoryとmetadataを取り出す
     const history = historyData.history || [];
     const historyMetadata = historyData.metadata || {};
@@ -3828,4 +3863,40 @@ function updateUserStats(userId, statType, increment = 1) {
   } catch (error) {
     console.error('ユーザー統計更新エラー:', error);
   }
+}
+
+// 特殊コマンドのチェック
+function containsSpecialCommand(text) {
+  // 深い分析モードを検出
+  const deepAnalysisPattern = /もっと深く考えを掘り下げて例を示しながらさらに分かり易く(\(見やすく\))?教えてください。抽象的言葉禁止。/;
+  const hasDeepAnalysis = deepAnalysisPattern.test(text);
+  
+  // より詳細なパターン検出を追加
+  const hasAskForDetail = text.includes('詳しく教えて') || 
+                          text.includes('詳細を教えて') || 
+                          text.includes('もっと詳しく');
+  
+  // 過去の記録を思い出すコマンドを検出
+  const hasRecallHistory = text.includes('過去の記録') && 
+                          (text.includes('全て思い出して') || text.includes('思い出してください'));
+                          
+  // 検索コマンドを検出
+  const searchPattern = /「(.+?)」(について)?(を)?検索して(ください)?/;
+  const searchMatch = text.match(searchPattern);
+  const hasSearchCommand = searchMatch !== null;
+  const searchQuery = hasSearchCommand ? searchMatch[1] : null;
+  
+  // Web検索コマンドの別パターン
+  const altSearchPattern = /「(.+?)」(について)?(の)?情報を(ネットで|Web上?で|インターネットで)?調べて(ください)?/;
+  const altSearchMatch = text.match(altSearchPattern);
+  const hasAltSearchCommand = altSearchMatch !== null;
+  const altSearchQuery = hasAltSearchCommand ? altSearchMatch[1] : null;
+  
+  return {
+    hasDeepAnalysis,
+    hasAskForDetail,
+    hasRecallHistory,
+    hasSearchCommand,
+    searchQuery: searchQuery || altSearchQuery
+  };
 }
