@@ -2890,7 +2890,7 @@ async function handleText(event) {
         
         // 会話内容を保存
         try {
-      await storeInteraction(userId, 'user', text);
+        await storeInteraction(userId, 'user', text);
           await storeInteraction(userId, 'assistant', replyMessage);
         } catch (storageErr) {
           console.error('会話保存エラー:', storageErr);
@@ -2906,12 +2906,12 @@ async function handleText(event) {
         // LINEのメッセージ長制限に対応（5000文字まで）
         const firstPart = replyMessage.substring(0, 4900);
         await client.replyMessage(event.replyToken, {
-          type: 'text',
+            type: 'text',
           text: firstPart + '\n\n(メッセージが長すぎるため省略されました)'
         });
-      } else {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
+            } else {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
           text: replyMessage
         });
       }
@@ -3887,7 +3887,7 @@ async function handleAudio(event) {
       
     // 会話履歴を更新
     if (!sessions[userId]) sessions[userId] = { history: [] };
-    sessions[userId].history.push({ role: "user", content: text });
+    sessions[userId].history.push({ role: "user", content: transcribedText });
     sessions[userId].history.push({ role: "assistant", content: replyMessage });
       
     // 会話履歴が長すぎる場合は削除
@@ -3897,7 +3897,7 @@ async function handleAudio(event) {
       
     // 会話内容を保存
     try {
-      await storeInteraction(userId, 'user', text);
+      await storeInteraction(userId, 'user', transcribedText);
       await storeInteraction(userId, 'assistant', replyMessage);
     } catch (storageErr) {
       console.error('会話保存エラー:', storageErr);
@@ -3905,7 +3905,7 @@ async function handleAudio(event) {
     
     // ユーザー設定を反映した音声応答生成
     const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
-    const audioResponse = await audioHandler.generateAudioResponse(processedResult, userId, userVoicePrefs);
+    const audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
     
     // 処理結果に利用状況メッセージを追加（直近回数情報）
     const usageLimitMessage = audioHandler.generateUsageLimitMessage(limitInfo);
@@ -3914,7 +3914,7 @@ async function handleAudio(event) {
     if (!audioResponse || !audioResponse.buffer || !audioResponse.filePath) {
       await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: processedResult + '\n\n' + usageLimitMessage
+        text: replyMessage + '\n\n' + usageLimitMessage
       });
       return;
     }
@@ -3924,7 +3924,7 @@ async function handleAudio(event) {
       console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
       await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: processedResult + '\n\n' + usageLimitMessage
+        text: replyMessage + '\n\n' + usageLimitMessage
       });
       return;
     }
@@ -3954,7 +3954,7 @@ async function handleAudio(event) {
           console.log('音声メッセージ送信失敗、テキストで再試行します');
           return client.replyMessage(event.replyToken, {
             type: 'text',
-            text: processedResult + '\n\n' + usageLimitMessage
+            text: replyMessage + '\n\n' + usageLimitMessage
           });
         }
       });
@@ -3971,7 +3971,7 @@ async function handleAudio(event) {
           console.log('音声メッセージ送信失敗、テキストで再試行します');
           return client.replyMessage(event.replyToken, {
             type: 'text',
-            text: processedResult + '\n\n' + usageLimitMessage
+            text: replyMessage + '\n\n' + usageLimitMessage
           });
         }
       });
