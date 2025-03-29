@@ -4006,3 +4006,125 @@ ${text}
 
 // エクスポート - 必ずファイルの最後に配置
 module.exports = app;
+
+/**
+ * AI応答の生成を行う関数
+ * @param {string} userMessage - ユーザーからのメッセージ
+ * @param {Array} history - 会話履歴の配列
+ * @param {Array} contextMessages - セマンティック検索で取得した関連メッセージ
+ * @param {string} userId - ユーザーID
+ * @param {string} mode - 会話モード（general、characteristics、careerなど）
+ * @param {string} customSystemPrompt - カスタムシステムプロンプト（省略可）
+ * @returns {Promise<string>} - AIからの応答テキスト
+ */
+async function generateAIResponse(userMessage, history, contextMessages, userId, mode = 'general', customSystemPrompt = null) {
+  try {
+    console.log(`\n🤖 ====== AI応答生成プロセス開始 - ユーザー: ${userId} ======`);
+    console.log(`🤖 → 入力メッセージ: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+    console.log(`🤖 → 会話履歴: ${history.length}件のメッセージ`);
+    console.log(`🤖 → コンテキストメッセージ: ${contextMessages.length}件`);
+    console.log(`🤖 → 処理モード: ${mode}`);
+    
+    // ASD支援の使い方質問を検出するパターン
+    const asdSupportPattern = /(ASD|発達障害|自閉症)(の|に関する|に対する|の|症)?(支援|サポート|助け)(で|に|について)?(あなた|Adam)(が|の)?(対応|使い方|質問例|機能|できること)/i;
+    const exactPattern = /ASD症支援であなたが対応できる具体的な質問例とあなたの使い方/i;
+    const manualRequestPattern = /(使い方|マニュアル|ガイド|説明|方法)(を)?教えて/i;
+    
+    // ASD支援または使い方に関する質問の場合、マニュアルを直接返す
+    if (asdSupportPattern.test(userMessage) || 
+        exactPattern.test(userMessage) || 
+        (manualRequestPattern.test(userMessage) && !userMessage.includes('言葉'))) {
+      console.log('ASD支援または使い方に関する質問を検出しました。マニュアルを返します。');
+      return ASDSupportManual;
+    }
+    
+    // システムプロンプトを準備（カスタムプロンプトまたはモードに応じたプロンプト）
+    const systemPrompt = customSystemPrompt || getSystemPromptForMode(mode);
+    console.log(`🤖 → システムプロンプト: ${systemPrompt.substring(0, 100)}...`);
+    
+    // 会話履歴からメッセージ配列を構築
+    const messages = [
+      { role: "system", content: systemPrompt }
+    ];
+    
+    // コンテキストメッセージがある場合は追加
+    if (contextMessages && contextMessages.length > 0) {
+      console.log(`🤖 → コンテキストメッセージを追加: ${contextMessages.length}件`);
+      // コンテキストサンプルを表示（最大5件）
+      const sampleContexts = contextMessages.slice(0, 5);
+      sampleContexts.forEach((ctx, i) => {
+        console.log(`🤖 → コンテキスト[${i+1}]: "${ctx.content.substring(0, 50)}${ctx.content.length > 50 ? '...' : ''}"`);
+      });
+      
+      // コンテキストメッセージを最初のユーザーメッセージとして追加
+      const contextContent = contextMessages.map(ctx => ctx.content).join('\n\n');
+      messages.push({
+        role: "user",
+        content: `以下は過去の会話から関連性の高いメッセージです。これらを参考にして後ほどの質問に回答してください：\n\n${contextContent}`
+      });
+      
+      // AIの応答として「理解しました」を追加
+      messages.push({
+        role: "assistant",
+        content: "理解しました。これらの過去の会話を考慮して、質問に回答します。"
+      });
+    }
+    
+    // 会話履歴を追加（最新の履歴を優先）
+    if (history && history.length > 0) {
+      const recentHistory = mode === 'general' ? history.slice(-6) : history.slice(-30);
+      console.log(`🤖 → 会話履歴追加: 最新${recentHistory.length}/${history.length}件`);
+      
+      // 履歴メッセージのサンプルを表示（最大5件）
+      const sampleHistory = recentHistory.slice(-5);
+      sampleHistory.forEach((hist, i) => {
+        console.log(`🤖 → [履歴${i+1}] ${hist.role}: ${hist.content.substring(0, 50)}${hist.content.length > 50 ? '...' : ''}`);
+      });
+      
+      messages.push(...recentHistory);
+    }
+    
+    // 特性分析や適職診断の場合は専用のインストラクションを追加
+    if (mode === 'characteristics' || mode === 'career') {
+      console.log(`🤖 → ${mode === 'characteristics' ? '特性分析' : 'キャリア分析'}モード: 専用インストラクションを追加`);
+      const specialInstruction = mode === 'characteristics' 
+        ? '特性分析モードです。ユーザーの過去の会話から性格や特性を詳しく分析してください。'
+        : '適職診断モードです。ユーザーの過去の会話から最適な職業を詳しく分析してください。';
+        
+      messages.push({
+        role: "user",
+        content: specialInstruction
+      });
+      
+      messages.push({
+        role: "assistant",
+        content: "了解しました。過去の会話履歴を分析して詳細な" + (mode === 'characteristics' ? '特性分析' : '適職診断') + "を行います。"
+      });
+    }
+    
+    // ユーザーの現在のメッセージを追加
+    messages.push({ role: "user", content: userMessage });
+    console.log(`🤖 → メッセージ配列構築完了: ${messages.length}件`);
+    
+    // GPT-4oを使用して応答を生成
+    console.log(`🤖 → OpenAI API (GPT-4o) リクエスト送信中...`);
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: messages,
+      temperature: 0.7,
+      max_tokens: 500
+    });
+    
+    // 応答を取得
+    const reply = completion.choices[0].message.content;
+    console.log(`🤖 → 応答受信完了: ${reply.length}文字`);
+    console.log(`🤖 → 応答内容: "${reply.substring(0, 50)}${reply.length > 50 ? '...' : ''}"`);
+    
+    console.log(`🤖 ====== AI応答生成プロセス終了 - ユーザー: ${userId} ======\n`);
+    return reply;
+  } catch (error) {
+    console.error('🤖 ❌ AI応答生成エラー:', error);
+    console.log(`🤖 ====== AI応答生成プロセス終了(エラー) - ユーザー: ${userId} ======\n`);
+    return "申し訳ありませんが、応答の生成中にエラーが発生しました。しばらくしてからもう一度お試しください。";
+  }
+}
