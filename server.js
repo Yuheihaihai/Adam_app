@@ -2888,7 +2888,7 @@ async function handleText(event) {
       
       // 会話履歴を更新
       if (!sessions[userId]) sessions[userId] = { history: [] };
-      sessions[userId].history.push({ role: "user", content: text });
+      sessions[userId].history.push({ role: "user", content: sanitizedText });
       sessions[userId].history.push({ role: "assistant", content: replyMessage });
       
       // 会話履歴が長すぎる場合は削除
@@ -2898,7 +2898,7 @@ async function handleText(event) {
       
       // 会話内容を保存
       try {
-        await storeInteraction(userId, 'user', text);
+        await storeInteraction(userId, 'user', sanitizedText);
         await storeInteraction(userId, 'assistant', replyMessage);
       } catch (storageErr) {
         console.error('会話保存エラー:', storageErr);
@@ -3894,7 +3894,7 @@ async function handleAudio(event) {
       
     // 会話履歴を更新
     if (!sessions[userId]) sessions[userId] = { history: [] };
-    sessions[userId].history.push({ role: "user", content: text });
+    sessions[userId].history.push({ role: "user", content: sanitizedText });
     sessions[userId].history.push({ role: "assistant", content: replyMessage });
       
     // 会話履歴が長すぎる場合は削除
@@ -3904,7 +3904,7 @@ async function handleAudio(event) {
       
     // 会話内容を保存
     try {
-      await storeInteraction(userId, 'user', text);
+      await storeInteraction(userId, 'user', sanitizedText);
       await storeInteraction(userId, 'assistant', replyMessage);
     } catch (storageErr) {
       console.error('会話保存エラー:', storageErr);
