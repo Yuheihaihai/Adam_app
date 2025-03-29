@@ -4147,7 +4147,7 @@ ${text}
 
 /**
  * 会話履歴からキャリア分析を行い、適職診断を含む詳細な結果を返す関数
- * @param {Array} history - 会話履歴の配列
+ * @param {Array|Object} history - 会話履歴の配列またはオブジェクト
  * @param {string} currentMessage - 現在のユーザーメッセージ
  * @returns {Promise<string>} - キャリア分析結果のテキスト
  */
@@ -4155,17 +4155,31 @@ async function generateCareerAnalysis(history, currentMessage) {
   try {
     console.log(`\n======= キャリア分析詳細ログ =======`);
     
-    // 会話履歴が空の場合
-    if (!history || history.length === 0) {
+    // historyオブジェクトを正規化
+    let messageHistory = [];
+    if (!history) {
       console.log(`→ 会話履歴なし: 空のhistoryオブジェクト`);
-      return "会話履歴がありません。もう少し会話を続けると、あなたのキャリア適性について分析できるようになります。";
+    } else if (history.type === 'text' && history.text) {
+      // fetchAndAnalyzeHistoryから返されるオブジェクト形式の場合
+      console.log(`→ キャリア分析開始: 特性分析結果オブジェクトから処理`);
+      messageHistory = [{ role: 'assistant', content: history.text }];
+    } else if (Array.isArray(history)) {
+      // 配列の場合はそのまま使用
+      console.log(`→ キャリア分析開始: ${history.length}件の会話レコード`);
+      messageHistory = history;
+    } else {
+      // その他の形式の場合は空配列を使用
+      console.log(`→ キャリア分析開始: 未知の形式のhistoryオブジェクト`);
+      messageHistory = [];
     }
-
-    console.log(`→ キャリア分析開始: ${history.length}件の会話レコード`);
+    
     console.log(`→ 現在のメッセージ: "${currentMessage.substring(0, 50)}${currentMessage.length > 50 ? '...' : ''}"`);
     
     // 会話履歴からユーザーのメッセージのみを抽出
-    const userMessages = history.filter(msg => msg.role === 'user').map(msg => msg.content);
+    const userMessages = Array.isArray(messageHistory) 
+      ? messageHistory.filter(msg => msg.role === 'user').map(msg => msg.content)
+      : [];
+    
     console.log(`→ ユーザーメッセージ抽出: ${userMessages.length}件`);
     
     // キャリア分析用プロンプト
