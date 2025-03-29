@@ -1781,6 +1781,51 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
       }
     }
     
+    // Claudeモードリクエストの処理
+    if (specialCommands.hasClaudeRequest && specialCommands.claudeQuery) {
+      console.log(`\n🤖 [CLAUDE] モード開始: "${specialCommands.claudeQuery}"`);
+      
+      try {
+        // historyからシステムメッセージを除外
+        const history = historyData.history || [];
+        const userMessages = history
+          .filter(msg => msg.role !== 'system')
+          .slice(-10); // 最新10件のみ使用
+        
+        // メッセージ配列を作成
+        const messages = [
+          { role: 'system', content: systemPrompt },
+          ...userMessages,
+          { role: 'user', content: specialCommands.claudeQuery }
+        ];
+        
+        console.log(`\n🤖 [CLAUDE] Claudeモデルを呼び出します。メッセージ数: ${messages.length}`);
+        
+        // Claudeモデルを使用して応答を生成
+        const claudeResponse = await callClaudeModel(messages);
+        
+        console.log(`\n✅ [CLAUDE] 応答生成完了: ${claudeResponse?.length || 0}文字`);
+        
+        // Claude応答をデータベースに保存
+        const assistantMessage = { 
+          role: 'assistant', 
+          content: `🤖 [Claude] ${claudeResponse}`
+        };
+        
+        // 結果を返す - 通常の会話処理をスキップ
+        return {
+          response: assistantMessage.content,
+          updatedHistory: [...history, 
+                         { role: 'user', content: userMessage }, 
+                         assistantMessage]
+        };
+      } catch (error) {
+        console.error(`\n❌ [CLAUDE] エラー発生:`, error);
+        // エラーが発生した場合は通常の会話処理に進む
+        console.log(`\n→ Claude呼び出しエラー、通常の会話処理に進みます`);
+      }
+    }
+    
     // キャリア関連のクエリを検出し、モードを自動的に変更
     const isCareerQuery = 
       userMessage.includes('キャリア') || 
@@ -2009,6 +2054,35 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
       try {
         const perplexityData = await perplexityDataPromise;
         additionalPromptData = perplexityData || {};
+
+        // 特に適職診断リクエストの場合は、直接Perplexityの職業推薦を返却
+        const isJobRecommendationRequest = 
+          userMessage.includes('適職') || 
+          userMessage.includes('診断') || 
+          userMessage.includes('向いてる') || 
+          userMessage.includes('向いている') || 
+          userMessage.includes('私に合う') || 
+          userMessage.includes('私に合った') || 
+          userMessage.includes('私に向いている') || 
+          userMessage.includes('私の特性') || 
+          userMessage.includes('キャリア分析') || 
+          userMessage.includes('職業') || 
+          (userMessage.includes('仕事') && (userMessage.includes('向いてる') || userMessage.includes('探し') || userMessage.includes('教えて'))) ||
+          (userMessage.includes('私') && userMessage.includes('仕事')) ||
+          (userMessage.includes('職場') && (userMessage.includes('社風') || userMessage.includes('人間関係'))) ||
+          (userMessage.includes('分析') && (userMessage.includes('仕事') || userMessage.includes('特性')));
+
+        // 適職診断リクエストで、かつ具体的な職業推薦データがある場合は直接返却
+        if (isJobRecommendationRequest && additionalPromptData.knowledge && 
+            additionalPromptData.knowledge.includes('【最適な職業】')) {
+          console.log(`\n✅ [キャリア分析] 直接職業推薦データを使用します`);
+          return {
+            response: additionalPromptData.knowledge,
+            updatedHistory: [...history, 
+                           { role: 'user', content: userMessage }, 
+                           { role: 'assistant', content: additionalPromptData.knowledge }]
+          };
+        }
       } catch (error) {
         console.error(`❌ Error getting perplexity data: ${error.message}`);
         additionalPromptData = {};
@@ -3921,11 +3995,19 @@ function containsSpecialCommand(text) {
   const hasAltSearchCommand = altSearchMatch !== null;
   const altSearchQuery = hasAltSearchCommand ? altSearchMatch[1] : null;
   
+  // Claudeモードを検出
+  const claudePattern = /(Claude|クロード)(モード|で|に)(.*)/;
+  const claudeMatch = text.match(claudePattern);
+  const hasClaudeRequest = claudeMatch !== null;
+  const claudeQuery = hasClaudeRequest ? claudeMatch[3]?.trim() : null;
+  
   return {
     hasDeepAnalysis,
     hasAskForDetail,
     hasRecallHistory,
     hasSearchCommand,
+    hasClaudeRequest,
+    claudeQuery,
     searchQuery: searchQuery || altSearchQuery
   };
 }
