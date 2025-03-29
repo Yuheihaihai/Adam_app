@@ -74,6 +74,15 @@ async function initializeTables() {
   try {
     client = await pool.connect();
     
+    // pgvector拡張機能の有効化（存在しなければ作成）
+    try {
+      await client.query(`CREATE EXTENSION IF NOT EXISTS vector`);
+      console.log('pgvector extension enabled');
+    } catch (error) {
+      console.error('Failed to enable pgvector extension:', error.message);
+      console.log('Will continue without vector search capabilities');
+    }
+    
     // ユーザーメッセージテーブル
     await client.query(`
       CREATE TABLE IF NOT EXISTS user_messages (
@@ -133,6 +142,41 @@ async function initializeTables() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_user_audio_stats_user_id ON user_audio_stats(user_id)`);
 
+    // セマンティック検索用テーブル - pgvector拡張を使用
+    try {
+      // pgvector拡張が有効な場合のみテーブル作成
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS semantic_embeddings (
+          id SERIAL PRIMARY KEY,
+          user_id VARCHAR(255) NOT NULL,
+          message_id VARCHAR(255),
+          content TEXT NOT NULL,
+          embedding vector(1536),
+          is_question BOOLEAN DEFAULT FALSE,
+          is_important BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          expires_at TIMESTAMP,
+          access_count INTEGER DEFAULT 0
+        )
+      `);
+      
+      // 検索用インデックス作成
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_semantic_embeddings_user_id ON semantic_embeddings(user_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_semantic_embeddings_expires ON semantic_embeddings(expires_at)`);
+      
+      // ベクトルインデックス作成（存在しない場合のみ）
+      try {
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_semantic_embeddings_vector ON semantic_embeddings USING ivfflat (embedding vector_l2_ops)`);
+        console.log('Vector index created successfully');
+      } catch (indexError) {
+        console.log('Vector index already exists or could not be created:', indexError.message);
+      }
+      
+      console.log('Semantic search tables created successfully');
+    } catch (error) {
+      console.error('Failed to create semantic search tables:', error.message);
+    }
+
     // インテントトレーニングデータテーブル
     await client.query(`
       CREATE TABLE IF NOT EXISTS intent_training_data (
@@ -175,6 +219,22 @@ async function initializeTables() {
       )
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_intent_vocabulary_token ON intent_vocabulary(token)`);
+
+    // 定期的な古いエンベディングのクリーンアップ用関数
+    try {
+      await client.query(`
+        CREATE OR REPLACE FUNCTION cleanup_old_embeddings() RETURNS void AS $$
+        BEGIN
+          DELETE FROM semantic_embeddings 
+          WHERE (expires_at IS NOT NULL AND expires_at < NOW())
+          OR (created_at < NOW() - INTERVAL '30 days' AND access_count < 3);
+        END;
+        $$ LANGUAGE plpgsql;
+      `);
+      console.log('Cleanup function created successfully');
+    } catch (error) {
+      console.error('Failed to create cleanup function:', error.message);
+    }
 
     console.log('Database tables initialized');
     return true;
