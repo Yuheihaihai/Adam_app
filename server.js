@@ -790,10 +790,26 @@ function isDirectImageGenerationRequest(text) {
     '図を生成', '図を作成', '図を作って', '図解して', '図解を作成', '図解を生成',
     'ビジュアル化して', '視覚化して', '絵を描いて', '絵を生成', '絵を作成',
     '画像で説明', 'イメージで説明', '図で説明', '視覚的に説明',
-    '画像にして', 'イラストを作成', 'イラストを生成', 'イラストを描いて'
+    '画像にして', 'イラストを作成', 'イラストを生成', 'イラストを描いて',
+    // 追加パターン - 「〇〇を生成して」形式
+    '生成して', '作成して', '描いて', '表示して', '見せて'
   ];
   
-  return imageGenerationRequests.some(phrase => text.includes(phrase));
+  // 明示的に画像と関連するキーワードのチェック
+  const imageRelatedTerms = ['画像', '絵', 'イラスト', '写真', '図', 'ビジュアル', 'イメージ'];
+  
+  // 「〇〇の顔」「〇〇の姿」などのパターンを追加
+  const subjectPatterns = ['の顔', 'の姿', 'の絵', 'の画像', 'の写真'];
+  
+  // リクエストパターンの検出
+  const hasRequestPattern = imageGenerationRequests.some(phrase => text.includes(phrase));
+  
+  // 「〇〇の顔」などのパターンと「生成」「作成」などのキーワードを同時に含むケースを検出
+  const hasSubjectAndGeneration = 
+    subjectPatterns.some(pattern => text.includes(pattern)) && 
+    ['生成', '作成', '描いて', '表示'].some(action => text.includes(action));
+  
+  return hasRequestPattern || hasSubjectAndGeneration;
 }
 
 /**
