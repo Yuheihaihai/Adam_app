@@ -3276,7 +3276,7 @@ async function generateHistoryResponse(history) {
         console.log(`→ 分析開始: Google Gemini APIを使用します`);
         const { GoogleGenerativeAI } = require("@google/generative-ai");
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
         
         console.log(`→ Gemini API呼び出し準備完了`);
         
@@ -4265,7 +4265,7 @@ async function generateCareerAnalysis(history, currentMessage) {
         console.log(`→ キャリア分析: Google Gemini APIを使用します`);
         const { GoogleGenerativeAI } = require("@google/generative-ai");
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
         
         console.log(`→ Gemini API呼び出し準備完了`);
         console.log(`→ キャリア分析専用プロンプトを使用`);
