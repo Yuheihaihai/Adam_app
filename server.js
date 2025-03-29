@@ -3012,8 +3012,81 @@ async function generateHistoryResponse(history) {
     const userMessages = history.filter(msg => msg.role === 'user').map(msg => msg.content);
     console.log(`→ ユーザーメッセージ抽出: ${userMessages.length}件`);
     
+    // Gemini APIが利用可能かチェック
+    const useGemini = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 0;
+    
     // 分析に十分なデータがあるかどうかを確認（最低1件あれば分析を試みる）
     if (userMessages.length > 0) {
+      console.log(`→ 分析開始: ${useGemini ? 'Google Gemini API' : 'OpenAI API'}を使用します`);
+      
+      if (useGemini) {
+        // Gemini APIを使用した特性分析
+        try {
+          const { GoogleGenerativeAI } = require('@google/generative-ai');
+          const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+          const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+          
+          // 会話履歴をフォーマット
+          const historyText = userMessages.join('\n\n');
+          
+          // プロンプト作成
+          const prompt = `
+以下のユーザーの過去メッセージを分析し、ユーザーの特性について洞察を提供してください。
+
+[分析対象のメッセージ]
+${historyText}
+
+[分析の観点]
+1. コミュニケーションパターン
+   - 言葉遣いの特徴
+   - 表現の一貫性
+   - 感情表現の方法
+
+2. 思考プロセス
+   - 論理的思考の特徴
+   - 問題解決アプローチ
+   - 興味・関心の対象
+
+3. 社会的相互作用
+   - 対人関係での傾向
+   - ストレス対処方法
+   - コミュニケーション上の強み/課題
+
+4. 感情と自己認識
+   - 感情表現の特徴
+   - 自己理解の程度
+   - モチベーションの源泉
+
+[出力形式]
+- 日本語で簡潔に（300文字以内）
+- 肯定的な側面を含める
+- 改善提案あれば添える
+- 断定的な診断は避ける（専門医に相談を推奨する）
+- データ量についての言及は一切避け、直接分析内容を伝えること
+
+重要: たとえデータが少なくても、「過去の記録がない」「データが少ない」「これまでの記録が少ない」などの表現は絶対に使わず、
+利用可能なデータから最大限の具体的な分析を行い、見つかったパターンについて説明してください。`;
+          
+          console.log(`→ Gemini API呼び出し準備完了`);
+          
+          // Gemini API呼び出し
+          const result = await model.generateContent(prompt);
+          const response = result.response.text();
+          
+          console.log(`→ Gemini API応答受信: ${response.substring(0, 50)}...`);
+          console.log(`→ レスポンスが「過去の記録がない」を含むか: ${response.includes('過去の記録がない') || response.includes('会話履歴がない')}`);
+          console.log(`======= 特性分析詳細ログ終了 =======\n`);
+          
+          return response;
+          
+        } catch (geminiError) {
+          console.error('Gemini API分析エラー:', geminiError);
+          console.log('OpenAIにフォールバックします...');
+          // Gemini APIでエラーが発生した場合、OpenAIにフォールバック
+        }
+      }
+      
+      // OpenAI APIを使用（Geminiが利用できない場合、またはGeminiでエラーが発生した場合）
       console.log(`→ OpenAI API呼び出し準備完了`);
       console.log(`→ プロンプト付与: "たとえデータが少なくても、「過去の記録がない」などとは言わず、利用可能なデータから最大限の分析を行ってください"`);
       
