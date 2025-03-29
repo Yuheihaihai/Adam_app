@@ -134,10 +134,11 @@ class AudioHandler {
     }
     
     // 詳細な使用状況メッセージを生成
-    return `${statusEmoji} 音声機能の利用状況:\n`+
+    return `${statusEmoji} 音声会話の利用状況:\n`+
            `・本日: ${limitInfo.dailyCount}/${limitInfo.dailyLimit}回 (残り${dailyRemaining}回)\n`+
            `・全体: ${limitInfo.globalCount}/${limitInfo.globalLimit}回（月間・使用率${globalUsagePercent}%）\n\n`+
-           `音声メッセージは1日${limitInfo.dailyLimit}回まで利用できます。`;
+           `※5分以内の連続した音声メッセージは1回の会話としてカウントされます。\n`+
+           `音声会話は1日${limitInfo.dailyLimit}回まで利用できます。`;
   }
   
   // 保存済みのユーザー音声設定を読み込む

@@ -3841,7 +3841,7 @@ async function handleAudio(event) {
     // APIを起動する前に、まず音声機能の利用制限をチェック
     const limitInfo = await audioHandler.checkVoiceRequestLimit(userId);
     if (!limitInfo.allowed) {
-      console.log(`音声メッセージ制限: ユーザー=${userId}, 理由=${limitInfo.reason}`);
+      console.log(`音声会話制限: ユーザー=${userId}, 理由=${limitInfo.reason}`);
       
       // 制限理由に応じたメッセージを表示
       let limitMessage = limitInfo.message;
@@ -3915,7 +3915,7 @@ async function handleAudio(event) {
     
     // 利用制限の状況をより詳細にログ出力
     const dailyRemaining = limitInfo.dailyLimit - limitInfo.dailyCount;
-    console.log(`音声機能利用状況 (${userId}): 本日=${limitInfo.dailyCount}/${limitInfo.dailyLimit} (残り${dailyRemaining}回), 全体=${limitInfo.globalCount}/${limitInfo.globalLimit} (${Math.round((limitInfo.globalCount / limitInfo.globalLimit) * 100)}%)`);
+    console.log(`音声会話利用状況 (${userId}): 本日=${limitInfo.dailyCount}/${limitInfo.dailyLimit} (残り${dailyRemaining}回), 全体=${limitInfo.globalCount}/${limitInfo.globalLimit} (${Math.round((limitInfo.globalCount / limitInfo.globalLimit) * 100)}%)`);
     
     // 音声コマンド（設定変更など）かどうかチェック
     const isVoiceCommand = await audioHandler.detectVoiceChangeRequest(transcribedText, userId);
@@ -4055,7 +4055,7 @@ async function handleAudio(event) {
     updateUserStats(userId, 'audio_responses', 1);
     
   } catch (error) {
-    console.error('音声メッセージ処理エラー:', error);
+    console.error('音声会話処理エラー:', error);
     
     try {
       await client.replyMessage(event.replyToken, {

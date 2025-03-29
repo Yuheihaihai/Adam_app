@@ -271,11 +271,26 @@ class InsightsService {
         new Date(userMetrics.lastAudioRequestDate).getMonth() !== now.getMonth() ||
         new Date(userMetrics.lastAudioRequestDate).getFullYear() !== now.getFullYear()) {
       userMetrics.audioRequestsToday = 0;
+      userMetrics.lastConversationTimestamp = null;
     }
     
-    // 今日の音声リクエスト回数を増加
-    userMetrics.audioRequestsToday++;
-    userMetrics.audioRequests++;
+    // 「ユーザー→AI→ユーザー」を1回とするカウント方法
+    // 前回の音声リクエストから5分以内のリクエストは同じ会話として扱い、カウントしない
+    const isNewConversation = !userMetrics.lastConversationTimestamp || 
+                             (now.getTime() - userMetrics.lastConversationTimestamp) > (5 * 60 * 1000);
+    
+    // 継続的な会話の場合はカウントせず、新しい会話のみカウント
+    if (isNewConversation) {
+      // 今日の音声リクエスト回数を増加
+      userMetrics.audioRequestsToday++;
+      userMetrics.audioRequests++;
+      console.log(`新しい音声会話を開始: ユーザー=${userId}, 今日=${userMetrics.audioRequestsToday}回`);
+    } else {
+      console.log(`継続中の会話: ユーザー=${userId}, 前回のリクエストから${Math.round((now.getTime() - userMetrics.lastConversationTimestamp)/1000)}秒`);
+    }
+    
+    // 最後の会話時間を更新
+    userMetrics.lastConversationTimestamp = now.getTime();
     userMetrics.lastAudioRequestDate = now.getTime();
     userMetrics.lastSeen = now.getTime();
     
@@ -289,7 +304,7 @@ class InsightsService {
       userMetrics.recentQueries.pop();
     }
     
-    // システムメトリクス更新
+    // システムメトリクス更新（常に更新）
     this.metrics.system.totalRequests++;
     this.metrics.system.audioRequests = (this.metrics.system.audioRequests || 0) + 1;
     
@@ -304,10 +319,10 @@ class InsightsService {
     if (!isAllowed) {
       if (userMetrics.audioRequestsToday > this.audioLimits.userDailyLimit) {
         reason = 'user_daily_limit';
-        message = `音声メッセージの利用回数が1日の上限（${this.audioLimits.userDailyLimit}回）に達しました。明日またご利用ください。`;
+        message = `音声会話の利用回数が1日の上限（${this.audioLimits.userDailyLimit}回）に達しました。明日またご利用ください。`;
       } else {
         reason = 'global_monthly_limit';
-        message = '現在、音声メッセージ機能の利用が集中しているため、一時的にご利用いただけません。しばらく経ってからお試しください。';
+        message = '現在、音声会話機能の利用が集中しているため、一時的にご利用いただけません。しばらく経ってからお試しください。';
       }
     }
     
@@ -318,7 +333,8 @@ class InsightsService {
       globalMonthlyCount: this.metrics.system.audioRequests,
       globalMonthlyLimit: this.audioLimits.globalMonthlyLimit,
       reason: reason,
-      message: message
+      message: message,
+      isNewConversation: isNewConversation
     };
   }
   
