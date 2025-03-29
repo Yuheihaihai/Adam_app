@@ -2760,10 +2760,14 @@ async function handleText(event) {
 
 // サーバー起動設定
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Listening on port ${PORT}`);
-  console.log(`Visit: http://localhost:${PORT} (if local)\n`);
-});
+
+// サーバーを直接実行した場合のみ起動（main.jsからインポートされた場合は起動しない）
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Listening on port ${PORT}`);
+    console.log(`Visit: http://localhost:${PORT} (if local)\n`);
+  });
+}
 
 /**
  * ユーザー入力の検証と無害化
@@ -3992,7 +3996,3 @@ async function generateCareerAnalysis(history, currentMessage) {
   }
 }
 
-// セマンティック検索モジュール（読み込みに失敗しても続行）
-
-// アプリケーションをエクスポート（main.jsから利用するため）
-module.exports = app;
