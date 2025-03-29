@@ -1958,14 +1958,11 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     console.log('└──────────────────────────────────────────────────────────┘');
     // ─────────────────────────────────────────────────────────────────────
     
-    // ** NEW: セマンティック検索モジュールの統合 **
-    let semanticSearch;
-    try {
-      semanticSearch = require('./semanticSearch');
-      console.log('\n🧠 [1S] SEMANTIC SEARCH MODULE - Loaded');
-    } catch (error) {
-      console.error('\n❌ [1S] SEMANTIC SEARCH MODULE - Failed to load:', error.message);
-      semanticSearch = null;
+    // ** NEW: セマンティック検索モジュールのステータスを確認 **
+    if (semanticSearch) {
+      console.log('\n🧠 [1S] SEMANTIC SEARCH MODULE - Available');
+    } else {
+      console.log('\n⚠️ [1S] SEMANTIC SEARCH MODULE - Not available');
     }
     
     // Run user needs analysis, conversation context extraction, and service matching in parallel
@@ -4005,3 +4002,6 @@ try {
   console.log('Will continue without semantic search capabilities');
   semanticSearch = null;
 }
+
+// アプリケーションをエクスポート（main.jsから利用するため）
+module.exports = app;

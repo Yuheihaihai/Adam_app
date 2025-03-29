@@ -2,10 +2,10 @@
   "name": "adam-app-cloud",
   "version": "2.4.0",
   "description": "Adam AI Assistant for developmental disability counseling",
-  "main": "server.js",
+  "main": "main.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node main.js",
+    "dev": "nodemon main.js",
     "clean": "node cleanup.js"
   },
   "keywords": [
