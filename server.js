@@ -4017,9 +4017,20 @@ async function processMessage(userId, messageText) {
       sessions[userId] = { history: [] };
     }
     
+    // 特性分析や職業診断のパターンを検出
+    const isCharacteristicsPattern = /(特性|分析|思考|傾向|パターン|コミュニケーション|対人関係|性格)(を|の|に関する|について).*(分析|教えて|診断)/i;
+    const isCareerPattern = /(適職|キャリア|仕事|職業|転職)(を|の|に関する|について).*(分析|教えて|診断)/i;
+    const isMemoryRecallPattern = /(思い出して|記録|履歴).*(全て|すべて|私の)/i;
+    
+    const isSpecialAnalysisCase = 
+        isCharacteristicsPattern.test(messageText) || 
+        isCareerPattern.test(messageText) || 
+        isMemoryRecallPattern.test(messageText);
+    
     // AIへの送信前に、過去の関連メッセージをセマンティック検索で取得
+    // 特性分析や職業診断の場合はセマンティック検索をスキップ
     let contextMessages = [];
-    if (semanticSearch && typeof semanticSearch.findSimilarMessages === 'function') {
+    if (!isSpecialAnalysisCase && semanticSearch && typeof semanticSearch.findSimilarMessages === 'function') {
       try {
         const similarMessages = await semanticSearch.findSimilarMessages(userId, messageText);
         if (similarMessages && similarMessages.length > 0) {
@@ -4033,7 +4044,11 @@ async function processMessage(userId, messageText) {
         console.error('セマンティック検索エラー:', searchErr);
       }
     } else {
-      console.log('セマンティック検索が利用できないか、findSimilarMessages関数がありません');
+      if (isSpecialAnalysisCase) {
+        console.log('特性分析または職業診断のため、セマンティック検索をスキップします');
+      } else {
+        console.log('セマンティック検索が利用できないか、findSimilarMessages関数がありません');
+      }
     }
     
     // 会話履歴の取得（最新の会話を優先）
@@ -4054,7 +4069,8 @@ async function processMessage(userId, messageText) {
     }
     
     // 重要なメッセージまたは質問をセマンティック検索用に保存
-    if (semanticSearch && typeof semanticSearch.saveMessage === 'function') {
+    // 特性分析や職業診断の場合はセマンティック検索保存をスキップ
+    if (!isSpecialAnalysisCase && semanticSearch && typeof semanticSearch.saveMessage === 'function') {
       try {
         // 重要なメッセージかどうかを判断
         const isImportant = await checkIfImportantMessage(messageText);
@@ -4081,7 +4097,11 @@ async function processMessage(userId, messageText) {
         console.error('セマンティック検索保存エラー:', saveErr);
       }
     } else {
-      console.log('セマンティック検索が利用できないか、saveMessage関数がありません');
+      if (isSpecialAnalysisCase) {
+        console.log('特性分析または職業診断のため、セマンティック検索保存をスキップします');
+      } else {
+        console.log('セマンティック検索が利用できないか、saveMessage関数がありません');
+      }
     }
     
     return response;
