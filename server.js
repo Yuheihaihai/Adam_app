@@ -2044,8 +2044,14 @@ ${additionalPromptData.jobTrends.analysis}`;
     }
     console.log(`===== 会話履歴の状態確認終了 =====\n`);
     
-    const messages = [
-      { role: 'system', content: updatedSystemPrompt }
+    // 会話履歴を全部送信したくない場合のフィルタリング（ここではシンプルなデモとして、システムプロンプトと最近の10件のメッセージのみを送信）
+    // const messages = [
+    let messages = [
+      { role: 'system', content: updatedSystemPrompt },
+      ...history.slice(-Math.min(history.length, 10)).map(item => ({
+        role: item.role,
+        content: item.content
+      }))
     ];
     
     // ログ: システムプロンプトの追加
