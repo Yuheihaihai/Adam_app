@@ -2472,7 +2472,7 @@ async function fetchAndAnalyzeHistory(userId) {
   
   try {
     // PostgreSQLから最大200件のメッセージを取得
-    const pgHistory = await fetchUserHistory(userId, 200);
+    const pgHistory = await fetchUserHistory(userId, 200) || [];  // 未定義の場合は空配列を使用
     console.log(`📝 Found ${pgHistory.length} records from PostgreSQL in ${Date.now() - startTime}ms`);
     
     // Airtableからも追加でデータを取得（可能な場合）
@@ -2505,10 +2505,10 @@ async function fetchAndAnalyzeHistory(userId) {
     }
     
     // 両方のソースからのデータを結合
-    const combinedHistory = [...pgHistory];
+    const combinedHistory = pgHistory.length > 0 ? [...pgHistory] : [];
     
     // 重複を避けるために、既にPGに存在しないAirtableのデータのみを追加
-    const pgContentSet = new Set(pgHistory.map(msg => `${msg.role}:${msg.content}`));
+    const pgContentSet = pgHistory.length > 0 ? new Set(pgHistory.map(msg => `${msg.role}:${msg.content}`)) : new Set();
     
     for (const airtableMsg of airtableHistory) {
       const key = `${airtableMsg.role}:${airtableMsg.content}`;
