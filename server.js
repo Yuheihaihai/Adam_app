@@ -4340,6 +4340,24 @@ async function checkIfImportantMessage(message) {
  */
 async function generateAIResponse(userMessage, history, contextMessages, userId) {
   try {
+    // ASD支援の使い方質問を検出するパターン
+    const asdSupportPattern = /(ASD|発達障害|自閉症)(の|に関する|に対する|の|症)?(支援|サポート|助け)(で|に|について)?(あなた|Adam)(が|の)?(対応|使い方|質問例|機能|できること)/i;
+    const exactPattern = /ASD症支援であなたが対応できる具体的な質問例とあなたの使い方/i;
+    const manualRequestPattern = /(使い方|マニュアル|ガイド|説明|方法)(を)?教えて/i;
+    
+    // ASD支援または使い方に関する質問の場合、マニュアルを直接返す
+    if (asdSupportPattern.test(userMessage) || 
+       exactPattern.test(userMessage) ||
+       (manualRequestPattern.test(userMessage) && userMessage.toLowerCase().includes('asd'))) {
+      console.log('ASD支援の使い方質問を検出しました。マニュアルを直接返します。');
+      return `【Adamの使い方-ユーザ向けマニュアル】
+・お気軽に相談内容や質問をテキストで送信してください。
+・必要に応じて、送信された画像の内容を解析し、アドバイスに反映します。
+・わからない場合は画像を作って説明できるので、「〇〇（理解できなかったメッセージ）について画像を作って」とお願いしてみてください。イメージ画像を生成します。
+・音声入力機能もご利用いただけます（1日3回まで）。サービス向上のため、高いご利用状況により一時的にご利用いただけない場合もございますので、あらかじめご了承ください。順次改善するようにします。
+・あなたの基本機能は、「適職診断」「特性分析」のほか画像生成や画像解析もできます。`;
+    }
+    
     // システムメッセージを設定
     const currentDate = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
     let systemMessage = `あなたはLINE上で動作するAI「ADAM」です。現在の日付と時刻は${currentDate}です。`;
