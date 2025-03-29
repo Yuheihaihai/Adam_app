@@ -1100,16 +1100,16 @@ async function fetchUserHistory(userId, limit) {
       
       // filterByFormulaとsortを設定
       console.log(`📚 📊 クエリ: UserID="${userId}" で最大${limit * 2}件を時間降順で取得`);
-      const conversationRecords = await airtableBase('ConversationHistory')
-        .select({
-          filterByFormula: `{UserID} = "${userId}"`,
+          const conversationRecords = await airtableBase('ConversationHistory')
+            .select({
+              filterByFormula: `{UserID} = "${userId}"`,
           sort: [{ field: 'Timestamp', direction: 'desc' }], // 降順に変更
           fields: columns,  // 明示的にフィールドを指定
-          maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
-        })
-        .all();
+              maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
+            })
+            .all();
             
-      if (conversationRecords && conversationRecords.length > 0) {
+          if (conversationRecords && conversationRecords.length > 0) {
         console.log(`📚 ✅ 取得成功: ConversationHistoryテーブルから${conversationRecords.length}件のレコードを取得しました`);
         
         // 取得したデータを変換
@@ -1161,35 +1161,35 @@ async function fetchUserHistory(userId, limit) {
         
         console.log(`📚 ✓ レコード処理完了 (${history.length}件のメッセージを正常に処理)`);
             
-        // 履歴の内容を分析
+            // 履歴の内容を分析
         historyMetadata.totalRecords += history.length;
-        analyzeHistoryContent(history, historyMetadata);
+            analyzeHistoryContent(history, historyMetadata);
             
         // 最新のlimit件を取得
-        if (history.length > limit) {
+            if (history.length > limit) {
           console.log(`📚 ✂️ 履歴が多すぎるため、最新の${limit}件に制限します (${history.length}件→${limit}件)`);
-          return { history: history.slice(-limit), metadata: historyMetadata };
-        }
+              return { history: history.slice(-limit), metadata: historyMetadata };
+            }
         
         console.log(`📚 ✅ 履歴取得完了: ${history.length}件のメッセージを返します`);
         console.log(`📚 ==== 会話履歴取得プロセス終了 - ユーザー: ${userId} ====\n`);
-        return { history, metadata: historyMetadata };
+            return { history, metadata: historyMetadata };
       } else {
         console.log(`📚 ⚠️ ConversationHistoryテーブルにユーザー${userId}のレコードが見つかりませんでした`);
-      }
-    } catch (tableErr) {
+          }
+        } catch (tableErr) {
       console.error(`📚 ❌ ConversationHistoryテーブルエラー: ${tableErr.message}. UserAnalysisテーブルにフォールバックします。`);
-    }
-    
+        }
+        
     // ConversationHistoryが使えないかデータがない場合は旧テーブルからの取得を試みる
     console.log(`📚 🔍 UserAnalysisテーブルからの履歴取得を試みます...`);
-    try {
+        try {
       const records = await airtableBase('UserAnalysis')
-        .select({
+            .select({
           filterByFormula: `{UserID} = "${userId}"`,
           maxRecords: 100
-        })
-        .all();
+            })
+            .all();
             
       if (records && records.length > 0) {
         console.log(`📚 ✅ UserAnalysisテーブルから${records.length}件のレコードを取得しました`);
@@ -1266,10 +1266,10 @@ async function fetchUserHistory(userId, limit) {
         }
     
         console.log(`📚 ✅ メッセージの再構築完了: ${history.length}件のメッセージを抽出しました`);
-        
-        // 履歴の内容を分析
+    
+    // 履歴の内容を分析
         historyMetadata.totalRecords += history.length;
-        analyzeHistoryContent(history, historyMetadata);
+    analyzeHistoryContent(history, historyMetadata);
     
         // 時間順に並べ替え (最も古いものから新しいものへ)
         history.sort((a, b) => {
@@ -1286,7 +1286,7 @@ async function fetchUserHistory(userId, limit) {
         
         console.log(`📚 ✅ 履歴取得完了: ${history.length}件のメッセージを返します`);
         console.log(`📚 ==== 会話履歴取得プロセス終了 - ユーザー: ${userId} ====\n`);
-        return { history, metadata: historyMetadata };
+    return { history, metadata: historyMetadata };
       } else {
         console.log(`📚 ⚠️ UserAnalysisテーブルにもレコードが見つかりませんでした`);
       }
@@ -2760,68 +2760,90 @@ async function handleText(event) {
         replyMessage = audioHandler.generateVoiceSelectionMessage();
       } else {
         // 通常の応答処理へフォールバック
-        const processedResult = await processMessage(userId, text);
+        const sanitizedText = sanitizeUserInput(text);
         
-        // processMessageの結果が空の場合のチェックを追加
-        if (!processedResult) {
-          replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
-        } else {
-          // 画像生成リクエストの処理
-          if (typeof processedResult === 'object' && processedResult.isImageGenerationRequest) {
-            console.log(`handleText: 画像生成リクエストを検出 - "${text.substring(0, 50)}..."`);
-            await handleVisionExplanation(event, text);
-            return;
-          }
-          
-          // processMessageの結果がオブジェクトの場合、テキストを抽出
-          replyMessage = processedResult;
-          if (typeof processedResult === 'object') {
-            if (processedResult.response) {
-              replyMessage = processedResult.response;
-            } else if (processedResult.text) {
-              replyMessage = processedResult.text;
-          } else {
-              replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
+        // メッセージからモードを検出
+        const { mode, limit } = determineModeAndLimit(sanitizedText);
+        console.log(`モード検出: "${sanitizedText.substring(0, 30)}..." => モード: ${mode}, 履歴制限: ${limit}件`);
+        
+        // 履歴の取得
+        console.log(`会話履歴取得プロセス開始 - ユーザー: ${userId}`);
+        const historyData = await fetchUserHistory(userId, limit) || [];
+        const history = Array.isArray(historyData) ? historyData : (historyData.history || []);
+        console.log(`会話履歴取得完了: ${history.length}件`);
+        
+        // AIへの送信前に、過去の関連メッセージをセマンティック検索で取得
+        let contextMessages = [];
+        if (semanticSearch && typeof semanticSearch.findSimilarMessages === 'function') {
+          try {
+            const similarMessages = await semanticSearch.findSimilarMessages(userId, sanitizedText);
+            if (similarMessages && similarMessages.length > 0) {
+              contextMessages = similarMessages.map(msg => ({
+                role: 'context',
+                content: msg.content
+              }));
             }
+          } catch (searchErr) {
+            console.error('セマンティック検索エラー:', searchErr);
           }
         }
-      }
-      } else {
-      // 通常のメッセージ処理
-      const processedResult = await processMessage(userId, text);
-      
-      // processMessageの結果が空の場合のチェックを追加
-      if (!processedResult) {
-        replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
-            } else {
-        // 画像生成リクエストの処理
-        if (typeof processedResult === 'object' && processedResult.isImageGenerationRequest) {
-          console.log(`handleText: 画像生成リクエストを検出 - "${text.substring(0, 50)}..."`);
-          await handleVisionExplanation(event, text);
-      return;
-    }
-    
-        // processMessageの結果がオブジェクトの場合、テキストを抽出
-        replyMessage = processedResult;
-        if (typeof processedResult === 'object') {
-          if (processedResult.response) {
-            replyMessage = processedResult.response;
-          } else if (processedResult.text) {
-            replyMessage = processedResult.text;
-        } else {
-            replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
+        
+        // 特性分析モードの場合の特別処理
+        if (mode === 'characteristics') {
+          console.log('特性分析モードを開始します');
+          try {
+            replyMessage = await processWithAI(
+              getSystemPromptForMode('characteristics'),
+              sanitizedText,
+              history,
+              'characteristics',
+              userId
+            );
+          } catch (err) {
+            console.error('特性分析処理エラー:', err);
+            replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。';
           }
+        }
+        // 適職診断モードの場合の特別処理
+        else if (mode === 'career') {
+          console.log('適職診断モードを開始します');
+          // キャリア分析専用の関数を呼び出し
+          try {
+            replyMessage = await generateCareerAnalysis(history, sanitizedText);
+          } catch (err) {
+            console.error('キャリア分析エラー:', err);
+            replyMessage = '申し訳ありません、キャリア分析中にエラーが発生しました。';
+          }
+        }
+        // 通常の会話応答の生成
+        else {
+          try {
+            replyMessage = await generateAIResponse(sanitizedText, history, contextMessages, userId, mode);
+          } catch (err) {
+            console.error('AI応答生成エラー:', err);
+            replyMessage = '申し訳ありません、応答生成中にエラーが発生しました。';
+          }
+        }
+        
+        // 会話履歴を更新
+        if (!sessions[userId]) sessions[userId] = { history: [] };
+        sessions[userId].history.push({ role: "user", content: text });
+        sessions[userId].history.push({ role: "assistant", content: replyMessage });
+        
+        // 会話履歴が長すぎる場合は削除
+        if (sessions[userId].history.length > 20) {
+          sessions[userId].history = sessions[userId].history.slice(-20);
+        }
+        
+        // 会話内容を保存
+        try {
+          await storeInteraction(userId, 'user', text);
+          await storeInteraction(userId, 'assistant', replyMessage);
+        } catch (storageErr) {
+          console.error('会話保存エラー:', storageErr);
         }
       }
     }
-    
-    // テキストのみ返信
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: replyMessage
-    }).catch(error => {
-      console.error('テキスト送信エラー:', error.message);
-    });
   } catch (error) {
     console.error('テキストメッセージ処理エラー:', error);
     
@@ -3605,24 +3627,88 @@ async function handleAudio(event) {
     } 
     
     // 通常のメッセージ処理
-    let processedResult = await processMessage(userId, transcribedText);
-    
-    // processMessageの結果が空の場合のチェックを追加
-    if (!processedResult) {
-      console.error('警告: processMessageの結果が空です');
-      processedResult = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
-    }
-    
-    // processMessageの結果がオブジェクトの場合、テキストを抽出
-    if (typeof processedResult === 'object') {
-      if (processedResult.response) {
-        processedResult = processedResult.response;
-      } else if (processedResult.text) {
-        processedResult = processedResult.text;
-      } else {
-        console.error('警告: processMessageの結果オブジェクトにtext/responseプロパティがありません');
-        processedResult = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
+    let processedResult;
+    const sanitizedText = sanitizeUserInput(transcribedText);
+      
+    // メッセージからモードを検出
+    const { mode, limit } = determineModeAndLimit(sanitizedText);
+    console.log(`モード検出: "${sanitizedText.substring(0, 30)}..." => モード: ${mode}, 履歴制限: ${limit}件`);
+      
+    // 履歴の取得
+    console.log(`会話履歴取得プロセス開始 - ユーザー: ${userId}`);
+    const historyData = await fetchUserHistory(userId, limit) || [];
+    const history = Array.isArray(historyData) ? historyData : (historyData.history || []);
+    console.log(`会話履歴取得完了: ${history.length}件`);
+      
+    // AIへの送信前に、過去の関連メッセージをセマンティック検索で取得
+    let contextMessages = [];
+    if (semanticSearch && typeof semanticSearch.findSimilarMessages === 'function') {
+      try {
+        const similarMessages = await semanticSearch.findSimilarMessages(userId, sanitizedText);
+        if (similarMessages && similarMessages.length > 0) {
+          contextMessages = similarMessages.map(msg => ({
+            role: 'context',
+            content: msg.content
+          }));
+        }
+      } catch (searchErr) {
+        console.error('セマンティック検索エラー:', searchErr);
       }
+    }
+      
+    // 特性分析モードの場合の特別処理
+    if (mode === 'characteristics') {
+      console.log('特性分析モードを開始します');
+      try {
+        processedResult = await processWithAI(
+          getSystemPromptForMode('characteristics'),
+          sanitizedText,
+          history,
+          'characteristics',
+          userId
+        );
+      } catch (err) {
+        console.error('特性分析処理エラー:', err);
+        processedResult = '申し訳ありません、特性分析中にエラーが発生しました。';
+      }
+    }
+    // 適職診断モードの場合の特別処理
+    else if (mode === 'career') {
+      console.log('適職診断モードを開始します');
+      // キャリア分析専用の関数を呼び出し
+      try {
+        processedResult = await generateCareerAnalysis(history, sanitizedText);
+      } catch (err) {
+        console.error('キャリア分析エラー:', err);
+        processedResult = '申し訳ありません、キャリア分析中にエラーが発生しました。';
+      }
+    }
+    // 通常の会話応答の生成
+    else {
+      try {
+        processedResult = await generateAIResponse(sanitizedText, history, contextMessages, userId, mode);
+      } catch (err) {
+        console.error('AI応答生成エラー:', err);
+        processedResult = '申し訳ありません、応答生成中にエラーが発生しました。';
+      }
+    }
+      
+    // 会話履歴を更新
+    if (!sessions[userId]) sessions[userId] = { history: [] };
+    sessions[userId].history.push({ role: "user", content: transcribedText });
+    sessions[userId].history.push({ role: "assistant", content: processedResult });
+      
+    // 会話履歴が長すぎる場合は削除
+    if (sessions[userId].history.length > 20) {
+      sessions[userId].history = sessions[userId].history.slice(-20);
+    }
+      
+    // 会話内容を保存
+    try {
+      await storeInteraction(userId, 'user', transcribedText);
+      await storeInteraction(userId, 'assistant', processedResult);
+    } catch (storageErr) {
+      console.error('会話保存エラー:', storageErr);
     }
     
     // ユーザー設定を反映した音声応答生成
