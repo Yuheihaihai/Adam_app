@@ -1496,7 +1496,7 @@ const anthropic = new Anthropic({
 async function callPrimaryModel(gptOptions) {
   try {
     console.log(`OpenAI API呼び出し: ${gptOptions.model}, メッセージ数: ${gptOptions.messages.length}`);
-    const resp = await openai.chat.completions.create(gptOptions);
+  const resp = await openai.chat.completions.create(gptOptions);
     
     if (!resp || !resp.choices || !resp.choices[0]) {
       console.error('OpenAI APIからの応答が無効: 空のレスポンス');
@@ -2349,7 +2349,7 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     } else if (response.choices && response.choices[0] && response.choices[0].message) {
       // OpenAI API形式のレスポンスからコンテンツを抽出
       aiResponseText = response.choices[0].message.content;
-    } else {
+          } else {
       throw new Error('AI response format is invalid');
     }
     
@@ -2845,7 +2845,7 @@ async function handleText(event) {
                 replyMessage = characteristicsResult.response;
               } else if (characteristicsResult.text) {
                 replyMessage = characteristicsResult.text;
-              } else {
+          } else {
                 // オブジェクトを文字列に変換
                 replyMessage = JSON.stringify(characteristicsResult);
               }
@@ -2890,19 +2890,38 @@ async function handleText(event) {
         
         // 会話内容を保存
         try {
-        await storeInteraction(userId, 'user', text);
+      await storeInteraction(userId, 'user', text);
           await storeInteraction(userId, 'assistant', replyMessage);
         } catch (storageErr) {
           console.error('会話保存エラー:', storageErr);
         }
       }
     }
+    
+    // LINE Messaging APIを使ってレスポンスを送信
+    if (replyMessage && event.replyToken && event.replyToken !== 'test-reply-token') {
+      console.log(`LINE APIにレスポンスを送信します: ${replyMessage.substring(0, 20)}... (${replyMessage.length}文字)`);
+      
+      if (replyMessage.length > 5000) {
+        // LINEのメッセージ長制限に対応（5000文字まで）
+        const firstPart = replyMessage.substring(0, 4900);
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: firstPart + '\n\n(メッセージが長すぎるため省略されました)'
+        });
+      } else {
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: replyMessage
+        });
+      }
+    }
   } catch (error) {
     console.error('テキストメッセージ処理エラー:', error);
     
     try {
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
         text: '申し訳ありません、メッセージの処理中にエラーが発生しました。もう一度お試しください。'
       });
     } catch (replyError) {
@@ -3868,7 +3887,7 @@ async function handleAudio(event) {
       
     // 会話履歴を更新
     if (!sessions[userId]) sessions[userId] = { history: [] };
-    sessions[userId].history.push({ role: "user", content: transcribedText });
+    sessions[userId].history.push({ role: "user", content: text });
     sessions[userId].history.push({ role: "assistant", content: replyMessage });
       
     // 会話履歴が長すぎる場合は削除
@@ -3878,7 +3897,7 @@ async function handleAudio(event) {
       
     // 会話内容を保存
     try {
-      await storeInteraction(userId, 'user', transcribedText);
+      await storeInteraction(userId, 'user', text);
       await storeInteraction(userId, 'assistant', replyMessage);
     } catch (storageErr) {
       console.error('会話保存エラー:', storageErr);
