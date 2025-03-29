@@ -33,12 +33,19 @@ Adam AIアプリケーションは、発達障害を持つユーザーをサポ�
 
 - **使用モデル**: OpenAI `chatgpt-4o-latest` (GPT-4o最新版)
 - **フォールバックモデル**: Claude 3 Sonnet
+- **代替モデル**: Google Gemini 1.5 Pro (キャリア分析機能)
 - **主な機能**:
   - ユーザーメッセージへの応答生成
   - 会話文脈の理解
   - ユーザーのニーズと特性の把握
   - 専門的な発達障害関連の情報提供
   - 二段階レビュー機能による応答品質の向上
+  - 適職診断と職業推奨 (`generateCareerAnalysis`関数)
+    - 具体的な職業推奨（5つ以上の候補）
+    - 推奨職業の説明と適性理由
+    - 理想的な職場環境と社風の特定
+    - キャリア向上のためのスキル推奨
+    - Google Gemini 1.5 ProをメインモデルとしてOpenAIにフォールバック
 
 ### 3. データベース
 
@@ -98,30 +105,40 @@ Adam AIアプリケーションは、発達障害を持つユーザーをサポ�
 ### 8. テスト自動化フレームワーク
 
 - **主要ファイル**: 
-  - `master_test_runner.js`: メイン実行スクリプト
-  - `comprehensive_test_suite.js`: 全機能テスト (100パターン)
-  - `audio_test_suite.js`: 音声機能専用テスト
-  - `image_test_suite.js`: 画像機能専用テスト
+  - `test-career.js`: 適職診断機能のテスト
+  - `test-all-features.js`: 全機能統合テスト
+  - `test-e2e.js`: エンドツーエンドのシナリオベーステスト
+  - `test-api.sh`: APIエンドポイントテスト
+  - `system-test.js`: 本番環境へのAPIテスト
+  - `standalone-career-test.js`: キャリア分析機能の単体テスト
+  - `test-structure.js`: API構造検証テスト
 
 - **テスト構成**:
-  - 基本会話 (10パターン)
-  - 発達障害に関する質問 (15パターン)
-  - 自己開示・相談 (15パターン)
-  - 画像生成リクエスト (10パターン)
-  - 音声機能関連 (10パターン)
-  - 特性分析リクエスト (10パターン)
-  - 特殊コマンド (10パターン)
-  - エラーケース (10パターン)
-  - サービス推薦トリガー (5パターン)
-  - 複合的なリクエスト (5パターン)
+  - 基本会話 (一般的な質問応答)
+  - 発達障害に関する質問 (情報提供機能)
+  - 特性分析 (個人特性の分析機能)
+  - キャリア分析 (適職診断機能)
+  - 画像生成リクエスト
+  - 音声機能関連
+  - エラーケース
 
 - **主な機能**:
   - 全機能の自動テスト実行
-  - モック環境でのテスト対応
-  - 詳細なテスト結果レポート生成
-  - カテゴリ別成功率分析
-  - 改善が必要な機能の特定
-  - npm scriptによる簡易実行
+  - 質的チェック (応答の内容が適切かどうか)
+  - 会話履歴を活用したシナリオテスト
+  - 対話型テストとバッチテスト両方のサポート
+  - API検証と応答分析
+  - 本番環境への負荷テスト
+  - 単体テストと統合テスト
+  - API構造の整合性チェック
+  - テスト結果のレポーティング
+
+- **テストカバレッジ**:
+  - サーバーAPI (generateCareerAnalysis, generateAIResponse, handleText, handleImage, handleAudio)
+  - 音声処理API (transcribeAudio, generateAudioResponse, detectVoiceChangeRequest, getUserVoicePreferences)
+  - 特性分析API (analyzeCharacteristics, getRecentCharacteristics)
+  - エンドポイント (`/test/message`, `/api/audio`)
+  - 会話モード判定 (general, characteristics, career, deep-exploration)
 
 ## 処理フロー
 

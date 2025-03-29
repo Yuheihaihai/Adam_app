@@ -1,0 +1,191 @@
+Database configuration: Using individual config params
+Database pool created successfully
+音声制限設定をロードしました: { userDailyLimit: 3, globalMonthlyLimit: 2000, quotaRemoved: false }
+拡張特性分析モジュール初期化完了 (Gemini 有効)
+RT Client モジュールが存在しません。音声機能は制限されたモードで動作します。
+警告: Azure OpenAIリアルタイム音声の設定がありません。従来のOpenAIモードで動作します。
+0件のユーザー音声設定を読み込みました
+音声処理モジュール初期化
+SemanticSearch module initialized
+Semantic search module loaded successfully
+Initializing Enhanced Embedding Features...
+EmbeddingService initialized with model: text-embedding-3-small
+EmbeddingService initialized with model: text-embedding-3-small
+EmbeddingService initialized with model: text-embedding-3-small
+Embedding features loaded successfully
+Loaded 16 services from services.js
+First service: "comoly" - "COMOLY"
+Sample criteria: {"needs":["is_hikikomori","isolation","seeking_job","remote_work_interest"],"excludes":["has_stable_income"],"topics":["employment","social"],"moods":["anxious","depressed"]}
+Service matching module loaded with DEFAULT_CONFIDENCE_THRESHOLD: 0.7 (70%)
+Loading saved user analysis data from Airtable...
+[2025-03-29T12:17:12.248Z] [ML-ENHANCE] [INFO] ML拡張ロガー初期化 - レベル: info, パフォーマンスメトリクス: false
+[2025-03-29T12:17:12.249Z] [ML-ENHANCE] [INFO] ML拡張ラッパーの初期化を開始
+[2025-03-29T12:17:12.249Z] [ML-ENHANCE] [INFO] ML構成: {"enabled":false,"modes":{"general":false,"career":false},"fallbackEnabled":true,"loggingLevel":"info"}
+[2025-03-29T12:17:12.249Z] [ML-ENHANCE] [INFO] 拡張ML機能は無効化されています（環境変数ML_ENHANCED=trueで有効化）
+[2025-03-29T12:17:12.249Z] [ML-ENHANCE] [INFO] ML拡張ラッパーの初期化完了
+No ML data cache found, will create new cache
+Airtable接続が初期化されました
+メモリストア: データベースからデータを読み込んでいます...
+Initial CONFIDENCE_THRESHOLD set to: 0.7 (70%)
+No local recommendations file found, starting with empty array
+Loaded 16 service embeddings from file
+Enhanced recommendation trigger system initialized
+Using model: gpt-4o with rate limit: 20 requests per hour
+Enhanced confusion detection system initialized
+
+=== INITIALIZING ENHANCED FEATURES ===
+Service matching enhancement initialized
+[EnhancedInit] Service recommendation enhancement successfully initialized!
+[EnhancedInit] The existing service recommender has been enhanced with better detection.
+✅ Enhanced service recommendations initialized
+
+=== ENHANCED FEATURES INITIALIZATION COMPLETE ===
+
+Restoring system state from persistent storage...
+Attempting to restore pending image generation requests...
+Listening on port 3000
+Visit: http://localhost:3000 (if local)
+
+既存の語彙ファイルを読み込みました
+
+============================
+Hi, looks like you are running TensorFlow.js in Node.js. To speed things up dramatically, install our node backend, visit https://github.com/tensorflow/tfjs-node for more details. 
+============================
+サンプル意図検出モデルを作成しました
+Intent detection model initialized successfully
+Enhanced Embedding Features successfully initialized.
+Embedding features are ready to use.
+Failed to enable pgvector extension: could not open extension control file "/opt/homebrew/share/postgresql@14/extension/vector.control": No such file or directory
+Will continue without vector search capabilities
+Added missing columns to user_messages table
+メモリストア: 読み込み完了 (トレーニングデータ: 3件, 語彙: 10語, モデルバージョン: 1件)
+Failed to create semantic search tables: type "vector" does not exist
+Cleanup function created successfully
+Database tables initialized
+InsightsService: データベーステーブルの存在を確認しました
+Initializing Enhanced Embedding Features...
+Enhanced Embedding Features successfully initialized.
+Embedding features initialized asynchronously
+ServiceRecommendations table exists and is accessible
+Found 0 recent image generation proposals
+No valid pending image requests were found to restore
+Successfully restored 0 pending image requests
+System state restoration completed
+UserAnalysis table is accessible. Loading data...
+EmbeddingService initialized with model: text-embedding-3-small
+Enhanced service matching module initialized successfully
+Enhanced service matching bridge initialized successfully
+EmbeddingService initialized with model: text-embedding-3-small
+Enhanced image decision module initialized successfully
+Enhanced image decision bridge initialized successfully
+テストエンドポイントが呼び出されました: { userId: 'U123456789abcdef123456789abcdef12', text: '私の特性を分析してください' }
+Checking message for mode: 私の特性を分析してください
+📊 テストエンドポイント: モード検出 "私の特性を分析してください..." => モード: characteristics, 履歴制限: 200件
+📚 テストエンドポイント: 会話履歴取得プロセス開始 - ユーザー: U123456789abcdef123456789abcdef12
+
+📚 ==== 会話履歴取得プロセス開始 - ユーザー: U123456789abcdef123456789abcdef12 ====
+📚 リクエスト内容: 200件の会話履歴を取得します
+📚 [接続検証] Airtable認証情報 => API_KEY存在: true, BASE_ID存在: true
+📚 [接続検証] airtableBase初期化状態: 成功
+📚 🔍 ConversationHistory テーブルからユーザー U123456789abcdef123456789abcdef12 の履歴を取得中...
+📚 📊 クエリ: UserID="U123456789abcdef123456789abcdef12" で最大400件を時間降順で取得
+📚 ✅ 取得成功: ConversationHistoryテーブルから10件のレコードを取得しました
+📚 🔄 レコードを時系列順（古い順）に並べ替えました
+📚 📝 レコード処理開始 (10件)
+
+📚 📋 レコード構造サンプル =====
+📚 📌 レコードID: rec6YPxAuTCSKGX6O
+📚 📌 フィールド: {"UserID":"U123456789abcdef123456789abcdef12","Content":"私の適職を教えてください","Timestamp":"2025-03-29T12:10:52.450Z","MessageType":"text","Role":"user","Mode":"general"}
+📚 📋 レコード構造サンプル終了 =====
+
+📚 🔢 10件のメッセージを処理しました...
+📚 ✓ レコード処理完了 (10件のメッセージを正常に処理)
+
+📊 ======= 履歴内容分析デバッグ =======
+📊 → 分析対象メッセージ数: 10件
+📊 → キャリア関連キーワード: 仕事, キャリア, 職業, 転職, 就職, 働き方, 業界, 適職
+📊 → メッセージ分析開始...
+📊 → [メッセージ 1] 私の適職を教えてください...
+📊 → [メッセージ 3] 私の適職を教えてください...
+📊 → [メッセージ 5] 私の特性を分析してください...
+
+📊 === 分析サマリー ===
+📊 → 総メッセージ数: 10件
+📊 → ユーザーメッセージ: 5件
+📊 → キャリア関連: 2件 (40%)
+📊 → 会話期間: 0日間 (2025/3/29 〜 2025/3/29)
+📊 → 結論: 分析に十分な履歴あり (10件)
+📊 ======= 履歴内容分析デバッグ終了 =======
+
+📚 ✅ 履歴取得完了: 10件のメッセージを返します
+📚 ==== 会話履歴取得プロセス終了 - ユーザー: U123456789abcdef123456789abcdef12 ====
+
+📚 テストエンドポイント: 会話履歴取得完了: 10件
+テストエンドポイント: 特性分析モードを開始します
+Processing message in mode: characteristics
+特殊コマンドチェック: {"hasDeepAnalysis":false,"hasAskForDetail":false,"hasRecallHistory":false,"hasSearchCommand":false,"hasClaudeRequest":false,"claudeQuery":null,"searchQuery":null}
+👔 [キャリア検出] 不一致: "私の特性を分析してください"
+
+==== 会話履歴デバッグ情報 ====
+→ ユーザーID: U123456789abcdef123456789abcdef12
+→ 履歴メッセージ数: 0件
+
+===== 会話履歴の詳細 (最新5件) =====
+→ 警告: 履歴が空です。fetchUserHistoryでの取得に問題がある可能性があります。
+Using model: chatgpt-4o-latest
+
+=== WORKFLOW VISUALIZATION: AI RESPONSE GENERATION PROCESS ===
+┌──────────────────────────────────────────────────────────┐
+│ 1. PARALLEL DATA COLLECTION PHASE                        │
+└──────────────────────────────────────────────────────────┘
+
+🧠 [1S] SEMANTIC SEARCH MODULE - Available
+
+📊 [1A] USER NEEDS ANALYSIS - Starting
+
+🔍 [1B] CONVERSATION CONTEXT EXTRACTION - Starting
+📊 Extracting conversation context from 0 messages...
+No conversation history available for context extraction.
+🔍 [1B] CONVERSATION CONTEXT EXTRACTION - Completed in 0ms
+
+🔍 [1D] SEMANTIC SEARCH - Starting
+Generating embedding for text: 私の特性を分析してください...
+Generating embedding for text: 私の特性を分析してください...
+Query error: relation "semantic_embeddings" does not exist
+Error finding relevant context: relation "semantic_embeddings" does not exist
+🔍 [1D] SEMANTIC SEARCH - No relevant contexts found in 885ms
+Query error: relation "semantic_embeddings" does not exist
+Error storing message embedding: relation "semantic_embeddings" does not exist
+Skipping record due to missing data: recNQO9tProJee9AP
+Invalid JSON in record recOENOO5qyg4OlgW, skipping: Unexpected token 上 in JSON at position 0
+Successfully loaded analysis data for 1510 user-mode combinations
+📊 [1A] USER NEEDS ANALYSIS - Completed in 17129ms
+
+┌──────────────────────────────────────────────────────────┐
+│ 2. DATA INTEGRATION PHASE                                │
+└──────────────────────────────────────────────────────────┘
+
+🔄 [2.1] Creating final system prompt with all context
+    ├─ [2.1.1] Added user needs analysis
+    ├─ [2.1.2] Added conversation context
+    └─ [2.1.5] Final system prompt created: 5761 characters
+
+┌──────────────────────────────────────────────────────────┐
+│ 3. AI RESPONSE GENERATION PHASE                          │
+└──────────────────────────────────────────────────────────┘
+
+🔄 [3.1] Adding conversation history: 0 messages
+
+🔄 [3.2] Preparing final prompt with 2 messages
+
+🤖 [3.3] Calling AI API
+Attempting primary model (OpenAI): chatgpt-4o-latest
+Error in AI processing: AI response is empty or invalid
+Error: AI response is empty or invalid
+    at processWithAI (/Users/yuhei/adam-app-cloud-v2.4 - search is implemented./server.js:2323:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async /Users/yuhei/adam-app-cloud-v2.4 - search is implemented./server.js:2920:20
+Storing interaction => userId: U123456789abcdef123456789abcdef12, role: user, content: 私の特性を分析してください
+会話履歴の保存成功 => ユーザー: U123456789abcdef123456789abcdef12, タイプ: user, 長さ: 13文字
+Storing interaction => userId: U123456789abcdef123456789abcdef12, role: assistant, content: 申し訳ありません、エラーが発生しました。しばらく経ってからもう一度お試しください。
+会話履歴の保存成功 => ユーザー: U123456789abcdef123456789abcdef12, タイプ: assistant, 長さ: 41文字
