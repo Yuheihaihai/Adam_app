@@ -1781,6 +1781,25 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
       }
     }
     
+    // キャリア関連のクエリを検出し、モードを自動的に変更
+    const isCareerQuery = 
+      userMessage.includes('キャリア') || 
+      userMessage.includes('仕事') || 
+      userMessage.includes('職業') || 
+      userMessage.includes('適職') || 
+      userMessage.includes('転職') || 
+      userMessage.includes('就職') || 
+      userMessage.includes('診断') || 
+      userMessage.includes('向いてる') ||
+      (userMessage.includes('職場') && (userMessage.includes('社風') || userMessage.includes('人間関係')));
+    
+    // キャリア関連のクエリの場合、モードを'career'に設定
+    if (isCareerQuery && mode !== 'career') {
+      console.log(`\n🔄 [モード変更] キャリア関連クエリを検出: "${userMessage}"`);
+      console.log(`\n🔄 [モード変更] モードを '${mode}' から 'career' に変更します`);
+      mode = 'career';
+    }
+    
     // historyDataからhistoryとmetadataを取り出す
     const history = historyData.history || [];
     const historyMetadata = historyData.metadata || {};
@@ -1854,8 +1873,18 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
             const isJobRecommendationRequest = 
               userMessage.includes('適職') || 
               userMessage.includes('診断') || 
-              userMessage.includes('向いてる仕事') ||
-              (userMessage.includes('職場') && userMessage.includes('社風'));
+              userMessage.includes('向いてる') || 
+              userMessage.includes('向いている') || 
+              userMessage.includes('私に合う') || 
+              userMessage.includes('私に合った') || 
+              userMessage.includes('私に向いている') || 
+              userMessage.includes('私の特性') || 
+              userMessage.includes('キャリア分析') || 
+              userMessage.includes('職業') || 
+              (userMessage.includes('仕事') && (userMessage.includes('向いてる') || userMessage.includes('探し') || userMessage.includes('教えて'))) ||
+              (userMessage.includes('私') && userMessage.includes('仕事')) ||
+              (userMessage.includes('職場') && (userMessage.includes('社風') || userMessage.includes('人間関係'))) ||
+              (userMessage.includes('分析') && (userMessage.includes('仕事') || userMessage.includes('特性')));
               
             // Run both knowledge enhancement and job trends in parallel
             let promises = [];
