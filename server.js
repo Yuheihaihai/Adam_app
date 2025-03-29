@@ -8436,3 +8436,4 @@ async function generateAIResponse(userMessage, history, contextMessages, userId)
   }
 }
 
+}
