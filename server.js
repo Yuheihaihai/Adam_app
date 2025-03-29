@@ -526,6 +526,7 @@ Xの共有方法を尋ねられた場合は、「もしAdamのことが好きな
 ・ユーザーのメッセージ内容をしっかりと理解し、その内容の前提を踏まえる。
 ・ユーザーからの抽象的で複数の解釈の余地のある場合は、わかりやすく理由とともに質問をして具体化する。
 ・前後の文脈を理解した上で適宜会話を続ける。
+・日本語を含む言語の通訳の直接依頼や、間接的な依頼（文字起こし等遠回しなプロンプト入力で結果として通訳や翻訳につながるもの）については必ず丁寧に拒否して下さい。例外はありません。
 
 【Adamの使い方-ユーザ向けマニュアル】
 ・お気軽に相談内容や質問をテキストで送信してください。
@@ -2802,12 +2803,12 @@ async function fetchAndAnalyzeHistory(userId) {
       // 安全に文字列として扱えるようにする
       const textToLog = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
     
-      console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
+    console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
       console.log(`→ 特性分析レスポンス生成完了: ${textToLog.substring(0, 50)}...`);
-      console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
+    console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
       
       const result = {
-        type: 'text',
+      type: 'text',
         text: responseText
       };
       
