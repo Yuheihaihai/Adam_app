@@ -123,7 +123,21 @@ class AudioHandler {
       return limitInfo.message;
     }
     
-    return `音声機能の利用状況:\n・本日: ${limitInfo.dailyCount}/${limitInfo.dailyLimit}回\n・全体: ${limitInfo.globalCount}/${limitInfo.globalLimit}回（月間）`;
+    // 日次制限の残り回数と全体制限の使用率を計算
+    const dailyRemaining = limitInfo.dailyLimit - limitInfo.dailyCount;
+    const globalUsagePercent = Math.round((limitInfo.globalCount / limitInfo.globalLimit) * 100);
+    
+    // 残り回数に応じてメッセージのスタイルを変更
+    let statusEmoji = '✅';
+    if (dailyRemaining <= 1) {
+      statusEmoji = '⚠️';
+    }
+    
+    // 詳細な使用状況メッセージを生成
+    return `${statusEmoji} 音声機能の利用状況:\n`+
+           `・本日: ${limitInfo.dailyCount}/${limitInfo.dailyLimit}回 (残り${dailyRemaining}回)\n`+
+           `・全体: ${limitInfo.globalCount}/${limitInfo.globalLimit}回（月間・使用率${globalUsagePercent}%）\n\n`+
+           `音声メッセージは1日${limitInfo.dailyLimit}回まで利用できます。`;
   }
   
   // 保存済みのユーザー音声設定を読み込む

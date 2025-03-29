@@ -3912,8 +3912,9 @@ async function handleAudio(event) {
     // 音声テキスト変換結果をログ出力
     console.log(`音声テキスト変換結果: "${transcribedText}"`);
     
-    // 利用制限の状況をログ出力
-    console.log(`音声機能利用状況 (${userId}): 本日=${limitInfo.dailyCount}/${limitInfo.dailyLimit}, 全体=${limitInfo.globalCount}/${limitInfo.globalLimit}`);
+    // 利用制限の状況をより詳細にログ出力
+    const dailyRemaining = limitInfo.dailyLimit - limitInfo.dailyCount;
+    console.log(`音声機能利用状況 (${userId}): 本日=${limitInfo.dailyCount}/${limitInfo.dailyLimit} (残り${dailyRemaining}回), 全体=${limitInfo.globalCount}/${limitInfo.globalLimit} (${Math.round((limitInfo.globalCount / limitInfo.globalLimit) * 100)}%)`);
     
     // 音声コマンド（設定変更など）かどうかチェック
     const isVoiceCommand = await audioHandler.detectVoiceChangeRequest(transcribedText, userId);
@@ -3978,11 +3979,14 @@ async function handleAudio(event) {
     const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
     const audioResponse = await audioHandler.generateAudioResponse(processedResult, userId, userVoicePrefs);
     
+    // 処理結果に利用状況メッセージを追加（直近回数情報）
+    const usageLimitMessage = audioHandler.generateUsageLimitMessage(limitInfo);
+    
     // 音声が生成できなかった場合はテキストで返信
     if (!audioResponse || !audioResponse.buffer || !audioResponse.filePath) {
       await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: processedResult
+        text: processedResult + '\n\n' + usageLimitMessage
       });
       return;
     }
@@ -3992,7 +3996,7 @@ async function handleAudio(event) {
       console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
       await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: processedResult
+        text: processedResult + '\n\n' + usageLimitMessage
       });
       return;
     }
@@ -4001,22 +4005,50 @@ async function handleAudio(event) {
     const fileBaseName = path.basename(audioResponse.filePath);
     const audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
     
-    // 音声のみを返信
-    await client.replyMessage(event.replyToken, {
-      type: 'audio',
-      originalContentUrl: audioUrl,
-      duration: 60000 // 適当な値（実際の長さを正確に計算するのは難しい）
-    }).catch(error => {
-      console.error('音声送信エラー:', error.message);
-      // 音声メッセージ送信に失敗した場合、テキストで再試行
-      if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
-        console.log('音声メッセージ送信失敗、テキストで再試行します');
-        return client.replyMessage(event.replyToken, {
+    // 残り回数が1回以下の場合は音声と一緒に利用状況メッセージも送信（Flex Message）
+    const dailyRemaining = limitInfo.dailyLimit - limitInfo.dailyCount;
+    
+    if (dailyRemaining <= 1) {
+      // 音声メッセージと利用制限テキストを一緒に送信
+      await client.replyMessage(event.replyToken, [
+        {
+          type: 'audio',
+          originalContentUrl: audioUrl,
+          duration: 60000 // 適当な値
+        },
+        {
           type: 'text',
-          text: processedResult
-        });
-      }
-    });
+          text: usageLimitMessage
+        }
+      ]).catch(error => {
+        console.error('複合メッセージ送信エラー:', error.message);
+        // 音声メッセージ送信に失敗した場合、テキストで再試行
+        if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
+          console.log('音声メッセージ送信失敗、テキストで再試行します');
+          return client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: processedResult + '\n\n' + usageLimitMessage
+          });
+        }
+      });
+    } else {
+      // 通常通り音声のみを返信
+      await client.replyMessage(event.replyToken, {
+        type: 'audio',
+        originalContentUrl: audioUrl,
+        duration: 60000 // 適当な値
+      }).catch(error => {
+        console.error('音声送信エラー:', error.message);
+        // 音声メッセージ送信に失敗した場合、テキストで再試行
+        if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
+          console.log('音声メッセージ送信失敗、テキストで再試行します');
+          return client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: processedResult + '\n\n' + usageLimitMessage
+          });
+        }
+      });
+    }
     
     // 統計データ更新
     updateUserStats(userId, 'audio_messages', 1);
