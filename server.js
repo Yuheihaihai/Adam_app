@@ -2841,21 +2841,26 @@ async function handleText(event) {
       if (mode === 'characteristics') {
         console.log('特性分析モードを開始します');
         try {
-          const characteristicsResult = await enhancedCharacteristics.analyzeCharacteristics(userId, sanitizedText);
+          const characteristicsResult = await enhancedCharacteristics.analyzeUserCharacteristics(userId, { history });
           
           // 特性分析結果を文字列型に統一
           if (typeof characteristicsResult === 'string') {
             replyMessage = characteristicsResult;
           } else if (characteristicsResult && typeof characteristicsResult === 'object') {
-            if (characteristicsResult.analysis) {
-              replyMessage = characteristicsResult.analysis;
-            } else if (characteristicsResult.response) {
-              replyMessage = characteristicsResult.response;
-            } else if (characteristicsResult.text) {
-              replyMessage = characteristicsResult.text;
-          } else {
+            // structuredDataプロパティから結果を取得
+            const resultData = characteristicsResult.structuredData || characteristicsResult;
+            
+            if (resultData.analysis) {
+              replyMessage = resultData.analysis;
+            } else if (resultData.response) {
+              replyMessage = resultData.response;
+            } else if (resultData.text) {
+              replyMessage = resultData.text;
+            } else if (resultData.legacyMode && resultData.analysis) {
+              replyMessage = resultData.analysis;
+            } else {
               // オブジェクトを文字列に変換
-              replyMessage = JSON.stringify(characteristicsResult);
+              replyMessage = JSON.stringify(resultData);
             }
           } else {
             replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。もう一度お試しください。';
@@ -3847,21 +3852,26 @@ async function handleAudio(event) {
     if (mode === 'characteristics') {
       console.log('特性分析モードを開始します');
       try {
-        const characteristicsResult = await enhancedCharacteristics.analyzeCharacteristics(userId, sanitizedText);
+        const characteristicsResult = await enhancedCharacteristics.analyzeUserCharacteristics(userId, { history });
         
         // 特性分析結果を文字列型に統一
         if (typeof characteristicsResult === 'string') {
           replyMessage = characteristicsResult;
         } else if (characteristicsResult && typeof characteristicsResult === 'object') {
-          if (characteristicsResult.analysis) {
-            replyMessage = characteristicsResult.analysis;
-          } else if (characteristicsResult.response) {
-            replyMessage = characteristicsResult.response;
-          } else if (characteristicsResult.text) {
-            replyMessage = characteristicsResult.text;
+          // structuredDataプロパティから結果を取得
+          const resultData = characteristicsResult.structuredData || characteristicsResult;
+          
+          if (resultData.analysis) {
+            replyMessage = resultData.analysis;
+          } else if (resultData.response) {
+            replyMessage = resultData.response;
+          } else if (resultData.text) {
+            replyMessage = resultData.text;
+          } else if (resultData.legacyMode && resultData.analysis) {
+            replyMessage = resultData.analysis;
           } else {
             // オブジェクトを文字列に変換
-            replyMessage = JSON.stringify(characteristicsResult);
+            replyMessage = JSON.stringify(resultData);
           }
         } else {
           replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。もう一度お試しください。';
