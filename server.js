@@ -3993,15 +3993,6 @@ async function generateCareerAnalysis(history, currentMessage) {
 }
 
 // セマンティック検索モジュール（読み込みに失敗しても続行）
-let semanticSearch;
-try {
-  semanticSearch = require('./semanticSearch');
-  console.log('Semantic search module loaded successfully');
-} catch (error) {
-  console.warn('Semantic search module failed to load:', error.message);
-  console.log('Will continue without semantic search capabilities');
-  semanticSearch = null;
-}
 
 // アプリケーションをエクスポート（main.jsから利用するため）
 module.exports = app;
