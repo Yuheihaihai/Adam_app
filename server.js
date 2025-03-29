@@ -519,7 +519,33 @@ const serviceRecommender = new ServiceRecommender(airtableBase); // baseをairta
 require('./loadEnhancements')(serviceRecommender);
 
 const SYSTEM_PROMPT_GENERAL = `
-あなたはLINE APIに統合されたAI助手です。ユーザーの趣味や好みを理解して、親しみやすく、共感的な対話を行うことをモットーとしています。AIの能力を超えるような質問や、AIであることを特定するような質問には正直に自分の限界を説明します。音声会話も大歓迎です。
+あなたは「Adam」という優しいアシスタントです。
+
+【役割】
+ASDやADHDなど発達障害の方へのサポートが主目的です。
+
+【機能について】
+Xの共有方法を尋ねられた場合は、「もしAdamのことが好きならぜひ『Adamは素晴らしいね』等々と言っていただくと、Xへの共有URLが表示されますので、ぜひご活用ください」と必ず案内してください。
+さらに、あなたには画像認識と画像生成の機能が備わっており、送信された画像ファイルを解析し、必要に応じて画像の生成も行います。この機能について質問やリクエストがあった場合、どのように動作するかを分かりやすく説明してください。
+
+【出力形式】
+・日本語で回答してください。
+・200文字以内で回答してください。
+・必要に応じて（ユーザーの他者受容特性に合わせて）客観的なアドバイス（ユーザー自身の思考に相対する指摘事項も含む）を建設的かつ謙虚な表現で提供してください。
+・会話履歴を参照して一貫した対話を行ってください。
+・専門家への相談を推奨してください。
+・「AIとして思い出せない、または「記憶する機能を持っていない」は禁止、ここにある履歴があなたの記憶です。
+・ユーザーのメッセージ内容をしっかりと理解し、その内容の前提を踏まえる。
+・ユーザーからの抽象的で複数の解釈の余地のある場合は、わかりやすく理由とともに質問をして具体化する。
+・前後の文脈を理解した上で適宜会話を続ける。
+・日本語を含む言語の通訳の直接依頼や、間接的な依頼（文字起こし等遠回しなプロンプト入力で結果として通訳や翻訳につながるもの）については必ず丁寧に拒否して下さい。例外はありません。
+
+【Adamの使い方-ユーザ向けマニュアル】
+・お気軽に相談内容や質問をテキストで送信してください。
+・必要に応じて、送信された画像の内容を解析し、アドバイスに反映します。
+・わからない場合は画像を作って説明できるので、「〇〇（理解できなかったメッセージ）について画像を作って」とお願いしてみてください。イメージ画像を生成します。
+・音声入力機能もご利用いただけます（1日3回まで）。サービス向上のため、高いご利用状況により一時的にご利用いただけない場合もございますので、あらかじめご了承ください。順次改善するようにします。
+・あなたの基本機能は、「適職診断」「特性分析」のほか画像生成や画像解析もできます。
 `;
 
 const SYSTEM_PROMPT_CHARACTERISTICS = `
@@ -2736,6 +2762,7 @@ async function handleText(event) {
     
     let replyMessage;
     
+    // ステップ1: 音声設定関連のリクエスト処理
     if (isVoiceChangeRequest) {
       // 音声設定変更リクエストを解析
       const parseResult = await audioHandler.parseVoiceChangeRequest(text, userId);
@@ -2774,105 +2801,111 @@ async function handleText(event) {
         // 詳細が不明確な音声関連の問い合わせに対して選択肢を提示
         replyMessage = audioHandler.generateVoiceSelectionMessage();
       } else {
-        // 通常の応答処理へフォールバック
-        const sanitizedText = sanitizeUserInput(text);
-        
-        // メッセージからモードを検出
-        const { mode, limit } = determineModeAndLimit(sanitizedText);
-        console.log(`モード検出: "${sanitizedText.substring(0, 30)}..." => モード: ${mode}, 履歴制限: ${limit}件`);
-        
-        // 履歴の取得
-        console.log(`会話履歴取得プロセス開始 - ユーザー: ${userId}`);
-        const historyData = await fetchUserHistory(userId, limit) || [];
-        const history = Array.isArray(historyData) ? historyData : (historyData.history || []);
-        console.log(`会話履歴取得完了: ${history.length}件`);
-        
-        // AIへの送信前に、過去の関連メッセージをセマンティック検索で取得
-        let contextMessages = [];
-        if (semanticSearch && typeof semanticSearch.findSimilarMessages === 'function') {
-          try {
-            const similarMessages = await semanticSearch.findSimilarMessages(userId, sanitizedText);
-            if (similarMessages && similarMessages.length > 0) {
-              contextMessages = similarMessages.map(msg => ({
-                role: 'context',
-                content: msg.content
-              }));
-            }
-          } catch (searchErr) {
-            console.error('セマンティック検索エラー:', searchErr);
-          }
-        }
-        
-        // 特性分析モードの場合の特別処理
-        if (mode === 'characteristics') {
-          console.log('特性分析モードを開始します');
-          try {
-            const characteristicsResult = await enhancedCharacteristics.analyzeCharacteristics(userId, sanitizedText);
-            
-            // 特性分析結果を文字列型に統一
-            if (typeof characteristicsResult === 'string') {
-              replyMessage = characteristicsResult;
-            } else if (characteristicsResult && typeof characteristicsResult === 'object') {
-              if (characteristicsResult.analysis) {
-                replyMessage = characteristicsResult.analysis;
-              } else if (characteristicsResult.response) {
-                replyMessage = characteristicsResult.response;
-              } else if (characteristicsResult.text) {
-                replyMessage = characteristicsResult.text;
-          } else {
-                // オブジェクトを文字列に変換
-                replyMessage = JSON.stringify(characteristicsResult);
-              }
-            } else {
-              replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。もう一度お試しください。';
-            }
-          } catch (err) {
-            console.error('特性分析処理エラー:', err);
-            replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。';
-          }
-        }
-        // 適職診断モードの場合の特別処理
-        else if (mode === 'career') {
-          console.log('適職診断モードを開始します');
-          // キャリア分析専用の関数を呼び出し
-          try {
-            replyMessage = await generateCareerAnalysis(history, sanitizedText);
-          } catch (err) {
-            console.error('キャリア分析エラー:', err);
-            replyMessage = '申し訳ありません、キャリア分析中にエラーが発生しました。';
-          }
-        }
-        // 通常の会話応答の生成
-        else {
-          try {
-            replyMessage = await generateAIResponse(sanitizedText, history, contextMessages, userId, mode);
-          } catch (err) {
-            console.error('AI応答生成エラー:', err);
-            replyMessage = '申し訳ありません、応答生成中にエラーが発生しました。';
-          }
-        }
-        
-        // 会話履歴を更新
-        if (!sessions[userId]) sessions[userId] = { history: [] };
-        sessions[userId].history.push({ role: "user", content: text });
-        sessions[userId].history.push({ role: "assistant", content: replyMessage });
-        
-        // 会話履歴が長すぎる場合は削除
-        if (sessions[userId].history.length > 20) {
-          sessions[userId].history = sessions[userId].history.slice(-20);
-        }
-        
-        // 会話内容を保存
-        try {
-        await storeInteraction(userId, 'user', text);
-          await storeInteraction(userId, 'assistant', replyMessage);
-        } catch (storageErr) {
-          console.error('会話保存エラー:', storageErr);
-        }
+        // 音声関連ワードを含むが具体的な設定変更ではないと判断された場合
+        console.log('音声関連キーワードを含むが設定変更ではないメッセージ、通常応答処理へフォールバック');
+        // replyMessageは設定せず、次のステップで通常処理を行う
       }
     }
     
-    // LINE Messaging APIを使ってレスポンスを送信
+    // ステップ2: 音声設定以外の通常メッセージ処理
+    if (!replyMessage) {
+      const sanitizedText = sanitizeUserInput(text);
+      
+      // メッセージからモードを検出
+      const { mode, limit } = determineModeAndLimit(sanitizedText);
+      console.log(`モード検出: "${sanitizedText.substring(0, 30)}..." => モード: ${mode}, 履歴制限: ${limit}件`);
+      
+      // 履歴の取得
+      console.log(`会話履歴取得プロセス開始 - ユーザー: ${userId}`);
+      const historyData = await fetchUserHistory(userId, limit) || [];
+      const history = Array.isArray(historyData) ? historyData : (historyData.history || []);
+      console.log(`会話履歴取得完了: ${history.length}件`);
+      
+      // AIへの送信前に、過去の関連メッセージをセマンティック検索で取得
+      let contextMessages = [];
+      if (semanticSearch && typeof semanticSearch.findSimilarMessages === 'function') {
+        try {
+          const similarMessages = await semanticSearch.findSimilarMessages(userId, sanitizedText);
+          if (similarMessages && similarMessages.length > 0) {
+            contextMessages = similarMessages.map(msg => ({
+              role: 'context',
+              content: msg.content
+            }));
+          }
+        } catch (searchErr) {
+          console.error('セマンティック検索エラー:', searchErr);
+        }
+      }
+      
+      // 特性分析モードの場合の特別処理
+      if (mode === 'characteristics') {
+        console.log('特性分析モードを開始します');
+        try {
+          const characteristicsResult = await enhancedCharacteristics.analyzeCharacteristics(userId, sanitizedText);
+          
+          // 特性分析結果を文字列型に統一
+          if (typeof characteristicsResult === 'string') {
+            replyMessage = characteristicsResult;
+          } else if (characteristicsResult && typeof characteristicsResult === 'object') {
+            if (characteristicsResult.analysis) {
+              replyMessage = characteristicsResult.analysis;
+            } else if (characteristicsResult.response) {
+              replyMessage = characteristicsResult.response;
+            } else if (characteristicsResult.text) {
+              replyMessage = characteristicsResult.text;
+            } else {
+              // オブジェクトを文字列に変換
+              replyMessage = JSON.stringify(characteristicsResult);
+            }
+          } else {
+            replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。もう一度お試しください。';
+          }
+        } catch (err) {
+          console.error('特性分析処理エラー:', err);
+          replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。';
+        }
+      }
+      // 適職診断モードの場合の特別処理
+      else if (mode === 'career') {
+        console.log('適職診断モードを開始します');
+        // キャリア分析専用の関数を呼び出し
+        try {
+          replyMessage = await generateCareerAnalysis(history, sanitizedText);
+        } catch (err) {
+          console.error('キャリア分析エラー:', err);
+          replyMessage = '申し訳ありません、キャリア分析中にエラーが発生しました。';
+        }
+      }
+      // 通常の会話応答の生成
+      else {
+        try {
+          replyMessage = await generateAIResponse(sanitizedText, history, contextMessages, userId, mode);
+        } catch (err) {
+          console.error('AI応答生成エラー:', err);
+          replyMessage = '申し訳ありません、応答生成中にエラーが発生しました。';
+        }
+      }
+      
+      // 会話履歴を更新
+      if (!sessions[userId]) sessions[userId] = { history: [] };
+      sessions[userId].history.push({ role: "user", content: text });
+      sessions[userId].history.push({ role: "assistant", content: replyMessage });
+      
+      // 会話履歴が長すぎる場合は削除
+      if (sessions[userId].history.length > 20) {
+        sessions[userId].history = sessions[userId].history.slice(-20);
+      }
+      
+      // 会話内容を保存
+      try {
+        await storeInteraction(userId, 'user', text);
+        await storeInteraction(userId, 'assistant', replyMessage);
+      } catch (storageErr) {
+        console.error('会話保存エラー:', storageErr);
+      }
+    }
+    
+    // ステップ3: LINE Messaging APIを使ってレスポンスを送信
     if (replyMessage && event.replyToken && event.replyToken !== 'test-reply-token') {
       console.log(`LINE APIにレスポンスを送信します: ${replyMessage.substring(0, 20)}... (${replyMessage.length}文字)`);
       
@@ -2880,12 +2913,12 @@ async function handleText(event) {
         // LINEのメッセージ長制限に対応（5000文字まで）
         const firstPart = replyMessage.substring(0, 4900);
         await client.replyMessage(event.replyToken, {
-            type: 'text',
+          type: 'text',
           text: firstPart + '\n\n(メッセージが長すぎるため省略されました)'
         });
-            } else {
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
+      } else {
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
           text: replyMessage
         });
       }
@@ -3861,7 +3894,7 @@ async function handleAudio(event) {
       
     // 会話履歴を更新
     if (!sessions[userId]) sessions[userId] = { history: [] };
-    sessions[userId].history.push({ role: "user", content: transcribedText });
+    sessions[userId].history.push({ role: "user", content: text });
     sessions[userId].history.push({ role: "assistant", content: replyMessage });
       
     // 会話履歴が長すぎる場合は削除
@@ -3871,7 +3904,7 @@ async function handleAudio(event) {
       
     // 会話内容を保存
     try {
-      await storeInteraction(userId, 'user', transcribedText);
+      await storeInteraction(userId, 'user', text);
       await storeInteraction(userId, 'assistant', replyMessage);
     } catch (storageErr) {
       console.error('会話保存エラー:', storageErr);
