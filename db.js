@@ -117,6 +117,22 @@ async function initializeTables() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_analysis_results_result_type ON analysis_results(result_type)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_analysis_results_timestamp ON analysis_results(timestamp)`);
 
+    // 音声会話統計テーブル（デプロイ時の永続化のため追加）
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_audio_stats (
+        id SERIAL PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL UNIQUE,
+        audio_requests_total INTEGER DEFAULT 0,
+        audio_requests_today INTEGER DEFAULT 0,
+        last_conversation_timestamp BIGINT,
+        last_audio_request_date BIGINT,
+        last_audio_notification_date BIGINT,
+        last_reset_date DATE DEFAULT CURRENT_DATE,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_user_audio_stats_user_id ON user_audio_stats(user_id)`);
+
     // インテントトレーニングデータテーブル
     await client.query(`
       CREATE TABLE IF NOT EXISTS intent_training_data (

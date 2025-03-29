@@ -1,6 +1,7 @@
 // insightsService.js - サーバーメトリクス追跡と洞察提供
 const fs = require('fs');
 const path = require('path');
+const db = require('./db'); // データベース接続をインポート
 
 class InsightsService {
   constructor() {
@@ -19,6 +20,20 @@ class InsightsService {
     
     // 定期保存スケジュール（15分ごと）
     setInterval(() => this.saveMetrics(), 15 * 60 * 1000);
+
+    // データベーステーブルの存在を確認
+    this._ensureDatabaseTables();
+  }
+
+  // データベーステーブルの存在を確認
+  async _ensureDatabaseTables() {
+    try {
+      // db.jsのinitializeTablesメソッドを呼び出し
+      await db.initializeTables();
+      console.log('InsightsService: データベーステーブルの存在を確認しました');
+    } catch (error) {
+      console.error('InsightsService: データベーステーブルの確認に失敗しました', error);
+    }
   }
   
   // データディレクトリ確保
@@ -130,45 +145,92 @@ class InsightsService {
   }
   
   // 特定ユーザーのメトリクスを取得（なければロード）
-  getUserMetrics(userId) {
+  async getUserMetrics(userId) {
     if (!this.metrics.users.has(userId)) {
       try {
-        const filePath = this.getUserMetricsPath(userId);
-        if (fs.existsSync(filePath)) {
-          this.metrics.users.set(userId, JSON.parse(fs.readFileSync(filePath, 'utf8')));
+        // まずデータベースからロードを試みる
+        let dbMetricsFound = false;
+        try {
+          const dbResults = await db.query(
+            'SELECT * FROM user_audio_stats WHERE user_id = $1',
+            [userId]
+          );
           
-          // 音声リクエスト関連の項目が未設定の場合は初期化
-          const userMetrics = this.metrics.users.get(userId);
-          if (userMetrics.audioRequests === undefined) {
-            userMetrics.audioRequests = 0;
+          if (dbResults && dbResults.length > 0) {
+            const dbMetrics = dbResults[0];
+            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+            const lastResetDate = dbMetrics.last_reset_date ? dbMetrics.last_reset_date.toISOString().split('T')[0] : null;
+            
+            // データベースから基本情報を取得
+            const metrics = {
+              textRequests: 0,
+              imageRequests: 0,
+              audioRequests: dbMetrics.audio_requests_total || 0,
+              audioRequestsToday: today === lastResetDate ? dbMetrics.audio_requests_today : 0,
+              lastAudioRequestDate: dbMetrics.last_audio_request_date,
+              lastConversationTimestamp: dbMetrics.last_conversation_timestamp,
+              lastAudioNotificationDate: dbMetrics.last_audio_notification_date,
+              totalInputLength: 0,
+              longestInput: 0,
+              shortestInput: Infinity,
+              lastInputPreview: '',
+              firstSeen: Date.now(),
+              lastSeen: Date.now(),
+              recentQueries: []
+            };
+            
+            // メモリ内にロード
+            this.metrics.users.set(userId, metrics);
+            console.log(`ユーザー(${userId})の音声メトリクスをデータベースからロードしました`);
+            dbMetricsFound = true;
           }
-          if (userMetrics.audioRequestsToday === undefined) {
-            userMetrics.audioRequestsToday = 0;
+        } catch (dbError) {
+          console.error(`データベースからの音声メトリクス取得エラー (${userId}):`, dbError.message);
+        }
+
+        // データベースになければファイルからロード（従来の方法）
+        if (!dbMetricsFound) {
+          const filePath = this.getUserMetricsPath(userId);
+          if (fs.existsSync(filePath)) {
+            this.metrics.users.set(userId, JSON.parse(fs.readFileSync(filePath, 'utf8')));
+            
+            // 音声リクエスト関連の項目が未設定の場合は初期化
+            const userMetrics = this.metrics.users.get(userId);
+            if (userMetrics.audioRequests === undefined) {
+              userMetrics.audioRequests = 0;
+            }
+            if (userMetrics.audioRequestsToday === undefined) {
+              userMetrics.audioRequestsToday = 0;
+            }
+            if (userMetrics.lastAudioRequestDate === undefined) {
+              userMetrics.lastAudioRequestDate = null;
+            }
+            if (userMetrics.lastConversationTimestamp === undefined) {
+              userMetrics.lastConversationTimestamp = null;
+            }
+            if (userMetrics.lastAudioNotificationDate === undefined) {
+              userMetrics.lastAudioNotificationDate = null;
+            }
+          } else {
+            // 新規ユーザー
+            this.metrics.users.set(userId, {
+              textRequests: 0,
+              imageRequests: 0,
+              audioRequests: 0,
+              audioRequestsToday: 0,
+              lastAudioRequestDate: null,
+              lastConversationTimestamp: null,
+              lastAudioNotificationDate: null,
+              totalInputLength: 0,
+              longestInput: 0,
+              shortestInput: Infinity,
+              lastInputPreview: '',
+              firstSeen: Date.now(),
+              lastSeen: Date.now(),
+              recentQueries: []
+            });
+            this.metrics.system.userCount++;
           }
-          if (userMetrics.lastAudioRequestDate === undefined) {
-            userMetrics.lastAudioRequestDate = null;
-          }
-          if (userMetrics.lastAudioNotificationDate === undefined) {
-            userMetrics.lastAudioNotificationDate = null;
-          }
-        } else {
-          // 新規ユーザー
-          this.metrics.users.set(userId, {
-            textRequests: 0,
-            imageRequests: 0,
-            audioRequests: 0,
-            audioRequestsToday: 0,
-            lastAudioRequestDate: null,
-            lastAudioNotificationDate: null,
-            totalInputLength: 0,
-            longestInput: 0,
-            shortestInput: Infinity,
-            lastInputPreview: '',
-            firstSeen: Date.now(),
-            lastSeen: Date.now(),
-            recentQueries: []
-          });
-          this.metrics.system.userCount++;
         }
       } catch (error) {
         console.error(`ユーザー(${userId})メトリクスロードエラー:`, error);
@@ -179,6 +241,7 @@ class InsightsService {
           audioRequests: 0,
           audioRequestsToday: 0,
           lastAudioRequestDate: null,
+          lastConversationTimestamp: null,
           lastAudioNotificationDate: null,
           totalInputLength: 0,
           longestInput: 0,
@@ -194,9 +257,50 @@ class InsightsService {
     return this.metrics.users.get(userId);
   }
   
+  // 特定ユーザーの音声メトリクスをデータベースに保存
+  async saveUserAudioMetricsToDb(userId, metrics) {
+    try {
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      
+      // UPSERTを使用して挿入または更新
+      const query = `
+        INSERT INTO user_audio_stats 
+          (user_id, audio_requests_total, audio_requests_today, last_conversation_timestamp, 
+           last_audio_request_date, last_audio_notification_date, last_reset_date, updated_at)
+        VALUES 
+          ($1, $2, $3, $4, $5, $6, $7, NOW())
+        ON CONFLICT (user_id) 
+        DO UPDATE SET 
+          audio_requests_total = $2,
+          audio_requests_today = $3,
+          last_conversation_timestamp = $4,
+          last_audio_request_date = $5,
+          last_audio_notification_date = $6,
+          last_reset_date = $7,
+          updated_at = NOW()
+      `;
+      
+      await db.query(query, [
+        userId,
+        metrics.audioRequests || 0,
+        metrics.audioRequestsToday || 0,
+        metrics.lastConversationTimestamp,
+        metrics.lastAudioRequestDate,
+        metrics.lastAudioNotificationDate,
+        today
+      ]);
+      
+      console.log(`ユーザー(${userId})の音声メトリクスをデータベースに保存しました`);
+      return true;
+    } catch (error) {
+      console.error(`ユーザー(${userId})の音声メトリクスデータベース保存エラー:`, error.message);
+      return false;
+    }
+  }
+  
   // テキストリクエスト追跡
-  trackTextRequest(userId, text) {
-    const userMetrics = this.getUserMetrics(userId);
+  async trackTextRequest(userId, text) {
+    const userMetrics = await this.getUserMetrics(userId);
     const textLength = text ? text.length : 0;
     
     // メトリクス更新
@@ -234,8 +338,8 @@ class InsightsService {
   }
   
   // 画像リクエスト追跡
-  trackImageRequest(userId, promptText) {
-    const userMetrics = this.getUserMetrics(userId);
+  async trackImageRequest(userId, promptText) {
+    const userMetrics = await this.getUserMetrics(userId);
     
     userMetrics.imageRequests++;
     userMetrics.lastSeen = Date.now();
@@ -260,8 +364,9 @@ class InsightsService {
   }
   
   // 音声リクエスト追跡
-  trackAudioRequest(userId) {
-    const userMetrics = this.getUserMetrics(userId);
+  async trackAudioRequest(userId) {
+    // ユーザーメトリクスを取得（データベースかファイルシステムから）
+    const userMetrics = await this.getUserMetrics(userId);
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     
@@ -326,6 +431,11 @@ class InsightsService {
       }
     }
     
+    // データベースに保存（非同期で行うが、結果を待たない）
+    this.saveUserAudioMetricsToDb(userId, userMetrics).catch(err => {
+      console.error(`音声メトリクスのデータベース保存に失敗: ${err.message}`);
+    });
+    
     return {
       allowed: isAllowed,
       userDailyCount: userMetrics.audioRequestsToday,
@@ -339,30 +449,54 @@ class InsightsService {
   }
   
   // 音声メッセージを使用したことのあるユーザーを取得
-  getVoiceMessageUsers() {
+  async getVoiceMessageUsers() {
     const voiceUsers = [];
     
-    // まず全ユーザーのJSONファイルをスキャン
-    if (fs.existsSync(this.dataPath)) {
-      const files = fs.readdirSync(this.dataPath);
+    // まずデータベースから取得を試みる
+    try {
+      const dbResults = await db.query(
+        'SELECT user_id, audio_requests_total, last_audio_request_date, last_audio_notification_date FROM user_audio_stats WHERE audio_requests_total > 0'
+      );
       
-      for (const file of files) {
-        if (file.startsWith('user_') && file.endsWith('.json')) {
-          try {
-            const userId = file.replace('user_', '').replace('.json', '');
-            const userData = JSON.parse(fs.readFileSync(path.join(this.dataPath, file), 'utf8'));
-            
-            // 音声メッセージを使用したことがあるユーザーを確認
-            if (userData.audioRequests && userData.audioRequests > 0) {
-              voiceUsers.push({
-                userId,
-                audioRequests: userData.audioRequests,
-                lastAudioRequestDate: userData.lastAudioRequestDate,
-                lastAudioNotificationDate: userData.lastAudioNotificationDate
-              });
+      if (dbResults && dbResults.length > 0) {
+        for (const row of dbResults) {
+          voiceUsers.push({
+            userId: row.user_id,
+            audioRequests: row.audio_requests_total,
+            lastAudioRequestDate: row.last_audio_request_date,
+            lastAudioNotificationDate: row.last_audio_notification_date
+          });
+        }
+        console.log(`データベースから${voiceUsers.length}人の音声ユーザーを取得しました`);
+      }
+    } catch (dbError) {
+      console.error('データベースからの音声ユーザー取得エラー:', dbError.message);
+    }
+    
+    // データベースになかった場合は従来のファイルシステムからも取得（移行期間用）
+    if (voiceUsers.length === 0) {
+      // まず全ユーザーのJSONファイルをスキャン
+      if (fs.existsSync(this.dataPath)) {
+        const files = fs.readdirSync(this.dataPath);
+        
+        for (const file of files) {
+          if (file.startsWith('user_') && file.endsWith('.json')) {
+            try {
+              const userId = file.replace('user_', '').replace('.json', '');
+              const userData = JSON.parse(fs.readFileSync(path.join(this.dataPath, file), 'utf8'));
+              
+              // 音声メッセージを使用したことがあるユーザーを確認
+              if (userData.audioRequests && userData.audioRequests > 0) {
+                voiceUsers.push({
+                  userId,
+                  audioRequests: userData.audioRequests,
+                  lastAudioRequestDate: userData.lastAudioRequestDate,
+                  lastAudioNotificationDate: userData.lastAudioNotificationDate
+                });
+              }
+            } catch (error) {
+              console.error(`ユーザーデータ読み込みエラー (${file}):`, error.message);
             }
-          } catch (error) {
-            console.error(`ユーザーデータ読み込みエラー (${file}):`, error.message);
           }
         }
       }
@@ -378,7 +512,7 @@ class InsightsService {
       this.saveMetrics(); // 設定を保存
     }
     
-    const voiceUsers = this.getVoiceMessageUsers();
+    const voiceUsers = await this.getVoiceMessageUsers();
     const now = Date.now();
     const oneWeekAgo = now - (7 * 24 * 60 * 60 * 1000);
     let notifiedCount = 0;
@@ -400,9 +534,14 @@ class InsightsService {
           });
           
           // 通知日時を更新
-          const userMetrics = this.getUserMetrics(user.userId);
+          const userMetrics = await this.getUserMetrics(user.userId);
           userMetrics.lastAudioNotificationDate = now;
-          this.saveMetrics(); // 都度保存する
+          
+          // データベースに保存
+          await this.saveUserAudioMetricsToDb(user.userId, userMetrics);
+          
+          // 従来のファイルシステム保存も行う（移行期間用）
+          this.saveMetrics();
           
           notifiedCount++;
           console.log(`ユーザー(${user.userId})に音声制限解除通知を送信しました`);

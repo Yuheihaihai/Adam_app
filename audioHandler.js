@@ -96,8 +96,8 @@ class AudioHandler {
   
   // 音声リクエスト制限をチェック
   async checkVoiceRequestLimit(userId) {
-    // insightsServiceを使用して制限をチェック
-    const limitResult = insightsService.trackAudioRequest(userId);
+    // insightsServiceを使用して制限をチェック（非同期で呼び出す）
+    const limitResult = await insightsService.trackAudioRequest(userId);
     
     if (!limitResult.allowed) {
       console.log(`音声リクエスト制限: ${userId} - ${limitResult.reason}`);
