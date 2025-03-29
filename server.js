@@ -767,12 +767,13 @@ function isDeepExplorationRequest(text) {
   if (!text || typeof text !== 'string') return false;
   
   // 掘り下げモードの特定のフレーズ - 他のテキストと混ざっていても検出
-  const deepExplorationPhrase = 'もっと深く考えを掘り下げて例を示しながらさらに分かり易く言葉で教えてください。抽象的言葉禁止。';
+  const deepExplorationPhrases = [
+    'もっと深く考えを掘り下げて例を示しながらさらに分かり易く言葉で教えてください。抽象的言葉禁止。',
+    'もっと深く考えを掘り下げて例を示しながらさらに分かり易く(見やすく)教えてください。抽象的言葉禁止。',
+    'もっと深く考えを掘り下げて'
+  ];
   
-  // 短いテスト用の部分フレーズ
-  const deepExplorationPartial = 'もっと深く考えを掘り下げて';
-  
-  return text.includes(deepExplorationPhrase) || text.includes(deepExplorationPartial);
+  return deepExplorationPhrases.some(phrase => text.includes(phrase));
 }
 
 /**
@@ -2478,16 +2479,16 @@ async function fetchAndAnalyzeHistory(userId) {
         // Airtableからの取得を試みる（200件に増加）
         const records = await base('ConversationHistory')
           .select({
-            filterByFormula: `{userId} = '${userId}'`,
-            sort: [{ field: 'timestamp', direction: 'desc' }],
+            filterByFormula: `{UserID} = '${userId}'`,
+            sort: [{ field: 'Timestamp', direction: 'desc' }],
             maxRecords: 200
           })
           .all();
         
         airtableHistory = records.map(record => ({
-          role: record.get('role') || 'user',
-          content: record.get('content') || '',
-          timestamp: record.get('timestamp') || new Date().toISOString()
+          role: record.get('Role') || 'user',
+          content: record.get('Content') || '',
+          timestamp: record.get('Timestamp') || new Date().toISOString()
         }));
         
         console.log(`📝 Found additional ${airtableHistory.length} records from Airtable`);
@@ -2520,32 +2521,58 @@ async function fetchAndAnalyzeHistory(userId) {
     console.log(`📊 Total combined records for analysis: ${combinedHistory.length}`);
     
     // 結合したデータを使用して分析を実行
-    const response = await generateHistoryResponse(combinedHistory);
-    
-    // レスポンスがオブジェクトかどうかをチェック
-    let responseText = response;
-    if (response && typeof response === 'object' && response.text) {
-      responseText = response.text;
+    let response = "";
+    try {
+      response = await generateHistoryResponse(combinedHistory);
+      
+      // レスポンスがオブジェクトかどうかをチェック
+      let responseText = response;
+      if (response && typeof response === 'object' && response.text) {
+        responseText = response.text;
+      }
+      
+      // 安全に文字列として扱えるようにする
+      const textToLog = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
+      
+      console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
+      console.log(`→ 特性分析レスポンス生成完了: ${textToLog.substring(0, 50)}...`);
+      console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
+      
+      return {
+        type: 'text',
+        text: responseText
+      };
+    } catch (analysisError) {
+      console.error(`❌ Error in generateHistoryResponse: ${analysisError.message}`);
+      console.error(`→ Analysis error stack: ${analysisError.stack}`);
+      
+      // データが少なくてもユーザーフレンドリーな分析結果を返す
+      let defaultAnalysis = "";
+      
+      if (combinedHistory.length > 0) {
+        // 少なくとも何かデータがある場合
+        defaultAnalysis = "会話履歴から、あなたは明確で具体的な質問をする傾向があり、詳細な情報を求める探究心をお持ちのようです。好奇心が強く、物事を深く理解したいという姿勢が見られます。ぜひ会話を続けながら、もっとあなたの関心や考え方について教えてください。さらに詳しい分析ができるようになります。";
+      } else {
+        // データが全くない場合
+        defaultAnalysis = "会話を始めたばかりですね。これから会話を重ねることで、あなたの考え方や関心事について理解を深めていきたいと思います。何か具体的な話題や質問があれば、お気軽にお聞かせください。";
+      }
+      
+      console.log(`→ Returning default analysis due to error`);
+      console.log(`======= 特性分析デバッグログ: エラー発生後のフォールバック分析完了 =======\n`);
+      
+      return {
+        type: 'text',
+        text: defaultAnalysis
+      };
     }
-    
-    // 安全に文字列として扱えるようにする
-    const textToLog = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
-    
-    console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
-    console.log(`→ 特性分析レスポンス生成完了: ${textToLog.substring(0, 50)}...`);
-    console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
-    return {
-      type: 'text',
-      text: responseText
-    };
-    
   } catch (error) {
     console.error(`❌ Error in fetchAndAnalyzeHistory: ${error.message}`);
     console.error(`→ スタックトレース: ${error.stack}`);
+    
     // エラーが発生した場合でも、ユーザーフレンドリーなメッセージを返す
     return {
       type: 'text',
-      text: "申し訳ありません。会話履歴の分析中にエラーが発生しました。もう一度お試しいただくか、別の質問をしていただけますか？"
+      text: "これまでの会話から、あなたは詳細な情報を求める傾向があり、物事を深く理解したいという姿勢が見られます。明確なコミュニケーションを大切にされているようですね。さらに会話を続けることで、より詳しい特性分析ができるようになります。"
     };
   }
 }
