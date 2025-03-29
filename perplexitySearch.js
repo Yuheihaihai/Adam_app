@@ -35,14 +35,19 @@ class PerplexitySearch {
       let analysisType = '';
       
       if (userMessage.includes('適職') || userMessage.includes('向いてる') || 
-          userMessage.includes('仕事') || userMessage.includes('キャリア')) {
+          userMessage.includes('仕事') || userMessage.includes('キャリア') ||
+          userMessage.includes('診断') || userMessage.includes('職場') || 
+          userMessage.includes('社風') || userMessage.includes('人間関係')) {
         analysisType = 'job suitability analysis';
-        analysisPrompt = `会話履歴と現在のメッセージから、このユーザーの適職を分析してください。次の観点を考慮してください：
-1. コミュニケーションスタイル (直接的/間接的、詳細重視/概念重視)
-2. 意思決定パターン (論理的/感情的、迅速/慎重)
-3. 職場での価値観 (安定/変化、独立/協調)
-4. 強み・弱み
-5. 向いていそうな職種や業界`;
+        analysisPrompt = `会話履歴と現在のメッセージから、このユーザーの適職を具体的に分析してください。以下の項目を必ず含めてください：
+
+1. コミュニケーションスタイルと特性に基づいた具体的な職業推奨（少なくとも3つ）
+2. 向いている業界と職種（具体的な職業名を必ず挙げる）
+3. 理想的な職場環境と社風
+4. 職場での人間関係の適性
+5. 適職に就くために必要なスキルや資格
+
+必ず具体的な職業名や業界を推薦し、抽象的な分析だけで終わらないでください。`;
       } else if (userMessage.includes('悩み') || userMessage.includes('課題') || 
                 userMessage.includes('転職') || userMessage.includes('就職')) {
         analysisType = 'career challenges analysis';
@@ -75,7 +80,9 @@ class PerplexitySearch {
 
 分析は客観的で、具体的な根拠に基づいたものにしてください。
 推測に頼りすぎず、会話から実際に観察できる情報を重視してください。
-返答は必ず日本語で、300文字以内に収めてください。`
+返答は必ず日本語で、300文字以内に収めてください。
+
+特に適職診断を求められている場合は、必ず具体的な職業名や業界名を複数提案してください。一般的な特性分析ではなく、実際の職業推奨に重点を置いてください。`
         }, {
           role: 'user',
           content: `【会話履歴】
@@ -248,37 +255,100 @@ Indeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度�
         temperature: 0.7,
         timeout: 20000
       });
-
+      
+      // Processing the response
       const timeTaken = Date.now() - startTime;
-      const content = response.choices[0]?.message?.content || '';
-      const [mainText, urlSection] = content.split('[求人情報]');
+      const resultContent = response.choices[0]?.message?.content;
       
       console.log('   ├─ API call completed in', timeTaken, 'ms');
       console.log('   ├─ Response tokens:', response.usage?.total_tokens || 'unknown');
+      console.log('   ├─ Result length:', resultContent?.length || 0, 'characters');
       
-      const result = {
-        analysis: mainText?.replace('[キャリア市場分析]', '').trim() || null,
-        urls: urlSection?.trim() || null
-      };
+      // Parse the result to extract analysis and URLs
+      let analysis = '';
+      let urls = '';
       
-      console.log('   ├─ Analysis text length:', result.analysis?.length || 0, 'characters');
-      console.log('   ├─ Sample of analysis:', result.analysis?.substring(0, 50), '...');
-      console.log('   ├─ URLs provided:', result.urls ? 'Yes' : 'No');
-      if (result.urls) {
-        const urlCount = result.urls.split('\n').filter(line => line.includes('http')).length;
-        console.log('   └─ Number of URLs:', urlCount);
+      if (resultContent) {
+        const sections = resultContent.split('[求人情報]');
+        if (sections.length > 1) {
+          analysis = sections[0].replace('[キャリア市場分析]', '').trim();
+          urls = sections[1].trim();
+        } else {
+          analysis = resultContent;
+        }
+        
+        console.log('   ├─ Successfully extracted career analysis and job URLs');
+        console.log('   └─ Sample of analysis:', analysis.substring(0, 50), '...');
+      } else {
+        console.log('   └─ ❌ No content returned from API');
       }
       
-      return result;
+      return {
+        analysis,
+        urls
+      };
     } catch (error) {
       console.error('   ❌ [PERPLEXITY ML] Job trends error:', error.message);
-      if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
-        console.log('   ├─ Error type: Timeout');
-      }
-      if (error.response) {
-        console.error('   ├─ Error status:', error.response.status);
-        console.error('   └─ Error data:', JSON.stringify(error.response.data));
-      }
+      return null;
+    }
+  }
+  
+  /**
+   * ユーザー特性に基づいた具体的な適職推奨を取得
+   * @param {Array} history - 会話履歴
+   * @param {string} userMessage - ユーザーメッセージ
+   * @returns {Promise<Object|null>} - 適職推奨結果
+   */
+  async getJobRecommendations(history, userMessage) {
+    try {
+      console.log('\n🎯 [PERPLEXITY ML] JOB RECOMMENDATIONS PROCESS');
+      console.log('   ├─ Input message length:', userMessage.length, 'characters');
+      
+      // Extract recent messages for context
+      const recentHistory = history.slice(-5);
+      const recentMessages = recentHistory.map(h => `${h.role}: ${h.content}`).join('\n');
+      
+      const startTime = Date.now();
+      const response = await this.client.chat.completions.create({
+        model: "sonar",
+        messages: [{
+          role: 'system',
+          content: `あなたは優秀なキャリアカウンセラーです。ユーザーの会話履歴と特性から、最も適している具体的な職業を推薦してください。
+
+以下の項目を必ず含めてレスポンスを構成してください：
+
+1. 【最適な職業】： 少なくとも3つの具体的な職業名を挙げる
+2. 【向いている業界】： 少なくとも2つの業界を挙げる
+3. 【適性理由】： 各職業がユーザーに向いている理由を簡潔に説明
+4. 【必要なスキル】： それぞれの職業に必要なスキルや資格
+
+抽象的な特性分析ではなく、実際の職業名と業界名を必ず含めてください。`
+        }, {
+          role: 'user',
+          content: `【会話履歴】
+${recentMessages}
+
+【現在のメッセージ】
+${userMessage}
+
+【リクエスト】
+上記の会話からわかるこのユーザーの特性に基づいて、最適な職業を具体的に推薦してください。`
+        }],
+        max_tokens: 800,
+        temperature: 0.7
+      });
+      
+      const timeTaken = Date.now() - startTime;
+      const resultContent = response.choices[0]?.message?.content;
+      
+      console.log('   ├─ API call completed in', timeTaken, 'ms');
+      console.log('   ├─ Response tokens:', response.usage?.total_tokens || 'unknown');
+      console.log('   ├─ Result length:', resultContent?.length || 0, 'characters');
+      console.log('   └─ Sample of recommendations:', resultContent?.substring(0, 50), '...');
+
+      return resultContent;
+    } catch (error) {
+      console.error('   └─ ❌ ERROR in job recommendations:', error.message);
       return null;
     }
   }

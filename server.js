@@ -1815,24 +1815,49 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
             const perplexityStartTime = Date.now();
             
             console.log('    ├─ [1C.1] Initiating parallel API calls to Perplexity');
+            // Check if this is a job recommendation request
+            const isJobRecommendationRequest = 
+              userMessage.includes('適職') || 
+              userMessage.includes('診断') || 
+              userMessage.includes('向いてる仕事') ||
+              (userMessage.includes('職場') && userMessage.includes('社風'));
+              
             // Run both knowledge enhancement and job trends in parallel
-            const [knowledgeData, jobTrendsData] = await Promise.all([
-              perplexity.enhanceKnowledge(history, userMessage).catch(err => {
-                console.error('    │  ❌ Knowledge enhancement failed:', err.message);
-                return null;
-              }),
-              perplexity.getJobTrends().catch(err => {
-                console.error('    │  ❌ Job trends failed:', err.message);
-                return null;
-              })
-            ]);
+            let promises = [];
+            
+            if (isJobRecommendationRequest) {
+              console.log('    │  🎯 Detected job recommendation request - using specialized API');
+              promises = [
+                perplexity.getJobRecommendations(history, userMessage).catch(err => {
+                  console.error('    │  ❌ Job recommendations failed:', err.message);
+                  return null;
+                }),
+                perplexity.getJobTrends().catch(err => {
+                  console.error('    │  ❌ Job trends failed:', err.message);
+                  return null;
+                })
+              ];
+            } else {
+              promises = [
+                perplexity.enhanceKnowledge(history, userMessage).catch(err => {
+                  console.error('    │  ❌ Knowledge enhancement failed:', err.message);
+                  return null;
+                }),
+                perplexity.getJobTrends().catch(err => {
+                  console.error('    │  ❌ Job trends failed:', err.message);
+                  return null;
+                })
+              ];
+            }
+            
+            const [knowledgeData, jobTrendsData] = await Promise.all(promises);
             
             const perplexityTime = Date.now() - perplexityStartTime;
             console.log(`    ├─ [1C.2] ML data retrieved in ${perplexityTime}ms`);
             
             // Log what we got with more details
             console.log('    ├─ [1C.3] ML DATA RESULTS:');
-            console.log(`    │  ${knowledgeData ? '✅' : '❌'} User characteristics analysis: ${knowledgeData ? 'Retrieved' : 'Failed'}`);
+            console.log(`    │  ${knowledgeData ? '✅' : '❌'} ${isJobRecommendationRequest ? 'Job recommendations' : 'User characteristics analysis'}: ${knowledgeData ? 'Retrieved' : 'Failed'}`);
             if (knowledgeData) {
                 console.log('    │    └─ Length: ' + knowledgeData.length + ' characters');
                 console.log('    │    └─ Sample: ' + knowledgeData.substring(0, 50) + '...');
