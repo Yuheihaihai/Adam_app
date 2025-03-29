@@ -2674,6 +2674,15 @@ async function handleChatRecallWithRetries(userId, messageText) {
   }
 }
 
+// キャッシュを保存するグローバル変数
+const historyAnalysisCache = new Map();
+const HISTORY_CACHE_TTL = 60 * 60 * 1000; // 1時間のキャッシュ有効期限（ミリ秒）
+
+/**
+ * ユーザー履歴を取得して解析する関数
+ * @param {string} userId - ユーザーID
+ * @returns {Promise<Object>} - 解析結果
+ */
 async function fetchAndAnalyzeHistory(userId) {
   const startTime = Date.now();
   console.log(`📚 Fetching chat history for user ${userId}`);
@@ -2681,6 +2690,19 @@ async function fetchAndAnalyzeHistory(userId) {
   console.log(`→ ユーザーID: ${userId}`);
   
   try {
+    // キャッシュチェック
+    const cacheKey = `history_${userId}`;
+    const cachedResult = historyAnalysisCache.get(cacheKey);
+    const now = Date.now();
+    
+    if (cachedResult && (now - cachedResult.timestamp < HISTORY_CACHE_TTL)) {
+      console.log(`→ キャッシュヒット: 最終更新から ${Math.floor((now - cachedResult.timestamp) / 1000 / 60)} 分経過`);
+      console.log(`======= 特性分析デバッグログ: キャッシュから読み込み完了 =======\n`);
+      return cachedResult.data;
+    }
+    
+    console.log(`→ キャッシュなし: 履歴データを取得します`);
+    
     // PostgreSQLから最大200件のメッセージを取得
     const pgHistory = await fetchUserHistory(userId, 200) || [];  // 未定義の場合は空配列を使用
     console.log(`📝 Found ${pgHistory.length} records from PostgreSQL in ${Date.now() - startTime}ms`);
@@ -2750,14 +2772,22 @@ async function fetchAndAnalyzeHistory(userId) {
       // 安全に文字列として扱えるようにする
       const textToLog = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
     
-    console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
+      console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
       console.log(`→ 特性分析レスポンス生成完了: ${textToLog.substring(0, 50)}...`);
-    console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
+      console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
       
-    return {
-      type: 'text',
+      const result = {
+        type: 'text',
         text: responseText
       };
+      
+      // 結果をキャッシュに保存
+      historyAnalysisCache.set(cacheKey, {
+        timestamp: now,
+        data: result
+      });
+      
+      return result;
     } catch (analysisError) {
       console.error(`❌ Error in generateHistoryResponse: ${analysisError.message}`);
       console.error(`→ Analysis error stack: ${analysisError.stack}`);
@@ -2776,10 +2806,18 @@ async function fetchAndAnalyzeHistory(userId) {
       console.log(`→ Returning default analysis due to error`);
       console.log(`======= 特性分析デバッグログ: エラー発生後のフォールバック分析完了 =======\n`);
       
-      return {
+      const result = {
         type: 'text',
         text: defaultAnalysis
       };
+      
+      // エラーでも一定期間キャッシュに保存（頻繁なエラーを避けるため）
+      historyAnalysisCache.set(cacheKey, {
+        timestamp: now,
+        data: result
+      });
+      
+      return result;
     }
   } catch (error) {
     console.error(`❌ Error in fetchAndAnalyzeHistory: ${error.message}`);
@@ -3342,7 +3380,7 @@ ${userMessages.join('\n')}
         });
         
         const openaiText = openaiResponse.choices[0].message.content;
-        console.log(`→ OpenAI API応答受信: ${openaiText.substring(0, 100)}...`);
+        console.log(`→ OpenAI API キャリア応答受信: ${openaiText.substring(0, 100)}...`);
         
         // 「過去の記録がない」などの表現がないか確認
         const hasNoDataMessage = openaiText.includes('過去の記録がない') || 
