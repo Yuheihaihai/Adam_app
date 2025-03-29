@@ -273,56 +273,41 @@ class InsightsService {
       userMetrics.audioRequestsToday = 0;
     }
     
-    // デイリー制限チェック
-    const isDailyLimitExceeded = userMetrics.audioRequestsToday >= this.audioLimits.userDailyLimit;
-    // 月間制限チェック
-    const isMonthlyLimitExceeded = this.metrics.system.audioRequests >= this.audioLimits.globalMonthlyLimit;
+    // 今日の音声リクエスト回数を増加
+    userMetrics.audioRequestsToday++;
+    userMetrics.audioRequests++;
+    userMetrics.lastAudioRequestDate = now.getTime();
+    userMetrics.lastSeen = now.getTime();
     
-    let isAllowed = this.audioLimits.quotaRemoved || (!isDailyLimitExceeded && !isMonthlyLimitExceeded);
+    // 最近のクエリ保存
+    userMetrics.recentQueries.unshift({
+      type: 'audio',
+      content: '音声メッセージ',
+      timestamp: now.getTime()
+    });
+    if (userMetrics.recentQueries.length > 5) {
+      userMetrics.recentQueries.pop();
+    }
+    
+    // システムメトリクス更新
+    this.metrics.system.totalRequests++;
+    this.metrics.system.audioRequests = (this.metrics.system.audioRequests || 0) + 1;
+    
+    // 制限チェック
+    const isAllowed = this.audioLimits.quotaRemoved || 
+                      (userMetrics.audioRequestsToday <= this.audioLimits.userDailyLimit && 
+                       this.metrics.system.audioRequests <= this.audioLimits.globalMonthlyLimit);
+    
     let message = '';
     let reason = '';
     
-    // 制限が超えている場合のみ、カウントを増やさない
-    if (isAllowed) {
-      // 今日の音声リクエスト回数を増加
-      userMetrics.audioRequestsToday++;
-      userMetrics.audioRequests++;
-      userMetrics.lastAudioRequestDate = now.getTime();
-      userMetrics.lastSeen = now.getTime();
-      
-      // 最近のクエリ保存
-      userMetrics.recentQueries.unshift({
-        type: 'audio',
-        content: '音声メッセージ',
-        timestamp: now.getTime()
-      });
-      if (userMetrics.recentQueries.length > 5) {
-        userMetrics.recentQueries.pop();
-      }
-      
-      // システムメトリクス更新
-      this.metrics.system.totalRequests++;
-      this.metrics.system.audioRequests = (this.metrics.system.audioRequests || 0) + 1;
-    } else {
-      if (isDailyLimitExceeded) {
+    if (!isAllowed) {
+      if (userMetrics.audioRequestsToday > this.audioLimits.userDailyLimit) {
         reason = 'user_daily_limit';
-        
-        // 次の日の午前0時までの時間を計算
-        const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-        const hoursUntilReset = Math.ceil((tomorrow - now) / 1000 / 60 / 60);
-        const minutesUntilReset = Math.ceil((tomorrow - now) / 1000 / 60) % 60;
-        
-        message = `音声メッセージの利用回数が1日の上限（${this.audioLimits.userDailyLimit}回）に達しました。`;
-        message += `\n\n次回のリセットまであと約${hoursUntilReset}時間${minutesUntilReset > 0 ? minutesUntilReset + '分' : ''}です。`;
+        message = `音声メッセージの利用回数が1日の上限（${this.audioLimits.userDailyLimit}回）に達しました。明日またご利用ください。`;
       } else {
         reason = 'global_monthly_limit';
-        
-        // 翌月の初日までの日数を計算
-        const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-        const daysUntilReset = Math.ceil((nextMonth - now) / 1000 / 60 / 60 / 24);
-        
-        message = '現在、音声メッセージ機能の利用が集中しているため、一時的にご利用いただけません。';
-        message += `\n\n次回のリセットまであと約${daysUntilReset}日です。`;
+        message = '現在、音声メッセージ機能の利用が集中しているため、一時的にご利用いただけません。しばらく経ってからお試しください。';
       }
     }
     

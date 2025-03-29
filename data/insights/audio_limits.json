@@ -1,5 +1,5 @@
 {
   "userDailyLimit": 3,
   "globalMonthlyLimit": 2000,
-  "quotaRemoved": true
+  "quotaRemoved": false
 }
