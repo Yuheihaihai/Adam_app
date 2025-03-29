@@ -31,6 +31,16 @@ const insightsService = require('./insightsService');
 const enhancedCharacteristics = require('./enhancedCharacteristicsAnalyzer');
 const audioHandler = require('./audioHandler');
 
+// セマンティック検索機能（質問意図理解用）
+let semanticSearch;
+try {
+  semanticSearch = require('./semanticSearch');
+  console.log('Semantic search module loaded successfully');
+} catch (error) {
+  console.warn('Semantic search module not available:', error.message);
+  semanticSearch = null;
+}
+
 // Embedding拡張機能のインポート - 既存コードを壊さないよう追加のみ
 let embeddingFeatures;
 try {
@@ -1948,8 +1958,18 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     console.log('└──────────────────────────────────────────────────────────┘');
     // ─────────────────────────────────────────────────────────────────────
     
+    // ** NEW: セマンティック検索モジュールの統合 **
+    let semanticSearch;
+    try {
+      semanticSearch = require('./semanticSearch');
+      console.log('\n🧠 [1S] SEMANTIC SEARCH MODULE - Loaded');
+    } catch (error) {
+      console.error('\n❌ [1S] SEMANTIC SEARCH MODULE - Failed to load:', error.message);
+      semanticSearch = null;
+    }
+    
     // Run user needs analysis, conversation context extraction, and service matching in parallel
-    const [userNeedsPromise, conversationContextPromise, perplexityDataPromise] = await Promise.all([
+    const [userNeedsPromise, conversationContextPromise, perplexityDataPromise, semanticContextPromise] = await Promise.all([
       // Analyze user needs from conversation history
       (async () => {
         console.log('\n📊 [1A] USER NEEDS ANALYSIS - Starting');
@@ -2036,520 +2056,215 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
             
             console.log(`    │  ${jobTrendsData ? '✅' : '❌'} Job market trends: ${jobTrendsData ? 'Retrieved' : 'Failed'}`);
             if (jobTrendsData && jobTrendsData.analysis) {
-                console.log('    │    └─ Analysis length: ' + jobTrendsData.analysis.length + ' characters');
+                console.log('    │    └─ Length: ' + jobTrendsData.analysis.length + ' characters');
                 console.log('    │    └─ Sample: ' + jobTrendsData.analysis.substring(0, 50) + '...');
-                console.log('    │    └─ URLs provided: ' + (jobTrendsData.urls ? 'Yes' : 'No'));
             }
             
-            console.log('    └─ [1C.4] ML AUGMENTATION: PERPLEXITY DATA - Completed');
-            
+            console.log(`\n🤖 [1C] ML AUGMENTATION - Completed in ${perplexityTime}ms`);
             return {
-              knowledge: knowledgeData,
-              jobTrends: jobTrendsData
+              knowledgeData: knowledgeData || null,
+              jobTrendsData: jobTrendsData || null
             };
           } catch (error) {
-            console.error('\n❌ Error fetching ML data:', error.message);
-            console.log('   └─ Proceeding without ML augmentation');
-            return null;
+            console.error('\n❌ [1C] ML AUGMENTATION - Failed:', error.message);
+            return {
+              knowledgeData: null,
+              jobTrendsData: null
+            };
           }
         }
-        // LocalML processing for other modes (general, mental_health, analysis)
-        else if (['general', 'mental_health', 'analysis'].includes(mode)) {
+        return {
+          knowledgeData: null,
+          jobTrendsData: null
+        };
+      })(),
+      
+      // NEW: セマンティック検索によるコンテキスト拡張
+      (async () => {
+        if (semanticSearch) {
           try {
-            console.log('\n🤖 [1C] ML AUGMENTATION: LOCALML DATA - Starting');
-            const localMlStartTime = Date.now();
+            console.log('\n🔍 [1D] SEMANTIC SEARCH - Starting');
+            const semanticStartTime = Date.now();
             
-            // Process ML data through mlHook
-            const { mlData } = await processMlData(userId, userMessage, mode);
+            // 関連コンテキストを取得して元のプロンプトを強化
+            const enhancedPromptData = await semanticSearch.enhancePromptWithContext(
+              userId, 
+              userMessage, 
+              systemPrompt,
+              history
+            );
             
-            const localMlTime = Date.now() - localMlStartTime;
-            console.log(`    ├─ [1C.2] ML data processed in ${localMlTime}ms`);
-            
-            // Log ML data status
-            if (mlData) {
-              console.log('    ├─ [1C.3] ML DATA RESULTS:');
-              console.log(`    │  ✅ User ${mode} analysis: Retrieved`);
-              console.log(`    │    └─ Data size: ${JSON.stringify(mlData).length} bytes`);
-              
-              // Log detected traits or features based on mode
-              if (mode === 'general' && mlData.traits) {
-                console.log('    │    └─ Detected traits:');
-                Object.entries(mlData.traits).forEach(([trait, value]) => {
-                  console.log(`    │       - ${trait}: ${value}`);
-                });
-              } else if (mode === 'mental_health' && mlData.indicators) {
-                console.log('    │    └─ Detected indicators:');
-                Object.entries(mlData.indicators).forEach(([indicator, value]) => {
-                  console.log(`    │       - ${indicator}: ${value}`);
-                });
-              } else if (mode === 'analysis' && mlData.complexity) {
-                console.log('    │    └─ Detected complexity factors:');
-                Object.entries(mlData.complexity).forEach(([factor, value]) => {
-                  console.log(`    │       - ${factor}: ${value}`);
-                });
-              }
+            const semanticTime = Date.now() - semanticStartTime;
+            if (enhancedPromptData.contexts && enhancedPromptData.contexts.length > 0) {
+              console.log(`🔍 [1D] SEMANTIC SEARCH - Found ${enhancedPromptData.contexts.length} relevant contexts in ${semanticTime}ms`);
+              console.log(`🔍 [1D] SEMANTIC SEARCH - Top match similarity: ${enhancedPromptData.contexts[0].similarity.toFixed(2)}`);
             } else {
-              console.log('    ├─ [1C.3] ML DATA RESULTS:');
-              console.log('    │  ❌ No ML data available for this conversation');
+              console.log(`🔍 [1D] SEMANTIC SEARCH - No relevant contexts found in ${semanticTime}ms`);
             }
             
-            console.log('    └─ [1C.4] ML AUGMENTATION: LOCALML DATA - Completed');
-            
-            return mlData;
+            return enhancedPromptData;
           } catch (error) {
-            console.error('\n❌ Error processing LocalML data:', error.message);
-            console.log('   └─ Proceeding without ML augmentation');
-            return null;
+            console.error('\n❌ [1D] SEMANTIC SEARCH - Failed:', error.message);
+            return {
+              enhancedPrompt: systemPrompt,
+              contexts: []
+            };
           }
+        } else {
+          return {
+            enhancedPrompt: systemPrompt,
+            contexts: []
+          };
         }
-        return null;
       })()
     ]);
     
-    // Unwrap the promises to get the actual data
-    const userNeeds = await userNeedsPromise;
-    const conversationContext = await conversationContextPromise;
+    // ─────────────────────────────────────────────────────────────────────
+    console.log('\n┌──────────────────────────────────────────────────────────┐');
+    console.log('│ 2. DATA INTEGRATION PHASE                                │');
+    console.log('└──────────────────────────────────────────────────────────┘');
+    // ─────────────────────────────────────────────────────────────────────
     
-    // Any additional data from perplexity if in career mode
-    let additionalPromptData = {};
+    // Unpack the results
+    const userNeeds = userNeedsPromise;
+    const conversationContext = conversationContextPromise;
+    const perplexityData = perplexityDataPromise;
+    const semanticContextData = semanticContextPromise;
+    
+    // Add the user needs, conversation context, and ML data to the system prompt
+    
+    // Extract ML data
+    const mlData = perplexityData || { knowledgeData: null, jobTrendsData: null };
+    const knowledgeData = mlData.knowledgeData;
+    const jobTrendsData = mlData.jobTrendsData;
+    
+    // Use semantic enhanced prompt if available
+    const enhancedSystemPrompt = semanticContextData.enhancedPrompt || systemPrompt;
+    
+    console.log('\n🔄 [2.1] Creating final system prompt with all context');
+    
+    // Combine all the data into a final system prompt
+    let finalSystemPrompt = enhancedSystemPrompt;
+    
+    // Add user needs
+    if (userNeeds && userNeeds.trim() !== '') {
+      finalSystemPrompt += `\n\n[ユーザーニーズの分析]:\n${userNeeds}`;
+      console.log('    ├─ [2.1.1] Added user needs analysis');
+    }
+    
+    // Add conversation context
+    if (conversationContext && conversationContext.trim() !== '') {
+      finalSystemPrompt += `\n\n[会話の背景]:\n${conversationContext}`;
+      console.log('    ├─ [2.1.2] Added conversation context');
+    }
+    
+    // If in career mode, add Perplexity data
     if (mode === 'career') {
-      try {
-        const perplexityData = await perplexityDataPromise;
-        additionalPromptData = perplexityData || {};
-
-        // 特に適職診断リクエストの場合は、直接Perplexityの職業推薦を返却
-        const isJobRecommendationRequest = 
-          userMessage.includes('適職') || 
-          userMessage.includes('診断') || 
-          userMessage.includes('向いてる') || 
-          userMessage.includes('向いている') || 
-          userMessage.includes('私に合う') || 
-          userMessage.includes('私に合った') || 
-          userMessage.includes('私に向いている') || 
-          userMessage.includes('私の特性') || 
-          userMessage.includes('キャリア分析') || 
-          userMessage.includes('職業') || 
-          (userMessage.includes('仕事') && (userMessage.includes('向いてる') || userMessage.includes('探し') || userMessage.includes('教えて'))) ||
-          (userMessage.includes('私') && userMessage.includes('仕事')) ||
-          (userMessage.includes('職場') && (userMessage.includes('社風') || userMessage.includes('人間関係'))) ||
-          (userMessage.includes('分析') && (userMessage.includes('仕事') || userMessage.includes('特性')));
-
-        // 適職診断リクエストで、かつ具体的な職業推薦データがある場合は直接返却
-        if (isJobRecommendationRequest && additionalPromptData.knowledge && 
-            additionalPromptData.knowledge.includes('【最適な職業】')) {
-          console.log(`\n✅ [キャリア分析] 直接職業推薦データを使用します`);
-          return {
-            response: additionalPromptData.knowledge,
-            updatedHistory: [...history, 
-                           { role: 'user', content: userMessage }, 
-                           { role: 'assistant', content: additionalPromptData.knowledge }]
-          };
-        }
-      } catch (error) {
-        console.error(`❌ Error getting perplexity data: ${error.message}`);
-        additionalPromptData = {};
+      if (knowledgeData) {
+        finalSystemPrompt += `\n\n[キャリア特性分析]:\n${knowledgeData}`;
+        console.log('    ├─ [2.1.3] Added career knowledge data');
+      }
+      
+      if (jobTrendsData && jobTrendsData.analysis) {
+        finalSystemPrompt += `\n\n[最新の職業トレンド]:\n${jobTrendsData.analysis}`;
+        console.log('    ├─ [2.1.4] Added job trends data');
       }
     }
     
+    // プロンプトの最後にテキストと音声の両方で一貫性ある回答をするための指示を追加
+    finalSystemPrompt += `\n\n[回答に関する指示事項]:\n- ユーザーの質問の意図を正確に理解し、核心を突いた回答を生成してください。\n- テキストメッセージと音声メッセージの両方に一貫した質の高い回答を提供してください。\n- 過去の会話文脈を考慮して一貫性のある応答を心がけてください。`;
+    
+    console.log(`    └─ [2.1.5] Final system prompt created: ${finalSystemPrompt.length} characters`);
+    
     // ─────────────────────────────────────────────────────────────────────
-    console.log('┌──────────────────────────────────────────────────────────┐');
-    console.log('│ 2. PROMPT CONSTRUCTION PHASE                             │');
+    console.log('\n┌──────────────────────────────────────────────────────────┐');
+    console.log('│ 3. AI RESPONSE GENERATION PHASE                          │');
     console.log('└──────────────────────────────────────────────────────────┘');
     // ─────────────────────────────────────────────────────────────────────
     
-    // 2.1 Create the base system prompt using the mode
-    let updatedSystemPrompt = systemPrompt;
+    // Create messages for ChatGPT
+    const messages = [];
     
-    // 2.2 Enhance system prompt with conversation context
-    let usedContext = null;
-    if (conversationContext && conversationContext.relevantHistory) {
-      console.log('\n📝 [2A] INTEGRATING CONVERSATION CONTEXT');
-      if (conversationContext.relevantHistory.length > 0) {
-        const contextStartTime = Date.now();
-        
-        // Add conversation context to the system prompt
-        updatedSystemPrompt += `\n\n会話の文脈:
-${conversationContext.relevantHistory.join('\n')}`;
-        
-        usedContext = conversationContext.relevantHistory;
-        console.log(`📝 [2A] CONTEXT INTEGRATION - Completed in ${Date.now() - contextStartTime}ms`);
-        console.log(`📝 [2A] Added ${conversationContext.relevantHistory.length} relevant context items to system prompt`);
-      } else {
-        console.log(`📝 [2A] No relevant context found to add to system prompt`);
-      }
-    }
+    // Add system prompt
+    messages.push({
+      role: 'system',
+      content: finalSystemPrompt
+    });
     
-    // 2.3 Add user insights if available
-    if (userNeeds) {
-      console.log('\n👤 [2B] INTEGRATING USER NEEDS ANALYSIS');
-      const userInsightsStartTime = Date.now();
-      
-      // Add user needs summary to system prompt if available
-      if (userNeeds.summary) {
-        updatedSystemPrompt += `\n\nユーザーの特性と傾向:
-${userNeeds.summary}`;
-        
-        console.log(`👤 [2B] Added user needs summary (${userNeeds.summary.length} chars)`);
-      }
-      
-      console.log(`👤 [2B] USER NEEDS INTEGRATION - Completed in ${Date.now() - userInsightsStartTime}ms`);
-    }
+    // Add conversation history
+    console.log(`\n🔄 [3.1] Adding conversation history: ${history.length} messages`);
     
-    // 2.4 Add career specific data if available
-    if (mode === 'career' && additionalPromptData) {
-      console.log('\n💼 [2C] INTEGRATING CAREER DATA');
-      const careerDataStartTime = Date.now();
-      
-      // Add career enhancement data to system prompt if available
-      if (additionalPromptData.knowledge) {
-        updatedSystemPrompt += `\n\n最新の業界情報:
-${additionalPromptData.knowledge}`;
-        
-        console.log(`💼 [2C] Added industry knowledge (${additionalPromptData.knowledge.length} chars)`);
-      }
-      
-      // Add job trends data to system prompt if available
-      if (additionalPromptData.jobTrends && additionalPromptData.jobTrends.analysis) {
-        updatedSystemPrompt += `\n\n現在の求人トレンド:
-${additionalPromptData.jobTrends.analysis}`;
-        
-        console.log(`💼 [2C] Added job trends (${additionalPromptData.jobTrends.analysis.length} chars)`);
-      }
-      
-      console.log(`💼 [2C] CAREER DATA INTEGRATION - Completed in ${Date.now() - careerDataStartTime}ms`);
-    }
+    // 会話履歴の追加
+    const historyMessages = history || [];
     
-    // 2.5 Apply any additional instructions based on the mode
-    updatedSystemPrompt = applyAdditionalInstructions(updatedSystemPrompt, mode, historyMetadata, userMessage);
-    
-    // ─────────────────────────────────────────────────────────────────────
-    console.log('┌──────────────────────────────────────────────────────────┐');
-    console.log('│ 3. API CALL PREPARATION PHASE                            │');
-    console.log('└──────────────────────────────────────────────────────────┘');
-    // ─────────────────────────────────────────────────────────────────────
-    
-    // Prepare the AI request
-    console.log('\n🔄 [3A] PREPARING MESSAGE ARRAY');
-    
-    // ここから会話履歴の処理に関する重要なデバッグログを追加
-    console.log(`\n===== AIモデルへの会話履歴送信デバッグ =====`);
-    console.log(`→ ユーザーID: ${userId}`);
-    console.log(`→ 会話モード: ${mode}`);
-    console.log(`→ 送信する履歴数: ${history.length}件`);
-    
-    // 会話履歴の形式を確認
-    if (history.length > 0) {
-      const sampleMsg = history[0];
-      console.log(`→ 会話履歴の形式サンプル（最初のメッセージ）:`);
-      console.log(JSON.stringify(sampleMsg, null, 2));
-    }
-    
-    // 3.1 Construct the messages array for the API request
-    // 【新規】会話履歴の状態を詳細に確認
-    console.log(`\n===== 会話履歴の状態確認 =====`);
-    console.log(`→ 履歴配列のタイプ: ${Array.isArray(history) ? 'Array' : typeof history}`);
-    console.log(`→ 履歴の長さ: ${history.length}件`);
-    
-    // サンプルメッセージの内容をチェック
-    if (history.length > 0) {
-      // 3件のサンプルをチェック
-      const checkIndices = [0, Math.floor(history.length / 2), history.length - 1];
-      checkIndices.forEach(idx => {
-        if (idx >= 0 && idx < history.length) {
-          const msg = history[idx];
-          console.log(`→ メッセージ[${idx}]:`);
-          console.log(`  - role: ${msg.role || 'undefined'}`);
-          console.log(`  - content: ${(msg.content || '').substring(0, 50)}${(msg.content || '').length > 50 ? '...' : ''}`);
-          console.log(`  - 型: ${typeof msg.content}`);
-          console.log(`  - 長さ: ${(msg.content || '').length}文字`);
-        }
-      });
-    } else {
-      console.log(`⚠ 会話履歴が空です`);
-    }
-    console.log(`===== 会話履歴の状態確認終了 =====\n`);
-    
-    // 会話履歴を全部送信したくない場合のフィルタリング（ここではシンプルなデモとして、システムプロンプトと最近の10件のメッセージのみを送信）
-    // const messages = [
-    let messages = [
-      { role: 'system', content: updatedSystemPrompt },
-      ...history.slice(-Math.min(history.length, 10)).map(item => ({
-        role: item.role,
-        content: item.content
-      }))
-    ];
-    
-    // ログ: システムプロンプトの追加
-    console.log(`→ システムプロンプトをメッセージ配列に追加 (${updatedSystemPrompt.length}文字)`);
-    
-    // ここで会話履歴を追加（ここが重要なポイント）
-    if (history.length > 0) {
-      console.log(`→ 会話履歴の追加開始...`);
-      
-      // 履歴をメッセージ配列に追加
-      history.forEach((msg, idx) => {
-        const role = msg.role === 'user' ? 'user' : 'assistant';
+    // Prepare history, skipping system messages
+    for (const msg of historyMessages) {
+      if (msg.role !== 'system') {
         messages.push({
-          role: role,
-          content: msg.content
+          role: msg.role,
+          content: String(msg.content) // Ensure content is a string
         });
-        
-        // 最初と最後の数件だけログ表示
-        if (idx < 2 || idx >= history.length - 2) {
-          console.log(`  [${idx+1}/${history.length}] ${role}: ${msg.content.substring(0, 50)}${msg.content.length > 50 ? '...' : ''}`);
-        } else if (idx === 2 && history.length > 5) {
-          console.log(`  ... ${history.length - 4} more messages ...`);
-        }
-      });
-      
-      console.log(`→ 会話履歴の追加完了 (${history.length}件)`);
-    } else {
-      console.log(`⚠ 警告: 会話履歴が空のため、過去のメッセージは追加されません`);
+      }
     }
     
-    // 現在のユーザーメッセージを追加
-    messages.push({ role: 'user', content: userMessage });
-    console.log(`→ 現在のユーザーメッセージを追加: ${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}`);
+    // Add the latest user message
+    messages.push({
+      role: 'user',
+      content: userMessage
+    });
     
-    // メッセージ配列の構成を表示
-    console.log(`→ 最終的なメッセージ配列の構成:`);
-    console.log(`  - メッセージ総数: ${messages.length}件`);
-    console.log(`  - 内訳: システムx1, 履歴x${history.length}, 現在のメッセージx1`);
-    console.log(`===== AIモデルへの会話履歴送信デバッグ終了 =====\n`);
+    console.log(`\n🔄 [3.2] Preparing final prompt with ${messages.length} messages`);
     
-    // 履歴が長すぎる場合は削減（コンテキスト長の制限に対応）
-    if (messages.length > 2000) {
-      console.log(`⚠ 警告: メッセージ配列が長すぎます (${messages.length} > 2000)。最新の会話に重点を置いて削減します。`);
-      
-      // システムメッセージと最後のユーザーメッセージを保持
-      const systemMessage = messages[0];
-      const userMessage = messages[messages.length - 1];
-      
-      // 中間の会話履歴を最大1500件に制限（重要な文脈を保持するため、新しいものを優先）
-      const reducedHistory = messages.slice(1, -1).slice(-1500);
-      
-      // 新しいメッセージ配列を構築
-      messages = [systemMessage, ...reducedHistory, userMessage];
-      
-      console.log(`会話履歴を ${messages.length} メッセージに削減しました`);
-    }
-    
-    // 3.2 Prepare API model parameters
-    const temperature = 0.7;
-    const maxTokens = 1500;
-    
-    console.log(`\n⚙️ [3B] API CONFIGURATION`);
-    console.log(`├─ Model: ${model}`);
-    console.log(`├─ Temperature: ${temperature}`);
-    console.log(`├─ Max tokens: ${maxTokens}`);
-    console.log(`├─ Total prompt components: ${messages.length}`);
-    console.log(`├─ Sending request to OpenAI API...`);
-    
-    console.log(`\n🔍 [4B] SERVICE MATCHING - Processing`);
-    console.log(`├─ Service matching completed in 0ms`);
-    console.log(`├─ Recommendations found: 0`);
-    console.log(`└─ No recommendations matched criteria`);
-    
-    // ─────────────────────────────────────────────────────────────────────
-    console.log('┌──────────────────────────────────────────────────────────┐');
-    console.log('│ 4. AI CALL & POST-PROCESSING PHASE                       │');
-    console.log('└──────────────────────────────────────────────────────────┘');
-    // ─────────────────────────────────────────────────────────────────────
-    
-    // 4.1 Make the API call to OpenAI
+    // Set API options
     const gptOptions = {
       model: model,
       messages: messages,
-      temperature: temperature,
-      max_tokens: maxTokens,
-            top_p: 1,
-      frequency_penalty: 0,
-      presence_penalty: 0,
+      temperature: 0.7,
+      max_tokens: 1000,
+      top_p: 1,
+      frequency_penalty: 0.1,
+      presence_penalty: 0.1
     };
     
-    // 実際にAIモデルに送信されるリクエストのログ
-    console.log(`\n===== AIモデルリクエスト詳細 =====`);
-    console.log(`→ モデル: ${gptOptions.model}`);
-    console.log(`→ メッセージ数: ${gptOptions.messages.length}`);
-    console.log(`→ 最初のメッセージ: ${gptOptions.messages[0].role.substring(0, 10)}...`);
-    console.log(`→ 最後のメッセージ: ${gptOptions.messages[gptOptions.messages.length-1].role}: ${gptOptions.messages[gptOptions.messages.length-1].content.substring(0, 30)}...`);
-    console.log(`===== AIモデルリクエスト詳細終了 =====\n`);
+    console.log('\n🤖 [3.3] Calling AI API');
+    const apiStartTime = Date.now();
+    const response = await tryPrimaryThenBackup(gptOptions);
     
-    const aiResponseStartTime = Date.now();
-    let response;
-    
-    // 通常のOpenAI APIを使用（Claude対応は将来の拡張として残しておく）
-    try {
-      response = await tryPrimaryThenBackup(gptOptions);
-    } catch (error) {
-      console.error(`OpenAI API error: ${error.message}`);
-      throw error;
+    if (!response || !response.choices || response.choices.length === 0) {
+      throw new Error('AI response is empty or invalid');
     }
     
-    // Simplified log of the AI response (might be too large to log entirely)
-    const aiResponseTime = Date.now() - aiResponseStartTime;
-    console.log(`├─ AI response generated in ${aiResponseTime}ms`);
+    // Extract AI message content
+    const aiResponseText = response.choices[0].message.content;
     
-    // Extract the content of the response
-    let aiResponse = '';
+    console.log(`\n✅ [3.4] AI API responded in ${Date.now() - apiStartTime}ms`);
+    console.log(`    └─ Response length: ${aiResponseText.length} characters`);
     
-    if (typeof response === 'string') {
-      // 文字列形式の応答の場合はそのまま使用
-      aiResponse = response;
-    } else if (response.choices && response.choices[0] && response.choices[0].message) {
-      // OpenAI API format
-      aiResponse = response.choices[0].message.content || '';
-    }
+    // ─────────────────────────────────────────────────────────────────────
+    console.log('\n┌──────────────────────────────────────────────────────────┐');
+    console.log('│ 4. POST-PROCESSING PHASE                                 │');
+    console.log('└──────────────────────────────────────────────────────────┘');
+    // ─────────────────────────────────────────────────────────────────────
     
-    // レスポンス構造を詳細にログに出力
-    console.log(`→ レスポンス詳細デバッグ: ${JSON.stringify(response).substring(0, 500)}...`);
-    
-    // 応答オブジェクトの構造をさらに検証
-    if (!aiResponse || aiResponse.trim() === '') {
-      console.error(`⚠⚠⚠ 重大な警告: AIから空の応答を受け取りました ⚠⚠⚠`);
-      
-      // レスポンスをより詳細に検査
-      if (typeof response === 'string') {
-        // 文字列の場合はそのまま使用（エラー応答の場合など）
-        aiResponse = response;
-        console.log(`→ 応答が文字列形式: ${aiResponse.substring(0, 100)}...`);
-      } else if (response && typeof response === 'object') {
-        console.error(`→ レスポンス構造: ${JSON.stringify(response, null, 2).substring(0, 300)}...`);
-        
-        // さらにchoicesの構造を検証
-        if (response.choices && response.choices.length > 0) {
-          console.log(`→ choices[0]の内容: ${JSON.stringify(response.choices[0])}`);
-          
-          // 異なる形式のレスポンスを試行
-          if (response.choices[0].message && typeof response.choices[0].message === 'object') {
-            const message = response.choices[0].message;
-            console.log(`→ message構造: ${JSON.stringify(message)}`);
-            
-            if (message.content) {
-              aiResponse = message.content;
-              // 安全にsubstringを使用するために文字列に変換
-              const contentStr = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
-              console.log(`→ content直接抽出: ${contentStr.substring(0, 100)}`);
-            }
-          } else if (response.choices[0].text) {
-            aiResponse = response.choices[0].text;
-            // 安全にsubstringを使用するために文字列に変換
-            const textStr = typeof response.choices[0].text === 'string' ? response.choices[0].text : JSON.stringify(response.choices[0].text);
-            console.log(`→ text直接抽出: ${textStr.substring(0, 100)}`);
-          } else if (response.choices[0].delta && response.choices[0].delta.content) {
-            aiResponse = response.choices[0].delta.content;
-            // 安全にsubstringを使用するために文字列に変換
-            const deltaStr = typeof response.choices[0].delta.content === 'string' ? response.choices[0].delta.content : JSON.stringify(response.choices[0].delta.content);
-            console.log(`→ delta.content抽出: ${deltaStr.substring(0, 100)}`);
-          }
+    // Save important AI responses to semantic database for future reference
+    if (semanticSearch && aiResponseText.length > 100) {
+      try {
+        const isImportant = semanticSearch.isImportantContent(aiResponseText);
+        if (isImportant) {
+          console.log('\n🔍 [4.1] Storing AI response for future context');
+          semanticSearch.storeMessageEmbedding(userId, aiResponseText, null)
+            .catch(err => console.error('Error storing AI response embedding:', err.message));
         }
-        
-        // 最終手段：レスポンス自体が直接コンテンツを含む場合
-        if (!aiResponse && response.content) {
-          aiResponse = response.content;
-          // 安全にsubstringを使用するために文字列に変換
-          const contentStr = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
-          console.log(`→ ルートレベルのcontent抽出: ${contentStr.substring(0, 100)}`);
-        }
-      }
-      
-      // それでも空の場合はデフォルトメッセージを設定（上位関数でのフォールバック用）
-      if (!aiResponse || aiResponse.trim() === '') {
-        console.log(`→ すべての抽出方法を試行しましたが、有効なコンテンツを見つけられませんでした`);
-          } else {
-        // 安全にsubstringを使用するために文字列に変換
-        const responseStr = typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse);
-        console.log(`→ 代替抽出方法でコンテンツを復旧しました: ${responseStr.substring(0, 50)}...`);
+      } catch (error) {
+        console.error('\n❌ [4.1] Failed to store AI response:', error.message);
       }
     }
     
-    // 応答が空の場合のエラーログ
-    if (!aiResponse || aiResponse.trim() === '') {
-      console.error(`⚠⚠⚠ 重大な警告: AIから空の応答を受け取りました ⚠⚠⚠`);
-      // エラーをスローせず、空の応答をそのまま返す（上位関数でフォールバックメッセージが適用される）
-    }
+    // Calculate total processing time
+    const totalProcessingTime = Date.now() - overallStartTime;
+    console.log(`\n✅ [COMPLETE] Total processing time: ${totalProcessingTime}ms`);
     
-    // 安全に文字列として扱えるようにする
-    const logText = typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse);
-    
-    // 【新規】AIレスポンスのデバッグログ
-    console.log(`\n===== AIレスポンス詳細 =====`);
-    console.log(`→ レスポンス取得時間: ${aiResponseTime}ms`);
-    console.log(`→ レスポンス長: ${logText.length}文字`);
-    console.log(`→ レスポンス冒頭: ${logText.substring(0, 100)}...`);
-    
-    // 会話履歴に関する言及をチェック
-    const memoryKeywords = ['覚えてい', '記憶', '会話履歴', '過去の記録', '履歴'];
-    let containsMemoryRef = false;
-    
-    for (const keyword of memoryKeywords) {
-      if (logText.includes(keyword)) {
-        containsMemoryRef = true;
-        console.log(`⚠ 警告: AIレスポンスに記憶関連キーワード「${keyword}」が含まれています`);
-      }
-    }
-    
-    if (containsMemoryRef) {
-      console.log(`⚠ AI応答の中で記憶/履歴に関する言及があります。会話履歴の送信に問題がある可能性があります。`);
-    }
-    
-    // 'memoryTest'モードで、「覚えていない」などのネガティブな言及をチェック
-    if (mode === 'memoryTest') {
-      const negativeMemoryTerms = ['覚えていません', '記憶していません', '履歴がありません', '情報がありません', '申し訳ありません', '持っていません'];
-      for (const term of negativeMemoryTerms) {
-        if (logText.includes(term)) {
-          console.log(`⚠⚠⚠ 重大な警告: memoryTestモードなのに「${term}」と回答しています。会話履歴の処理に問題があります。`);
-        }
-      }
-    }
-    
-    console.log(`===== AIレスポンス詳細終了 =====\n`);
-    
-    // Check if response contains certain phrases that indicate a problem with history
-    if (logText.includes('過去の記録がない') || 
-        logText.includes('会話履歴がない') ||
-        logText.includes('過去の会話履歴がない') ||
-        logText.includes('履歴の記憶機能は持っていません') ||
-        logText.includes('記憶機能は持っていません')) {
-      // Log that might help diagnose the problem
-      console.log(`\n⚠⚠⚠ 重大な警告: AIが履歴なしと応答しました ⚠⚠⚠`);
-      console.log(`→ モード: ${mode}`);
-      console.log(`→ 会話履歴件数: ${history.length}`);
-      
-      // メッセージ配列の詳細を再度出力
-      console.log(`→ メッセージ配列内容:`);
-      console.log(`  - 総数: ${messages.length}件`);
-      console.log(`  - システムプロンプト長: ${messages[0].content.length}文字`);
-      
-      // 会話履歴の先頭と末尾を表示
-      if (history.length > 0) {
-        console.log(`→ 会話履歴の最初のメッセージ: ${history[0].role}: ${history[0].content.substring(0, 50)}...`);
-        console.log(`→ 会話履歴の最後のメッセージ: ${history[history.length-1].role}: ${history[history.length-1].content.substring(0, 50)}...`);
-        
-        // メッセージ配列内の会話履歴部分を確認
-        if (messages.length > 2) { // システム + 少なくとも1つの履歴 + 現在のメッセージ
-          console.log(`→ メッセージ配列内の最初の履歴メッセージ: ${messages[1].role}: ${messages[1].content.substring(0, 50)}...`);
-          if (messages.length > 3) {
-            console.log(`→ メッセージ配列内の最後の履歴メッセージ: ${messages[messages.length-2].role}: ${messages[messages.length-2].content.substring(0, 50)}...`);
-          }
-        }
-      }
-    }
-    
-    // ... 残りのコードは変更なし ...
-    
-    // Prepare the recommendations (if any)
-    const recommendations = [];  // This would normally come from recommendation engine
-    
-    // Performance tracking for entire process
-    const processingTime = Date.now() - overallStartTime;
-    console.log(`\n✅ PROCESS COMPLETE: Total processing time: ${processingTime}ms`);
-    
-    // Return the AI response
-    return {
-      response: aiResponse,
-      recommendations: recommendations
-    };
+    return aiResponseText;
   } catch (error) {
     console.error(`Error in AI processing: ${error.message}`);
     console.error(error.stack);
@@ -2557,151 +2272,6 @@ ${additionalPromptData.jobTrends.analysis}`;
       response: '申し訳ありません、エラーが発生しました。しばらく経ってからもう一度お試しください。',
       recommendations: []
     };
-  }
-}
-
-// Add timeout handling with retries and proper error handling
-const MAX_RETRIES = 3;
-const TIMEOUT_PER_ATTEMPT = 25000; // 25 seconds per attempt
-
-async function processMessage(userId, messageText) {
-  // ユーザーIDの検証
-  const validatedUserId = validateUserId(userId);
-  if (!validatedUserId) {
-    console.error('不正なユーザーIDでのメッセージ処理をスキップします');
-    return null;
-  }
-  
-  // メッセージテキストの検証と無害化
-  const sanitizedMessage = sanitizeUserInput(messageText);
-  if (!sanitizedMessage) {
-    console.warn('空のメッセージをスキップします');
-    return '申し訳ありませんが、メッセージを受け取れませんでした。もう一度お試しください。';
-  }
-  
-  // 洞察機能用のトラッキング
-  insightsService.trackTextRequest(validatedUserId, sanitizedMessage);
-  
-  // 画像生成リクエストかどうかチェック
-  if (isDirectImageGenerationRequest(sanitizedMessage)) {
-    console.log(`processMessage: 画像生成リクエストを検出 - "${sanitizedMessage.substring(0, 50)}..."`);
-    return {
-      text: sanitizedMessage,
-      isImageGenerationRequest: true
-    };
-  }
-  
-  // 既存の処理を続行
-  if (sanitizedMessage.includes('思い出して') || sanitizedMessage.includes('記憶')) {
-    return handleChatRecallWithRetries(validatedUserId, sanitizedMessage);
-  }
-
-  try {
-    console.log(`メッセージ処理開始: "${sanitizedMessage.substring(0, 50)}${sanitizedMessage.length > 50 ? '...' : ''}"`);
-    
-    // 混乱状態のチェック
-    if (isConfusionRequest(sanitizedMessage)) {
-      console.log('混乱状態の質問を検出しました');
-      return '申し訳ありませんが、質問の意図が明確ではありません。もう少し詳しく教えていただけますか？';
-    }
-    
-    // 管理者コマンドのチェック
-    const adminCommand = checkAdminCommand(sanitizedMessage);
-    if (adminCommand && adminCommand.isCommand) {
-      console.log('管理者コマンドを検出しました');
-      return `管理者コマンドを検出: ${adminCommand.type || 'unknown'}`; // 文字列を返す
-    }
-    
-    // モードと履歴制限を決定
-    const { mode, limit } = determineModeAndLimit(sanitizedMessage);
-    console.log(`選択されたモード: ${mode}, 履歴制限: ${limit}`);
-    
-    // 履歴データを取得
-    const historyData = await fetchUserHistory(validatedUserId, limit);
-    console.log(`${historyData.length}件の履歴を取得しました`);
-    
-    // 会話内容からシステムプロンプトを決定
-    const systemPrompt = getSystemPromptForMode(mode);
-    
-    // AIを使用して応答を生成
-    const result = await processWithAI(systemPrompt, sanitizedMessage, historyData, mode, validatedUserId);
-    
-    // 結果がオブジェクトかどうかをチェック
-    let responseText = result;
-    if (result && typeof result === 'object' && result.text) {
-      responseText = result.text;
-    }
-    
-    // 安全に文字列として扱えるようにする
-    const textToLog = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
-    console.log(`AI応答生成完了: "${textToLog.substring(0, 50)}${textToLog.length > 50 ? '...' : ''}"`);
-    
-    // 会話履歴を保存
-    await storeInteraction(validatedUserId, 'user', sanitizedMessage);
-    await storeInteraction(validatedUserId, 'assistant', responseText);
-    
-    return result;
-  } catch (error) {
-    console.error(`メッセージ処理エラー: ${error.message}`);
-    console.error(error.stack);
-    return '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
-  }
-}
-
-async function handleChatRecallWithRetries(userId, messageText) {
-  let attempts = 0;
-  const maxAttempts = 3;
-  const startTime = Date.now(); // この行を追加: startTime変数を定義
-  
-  // Generate specialized history analysis based on message content
-  // First check if this is a career-related request
-  const isCareerRequest = await isJobRequestSemantic(messageText);
-  
-  // Log detection result
-  console.log(`\n🔎 [意図分析] メッセージタイプ検出: ${isCareerRequest ? "キャリア関連" : "一般的な特性分析"}`);
-  
-  while (attempts < maxAttempts) {
-    attempts++;
-    console.log(`🔄 Chat recall attempt ${attempts}/${maxAttempts} for user ${userId}`);
-    
-    try {
-      // Get user history with a higher limit for analysis
-      const history = await fetchAndAnalyzeHistory(userId);
-      
-      if (!history) {
-        return "履歴の取得中にエラーが発生しました。もう一度お試しください。";
-      }
-      
-      console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
-
-      let response;
-      if (isCareerRequest) {
-        // Generate career-focused analysis
-        console.log(`👔 [キャリア分析] キャリア特化分析を実行します`);
-        const careerAnalysis = await generateCareerAnalysis(history, messageText);
-        response = careerAnalysis;
-      } else {
-        // Generate general characteristics analysis
-        response = await generateHistoryResponse(history);
-      }
-      
-      console.log(`→ 特性分析レスポンス生成完了: ${response.substring(0, 50)}...`);
-      console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
-      
-      console.log(`✅ Chat recall succeeded on attempt ${attempts}`);
-      return response;
-      
-    } catch (error) {
-      console.error(`❌ Chat recall error on attempt ${attempts}:`, error);
-      
-      if (attempts >= maxAttempts) {
-        console.error(`❌ All ${maxAttempts} attempts failed`);
-        return "申し訳ありません。履歴分析中にエラーが発生しました。しばらくしてからもう一度お試しください。";
-      }
-      
-      // Wait before retrying
-      await new Promise(resolve => setTimeout(resolve, 500 * attempts));
-    }
   }
 }
 
@@ -4423,4 +3993,15 @@ async function generateCareerAnalysis(history, currentMessage) {
     console.error(`キャリア分析エラー: ${error}`);
     return "申し訳ありませんが、キャリア分析中にエラーが発生しました。しばらくしてからもう一度お試しください。";
   }
+}
+
+// セマンティック検索モジュール（読み込みに失敗しても続行）
+let semanticSearch;
+try {
+  semanticSearch = require('./semanticSearch');
+  console.log('Semantic search module loaded successfully');
+} catch (error) {
+  console.warn('Semantic search module failed to load:', error.message);
+  console.log('Will continue without semantic search capabilities');
+  semanticSearch = null;
 }
