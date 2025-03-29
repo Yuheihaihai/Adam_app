@@ -2853,7 +2853,7 @@ async function handleText(event) {
               replyMessage = characteristicsResult.response;
             } else if (characteristicsResult.text) {
               replyMessage = characteristicsResult.text;
-            } else {
+          } else {
               // オブジェクトを文字列に変換
               replyMessage = JSON.stringify(characteristicsResult);
             }
@@ -2913,12 +2913,12 @@ async function handleText(event) {
         // LINEのメッセージ長制限に対応（5000文字まで）
         const firstPart = replyMessage.substring(0, 4900);
         await client.replyMessage(event.replyToken, {
-          type: 'text',
+            type: 'text',
           text: firstPart + '\n\n(メッセージが長すぎるため省略されました)'
         });
-      } else {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
+            } else {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
           text: replyMessage
         });
       }
@@ -4234,6 +4234,35 @@ async function generateAIResponse(userMessage, history, contextMessages, userId,
         exactPattern.test(userMessage) || 
         (manualRequestPattern.test(userMessage) && !userMessage.includes('言葉'))) {
       console.log('ASD支援または使い方に関する質問を検出しました。マニュアルを返します。');
+      
+      // ASD支援ガイドテキストを定義
+      const ASDSupportManual = `
+【ASD支援機能の使い方ガイド】
+
+Adamでは以下のようなASD(自閉症スペクトラム障害)に関する質問や相談に対応できます：
+
+■ 対応可能な質問例
+• 「自閉症スペクトラムの特性について教えて」
+• 「ASDの子どもとのコミュニケーション方法は？」
+• 「感覚過敏への対処法を知りたい」
+• 「社会的場面での不安に対するアドバイスが欲しい」
+• 「特定の興味や関心を活かせる仕事は？」
+• 「構造化や視覚支援の方法を教えて」
+• 「学校や職場での合理的配慮について」
+
+■ 使い方
+• テキストで質問するだけ：気になることを自然な言葉で入力してください
+• 継続的な会話：フォローアップ質問も自然にできます
+• 画像の送信：視覚的な説明が必要なときは「画像で説明して」と伝えてください
+
+■ 注意点
+• 医学的診断はできません
+• あくまで情報提供や一般的なアドバイスが中心です
+• 専門家への相談も並行して検討してください
+
+何か具体的に知りたいことがあれば、お気軽に質問してください。
+`;
+      
       return ASDSupportManual;
     }
     
