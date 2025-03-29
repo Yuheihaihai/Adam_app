@@ -1,7 +1,7 @@
 // main.js - アプリケーション起動スクリプト
 require('dotenv').config();
 const db = require('./db');
-const server = require('./server');
+const app = require('./server'); // expressアプリケーションオブジェクトをインポート
 
 // アプリケーション起動時の初期化処理
 async function initialize() {
@@ -43,7 +43,7 @@ async function initialize() {
     
     // アプリケーションの起動
     const PORT = process.env.PORT || 3000;
-    server.listen(PORT, () => {
+    app.listen(PORT, () => {
       console.log(`サーバーがポート ${PORT} で起動しました`);
       console.log('=== アプリケーション初期化完了 ===');
     });
@@ -54,7 +54,7 @@ async function initialize() {
     
     // エラーがあってもサーバーは起動する
     const PORT = process.env.PORT || 3000;
-    server.listen(PORT, () => {
+    app.listen(PORT, () => {
       console.log(`サーバーがポート ${PORT} で起動しました（エラーあり）`);
     });
   }
