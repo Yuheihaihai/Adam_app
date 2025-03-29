@@ -2350,6 +2350,15 @@ async function processMessage(userId, messageText) {
   // 洞察機能用のトラッキング
   insightsService.trackTextRequest(validatedUserId, sanitizedMessage);
   
+  // 画像生成リクエストかどうかチェック
+  if (isDirectImageGenerationRequest(sanitizedMessage)) {
+    console.log(`processMessage: 画像生成リクエストを検出 - "${sanitizedMessage.substring(0, 50)}..."`);
+    return {
+      text: sanitizedMessage,
+      isImageGenerationRequest: true
+    };
+  }
+  
   // 既存の処理を続行
   if (sanitizedMessage.includes('思い出して') || sanitizedMessage.includes('記憶')) {
     return handleChatRecallWithRetries(validatedUserId, sanitizedMessage);
@@ -2715,6 +2724,15 @@ async function handleText(event) {
       };
     }
     
+    // 直接的な画像生成リクエストの処理
+    if (isDirectImageGenerationRequest(text)) {
+      console.log(`画像生成リクエストを検出しました: "${text}"`);
+      
+      // 画像生成処理を呼び出し
+      await handleVisionExplanation(event, text);
+      return;
+    }
+    
     // 管理コマンドの処理
     const commandCheck = checkAdminCommand(text);
     if (commandCheck.isCommand) {
@@ -2791,6 +2809,13 @@ async function handleText(event) {
         if (!processedResult) {
           replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
         } else {
+          // 画像生成リクエストの処理
+          if (typeof processedResult === 'object' && processedResult.isImageGenerationRequest) {
+            console.log(`handleText: 画像生成リクエストを検出 - "${text.substring(0, 50)}..."`);
+            await handleVisionExplanation(event, text);
+            return;
+          }
+          
           // processMessageの結果がオブジェクトの場合、テキストを抽出
           replyMessage = processedResult;
           if (typeof processedResult === 'object') {
@@ -2812,6 +2837,13 @@ async function handleText(event) {
       if (!processedResult) {
         replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
       } else {
+        // 画像生成リクエストの処理
+        if (typeof processedResult === 'object' && processedResult.isImageGenerationRequest) {
+          console.log(`handleText: 画像生成リクエストを検出 - "${text.substring(0, 50)}..."`);
+          await handleVisionExplanation(event, text);
+          return;
+        }
+        
         // processMessageの結果がオブジェクトの場合、テキストを抽出
         replyMessage = processedResult;
         if (typeof processedResult === 'object') {
