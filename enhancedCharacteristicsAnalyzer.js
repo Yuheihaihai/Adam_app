@@ -100,6 +100,9 @@ class EnhancedCharacteristicsAnalyzer {
     const estimatedTokenCount = this._estimateTokenCount(history);
     console.log(`ユーザー(${userId})の履歴データ推定トークン数: ${estimatedTokenCount}`);
     
+    // キャリア関連のクエリかを判定
+    const isCareerQuery = this._isCareerQuery(historyData);
+    
     // キャッシュがなければ新規分析
     if (this.geminiEnabled && estimatedTokenCount > GPT4O_TOKEN_LIMIT) {
       console.log(`トークン数(${estimatedTokenCount})がGPT-4o制限(${GPT4O_TOKEN_LIMIT})を超えたため、Geminiを使用します`);
@@ -127,18 +130,20 @@ class EnhancedCharacteristicsAnalyzer {
     
     // OpenAIによる分析（フォールバックまたは通常処理）
     try {
-      const legacyAnalysis = await this._analyzeWithOpenAI(historyData);
+      const legacyAnalysis = await this._analyzeWithOpenAI(historyData, isCareerQuery);
       
       // キャッシュに保存
       this.cacheCharacteristics(userId, {
         legacyMode: true,
-        analysis: legacyAnalysis
+        analysis: legacyAnalysis,
+        isCareerAnalysis: isCareerQuery
       });
       
       return {
         structuredData: {
           legacyMode: true,
-          analysis: legacyAnalysis
+          analysis: legacyAnalysis,
+          isCareerAnalysis: isCareerQuery
         },
         source: 'openai_fallback'
       };
@@ -161,6 +166,62 @@ class EnhancedCharacteristicsAnalyzer {
     });
     
     return Math.ceil(totalChars / 3);
+  }
+  
+  // キャリア関連のクエリかどうかを判定する関数
+  _isCareerQuery(historyData) {
+    // 無効なhistoryDataの場合は早期リターン
+    if (!historyData || !historyData.history) {
+      console.log('無効なhistoryDataのため、キャリア判定をスキップします');
+      return false;
+    }
+    
+    // 最新のユーザーメッセージを取得
+    const history = historyData.history || [];
+    let latestUserMessage = "";
+    
+    // ユーザーの最新メッセージを探す
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].role === 'user') {
+        latestUserMessage = history[i].content || "";
+        break;
+      }
+    }
+    
+    // メッセージが空の場合は早期リターン
+    if (!latestUserMessage) {
+      console.log('ユーザーメッセージが見つからないため、キャリア判定をスキップします');
+      return false;
+    }
+    
+    // キャリア関連の単語を含むかチェック
+    const careerKeywords = [
+      '適職', 'キャリア', '仕事', '職業', '転職', '就職', '職場', '社風', '人間関係',
+      '向いてる', '診断', '分析'
+    ];
+    
+    // キャリア関連の強力なパターンマッチング
+    const careerPatterns = [
+      /適職.*(診断|分析|教えて|調べて)/,
+      /私に.*(向いてる|合う|ぴったり).*(仕事|職業|キャリア)/,
+      /私の.*(特性|特徴|性格).*(仕事|適職|キャリア)/,
+      /記録.*(思い出して|教えて).*(適職|仕事|職場)/,
+      /.*職場.*(社風|人間関係).*/,
+      /.*私の.*(仕事|職業|キャリア).*/
+    ];
+    
+    // キーワードチェック
+    const hasCareerKeyword = careerKeywords.some(keyword => latestUserMessage.includes(keyword));
+    
+    // パターンマッチングチェック
+    const hasCareerPattern = careerPatterns.some(pattern => pattern.test(latestUserMessage));
+    
+    // どちらかに該当すればtrue
+    const isCareerRelated = hasCareerKeyword || hasCareerPattern;
+    
+    console.log(`キャリア関連クエリ判定: ${isCareerRelated ? 'キャリア関連' : '一般的な特性分析'}`);
+    
+    return isCareerRelated;
   }
   
   // Geminiを使用した分析（1層目）
@@ -248,37 +309,95 @@ class EnhancedCharacteristicsAnalyzer {
   }
   
   // OpenAIを使用した分析（フォールバック）
-  async _analyzeWithOpenAI(historyData) {
-    console.log('OpenAIによる従来の特性分析を実行...');
-    
-    const history = historyData.history || [];
-    
-    // OpenAI Chat APIリクエスト（従来のシステムプロンプトを使用）
-    const systemPrompt = `
-    あなたは「Adam」という発達障害専門のカウンセラーです。
-    ユーザーの過去ログ(最大200件)を分析し、コミュニケーションパターン、思考プロセス、
-    社会的相互作用、感情・自己認識の観点で洞察を提供してください。
-    
-    応答は200字以内、簡潔に。
-    `;
-    
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...history
-    ];
-    
-    const response = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages,
-      temperature: 0.7,
-      max_tokens: 500
-    });
-    
-    return response.choices[0].message.content;
+  async _analyzeWithOpenAI(historyData, isCareerQuery = false) {
+    if (isCareerQuery) {
+      console.log('OpenAIによるキャリア特化分析を実行...');
+      
+      const history = historyData.history || [];
+      
+      // 会話履歴からユーザーのメッセージのみを抽出
+      const userMessages = history.filter(msg => msg.role === 'user').map(msg => msg.content);
+      
+      // 最新のユーザーメッセージを取得
+      let latestUserMessage = "";
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].role === 'user') {
+          latestUserMessage = history[i].content || "";
+          break;
+        }
+      }
+      
+      // キャリア分析用プロンプト
+      const careerPrompt = `
+あなたは優れたキャリアカウンセラーです。ユーザーの会話履歴とキャリアに関する質問を分析し、具体的な適職診断と推薦を提供してください。
+
+以下の項目を必ずすべて含めた適職診断結果を作成してください:
+1. コミュニケーションスタイルと特性に基づいた具体的な職業推奨（少なくとも5つの具体的な職業名）
+2. 各推奨職業の簡潔な説明と、なぜユーザーに適しているかの理由
+3. 理想的な職場環境、社風、人間関係の特徴
+4. 適職に就くために活かせる強みと、伸ばすべきスキル
+5. キャリア満足度を高めるための具体的なアドバイス
+
+注意点:
+- 必ず具体的な職業名を複数挙げること（「エンジニア」ではなく、「フロントエンドエンジニア」「データサイエンティスト」など）
+- 抽象的な分析だけでなく、実践的で具体的な推奨を行うこと
+- たとえデータが少なくても、「十分な情報がない」などと言わず、利用可能なデータから最大限の分析を行うこと
+
+以下はユーザーの会話履歴と現在の質問です:
+会話履歴: ${userMessages.join('\n')}
+
+現在の質問: ${latestUserMessage}`;
+      
+      // OpenAI Chat APIリクエスト
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: 'あなたは優れたキャリアカウンセラーです。' },
+          { role: 'user', content: careerPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 1000
+      });
+      
+      return response.choices[0].message.content;
+    } else {
+      console.log('OpenAIによる従来の特性分析を実行...');
+      
+      const history = historyData.history || [];
+      
+      // OpenAI Chat APIリクエスト（従来のシステムプロンプトを使用）
+      const systemPrompt = `
+      あなたは「Adam」という発達障害専門のカウンセラーです。
+      ユーザーの過去ログ(最大200件)を分析し、コミュニケーションパターン、思考プロセス、
+      社会的相互作用、感情・自己認識の観点で洞察を提供してください。
+      
+      応答は200字以内、簡潔に。
+      `;
+      
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        ...history
+      ];
+      
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages,
+        temperature: 0.7,
+        max_tokens: 500
+      });
+      
+      return response.choices[0].message.content;
+    }
   }
   
   // 共感的応答生成（2層目）
   async generateEmpatheticResponse(structuredData, userMessage) {
+    // キャリア分析の場合は、そのまま返す
+    if (structuredData && structuredData.legacyMode && structuredData.isCareerAnalysis) {
+      console.log('キャリア分析結果を直接返します');
+      return structuredData.analysis;
+    }
+    
     // Geminiから得た構造化データをOpenAIへ渡してより共感的な応答を生成
     try {
       // 構造化データをシステムプロンプトに変換

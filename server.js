@@ -136,7 +136,7 @@ const userPreferences = {
         '役立つ', '参考になる', 'グッド'
       ],
       negative: [
-        '要らない', 'いらない', '不要', '邪魔', '見たくない', '表示しないで', '非表示', '消して', '表示するな', '出すな', 'オススメ要らないです', 'おすすめ要らないです', 'お勧め要らないです', 'サービス要らない', 'サービスいらない', 'サービス不要', 'サービス邪魔', 'お勧め要らない', 'お勧めいらない', 'お勧め不要', 'お勧め邪魔', 'おすすめ要らない', 'おすすめいらない', 'おすすめ不要', 'おすすめ邪魔', 'オススメ要らない', 'オススメいらない', 'オススメ不要', 'オススメ邪魔', '推奨要らない', '推奨いらない', '推奨不要', '推奨邪魔', 'サービスは結構です', 'お勧めは結構です', 'おすすめは結構です', 'オススメは結構です', 'サービス要りません', 'お勧め要りません', 'おすすめ要りません', 'オススメ要りません', 'もういい', 'もういらない', 'もう十分', 'もう結構', 'やめて', '止めて', '停止', 'やめてください', '止めてください', '停止してください', 'うざい', 'うるさい', 'しつこい', 'ノイズ', '迷惑', 'もう表示しないで', 'もう出さないで', 'もう見せないで', '要らないです', 'いらないです', '不要です', '邪魔です', 'サービス表示オフ', 'お勧め表示オフ', 'おすすめ表示オフ', 'オススメ表示オフ'
+        '要らない', 'いらない', '不要', '邪魔', '見たくない', '表示しないで', '非表示', '消して', '表示するな', '出すな', 'オススメ要らないです', 'おすすめ要らないです', 'お勧め要らないです', 'サービス要らない', 'サービスいらない', 'サービス不要', 'サービス邪魔', 'お勧め要らない', 'お勧めいらない', 'お勧め不要', 'お勧め邪魔', 'おすすめ要らない', 'おすすめいらない', 'おすすめ不要', 'おすすめ邪魔', 'オススメ要らない', 'オススメいらない', 'オススメ不要', 'オススメ邪魔', '推奨要らない', '推奨いらない', '推奨不要', '推奨邪魔', 'サービスは結構です', 'お勧めは結槢です', 'おすすめは結槢です', 'オススメは結槢です', 'サービス要りません', 'お勧め要りません', 'おすすめ要りません', 'オススメ要りません', 'もういい', 'もういらない', 'もう十分', 'もう結槢', 'やめて', '止めて', '停止', 'やめてください', '止めてください', '停止してください', 'うざい', 'うるさい', 'しつこい', 'ノイズ', '迷惑', 'もう表示しないで', 'もう出さないで', 'もう見せないで', '要らないです', 'いらないです', '不要です', '邪魔です', 'サービス表示オフ', 'お勧め表示オフ', 'おすすめ表示オフ', 'オススメ表示オフ'
       ]
     };
     
@@ -464,9 +464,9 @@ app.get('/test-feedback', (req, res) => {
       'おすすめ要らない', 'おすすめいらない', 'おすすめ不要', 'おすすめ邪魔', 
       'オススメ要らない', 'オススメいらない', 'オススメ不要', 'オススメ邪魔', 
       '推奨要らない', '推奨いらない', '推奨不要', '推奨邪魔',
-      'サービスは結構です', 'お勧めは結構です', 'おすすめは結構です', 'オススメは結構です',
+      'サービスは結槢です', 'お勧めは結槢です', 'おすすめは結槢です', 'オススメは結槢です',
       'サービス要りません', 'お勧め要りません', 'おすすめ要りません', 'オススメ要りません',
-      'もういい', 'もういらない', 'もう十分', 'もう結構',
+      'もういい', 'もういらない', 'もう十分', 'もう結槢',
       'やめて', '止めて', '停止', 'やめてください', '止めてください', '停止してください',
       'うざい', 'うるさい', 'しつこい', 'ノイズ', '迷惑',
       'もう表示しないで', 'もう出さないで', 'もう見せないで',
@@ -1963,14 +1963,14 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
               ];
             } else {
               promises = [
-                perplexity.enhanceKnowledge(history, userMessage).catch(err => {
-                  console.error('    │  ❌ Knowledge enhancement failed:', err.message);
-                  return null;
-                }),
-                perplexity.getJobTrends().catch(err => {
-                  console.error('    │  ❌ Job trends failed:', err.message);
-                  return null;
-                })
+              perplexity.enhanceKnowledge(history, userMessage).catch(err => {
+                console.error('    │  ❌ Knowledge enhancement failed:', err.message);
+                return null;
+              }),
+              perplexity.getJobTrends().catch(err => {
+                console.error('    │  ❌ Job trends failed:', err.message);
+                return null;
+              })
               ];
             }
             
@@ -2602,44 +2602,59 @@ async function processMessage(userId, messageText) {
 }
 
 async function handleChatRecallWithRetries(userId, messageText) {
-  let lastError = null;
+  let attempts = 0;
+  const maxAttempts = 3;
   
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    console.log(`🔄 Chat recall attempt ${attempt}/${MAX_RETRIES} for user ${userId}`);
+  // Generate specialized history analysis based on message content
+  // First check if this is a career-related request
+  const isCareerRequest = await isJobRequestSemantic(messageText);
+  
+  // Log detection result
+  console.log(`\n🔎 [意図分析] メッセージタイプ検出: ${isCareerRequest ? "キャリア関連" : "一般的な特性分析"}`);
+  
+  while (attempts < maxAttempts) {
+    attempts++;
+    console.log(`🔄 Chat recall attempt ${attempts}/${maxAttempts} for user ${userId}`);
     
     try {
-      // Create a timeout promise
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error(`Timeout on attempt ${attempt}`)), TIMEOUT_PER_ATTEMPT);
-      });
-
-      // Race between the chat recall and timeout
-      const result = await Promise.race([
-        fetchAndAnalyzeHistory(userId),
-        timeoutPromise
-      ]);
+      // Get user history with a higher limit for analysis
+      const history = await fetchAndAnalyzeHistory(userId);
       
-      console.log(`✅ Chat recall succeeded on attempt ${attempt}`);
-      return result;
+      if (!history) {
+        return "履歴の取得中にエラーが発生しました。もう一度お試しください。";
+      }
+      
+      console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
+
+      let response;
+      if (isCareerRequest) {
+        // Generate career-focused analysis
+        console.log(`👔 [キャリア分析] キャリア特化分析を実行します`);
+        const careerAnalysis = await generateCareerAnalysis(history, messageText);
+        response = careerAnalysis;
+      } else {
+        // Generate general characteristics analysis
+        response = await generateHistoryResponse(history);
+      }
+      
+      console.log(`→ 特性分析レスポンス生成完了: ${response.substring(0, 50)}...`);
+      console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
+      
+      console.log(`✅ Chat recall succeeded on attempt ${attempts}`);
+      return response;
       
     } catch (error) {
-      lastError = error;
-      console.log(`⚠️ Attempt ${attempt} failed: ${error.message}`);
+      console.error(`❌ Chat recall error on attempt ${attempts}:`, error);
       
-      // If we have more attempts, wait before retrying
-      if (attempt < MAX_RETRIES) {
-        console.log(`Waiting 1 second before attempt ${attempt + 1}...`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      if (attempts >= maxAttempts) {
+        console.error(`❌ All ${maxAttempts} attempts failed`);
+        return "申し訳ありません。履歴分析中にエラーが発生しました。しばらくしてからもう一度お試しください。";
       }
+      
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, 500 * attempts));
     }
   }
-
-  // If all attempts failed, return a user-friendly message
-  console.log(`❌ All ${MAX_RETRIES} attempts failed. Last error: ${lastError?.message}`);
-  return {
-    type: 'text',
-    text: `申し訳ございません。${MAX_RETRIES}回試みましたが、処理を完了できませんでした。\n少し時間をおいてから、もう一度お試しください。`
-  };
 }
 
 async function fetchAndAnalyzeHistory(userId) {
@@ -2717,13 +2732,13 @@ async function fetchAndAnalyzeHistory(userId) {
       
       // 安全に文字列として扱えるようにする
       const textToLog = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
-      
-      console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
+    
+    console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
       console.log(`→ 特性分析レスポンス生成完了: ${textToLog.substring(0, 50)}...`);
-      console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
+    console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
       
-      return {
-        type: 'text',
+    return {
+      type: 'text',
         text: responseText
       };
     } catch (analysisError) {
@@ -3034,27 +3049,27 @@ async function handleText(event) {
               replyMessage = processedResult.response;
             } else if (processedResult.text) {
               replyMessage = processedResult.text;
-            } else {
+          } else {
               replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
             }
           }
         }
       }
-    } else {
+      } else {
       // 通常のメッセージ処理
       const processedResult = await processMessage(userId, text);
       
       // processMessageの結果が空の場合のチェックを追加
       if (!processedResult) {
         replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
-      } else {
+            } else {
         // 画像生成リクエストの処理
         if (typeof processedResult === 'object' && processedResult.isImageGenerationRequest) {
           console.log(`handleText: 画像生成リクエストを検出 - "${text.substring(0, 50)}..."`);
           await handleVisionExplanation(event, text);
-          return;
-        }
-        
+      return;
+    }
+    
         // processMessageの結果がオブジェクトの場合、テキストを抽出
         replyMessage = processedResult;
         if (typeof processedResult === 'object') {
@@ -3062,7 +3077,7 @@ async function handleText(event) {
             replyMessage = processedResult.response;
           } else if (processedResult.text) {
             replyMessage = processedResult.text;
-          } else {
+        } else {
             replyMessage = '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
           }
         }
@@ -3070,9 +3085,9 @@ async function handleText(event) {
     }
     
     // テキストのみ返信
-    await client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: replyMessage
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: replyMessage
     }).catch(error => {
       console.error('テキスト送信エラー:', error.message);
     });
@@ -3238,17 +3253,17 @@ ${userMessages.join('\n')}
         
         // OpenAIにフォールバック
         try {
-          console.log(`→ OpenAI API呼び出し準備完了`);
-          
+      console.log(`→ OpenAI API呼び出し準備完了`);
+      
           // 追加のプロンプト指示
           const additionalInstruction = "たとえデータが少なくても、「過去の記録がない」などとは言わず、利用可能なデータから最大限の分析を行ってください";
           console.log(`→ プロンプト付与: "${additionalInstruction}"`);
-          
+      
           const openaiResponse = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-              { 
-                role: "system", 
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
                 content: `あなたは卓越した心理学者です。ユーザーの会話パターンを分析して、その特性を簡潔に説明してください。${additionalInstruction}`
               },
               { 
@@ -3293,9 +3308,9 @@ ${userMessages.join('\n')}
             { 
               role: "system", 
               content: `あなたは卓越した心理学者です。ユーザーの会話パターンを分析して、その特性を簡潔に説明してください。${additionalInstruction}`
-            },
-            { 
-              role: "user", 
+          },
+          {
+            role: "user",
               content: `以下のメッセージからユーザーの特性を300文字程度で分析してください：\n\n${userMessages.join('\n')}` 
             }
           ],
@@ -4074,3 +4089,209 @@ function isJobRequest(text) {
 }
 
 // メッセージのモードを判定する関数
+
+/**
+ * Semantic job request detection using OpenAI
+ * Uses AI to determine if a message is requesting job/career recommendations
+ * @param {string} text - The user message
+ * @returns {Promise<boolean>} - Whether the message is a career-related request
+ */
+async function isJobRequestSemantic(text) {
+  // Skip semantic analysis for obvious cases
+  if (text.includes('適職') || text.includes('キャリア診断') || text.includes('向いてる仕事')) {
+    console.log(`👔 [キャリア検出] 明示的なキーワードを検出: "${text}"`);
+    return true;
+  }
+  
+  try {
+    console.log(`🧠 [セマンティック検出] 分析開始: "${text.substring(0, 30)}..."`);
+    
+    const prompt = `
+ユーザーのメッセージが「キャリア・適職・職業推薦」に関するリクエストかどうかを分析してください。
+
+ユーザーメッセージ:
+"""
+${text}
+"""
+
+以下のいずれかの答えで回答してください:
+- YES：このメッセージは明らかにキャリア・職業・適職に関するアドバイスを求めています。
+- NO：このメッセージはキャリア・職業・適職に関するリクエストではありません。
+
+注意: 「私に合う仕事」「向いている職業」「記録を思い出して適職を教えて」なども含めて、広く「キャリアアドバイス」だと解釈してください。
+`;
+
+    const response = await openai.chat.completions.create({
+      model: "o3-mini-2025-01-31", // Use a small, fast model for classification
+      messages: [
+        { role: "system", content: "あなたはユーザーのメッセージの意図を正確に判断するエキスパートです。" },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0,
+      max_tokens: 5, // Just need YES or NO
+    });
+
+    const decision = response.choices[0].message.content.trim();
+    const isCareerRequest = decision.includes("YES");
+    
+    console.log(`🧠 [セマンティック検出] 結果: ${isCareerRequest ? "キャリア関連" : "キャリア以外"}, モデル回答: "${decision}"`);
+    
+    return isCareerRequest;
+  } catch (error) {
+    console.error(`❌ [セマンティック検出] エラー: ${error.message}`);
+    // Fall back to the pattern matching approach on error
+    return isJobRequest(text);
+  }
+}
+
+/**
+ * 会話履歴からキャリア分析を行い、適職診断を含む詳細な結果を返す関数
+ * @param {Array} history - 会話履歴の配列
+ * @param {string} currentMessage - 現在のユーザーメッセージ
+ * @returns {Promise<string>} - キャリア分析結果のテキスト
+ */
+async function generateCareerAnalysis(history, currentMessage) {
+  try {
+    console.log(`\n======= キャリア分析詳細ログ =======`);
+    
+    // 会話履歴が空の場合
+    if (!history || history.length === 0) {
+      console.log(`→ 会話履歴なし: 空のhistoryオブジェクト`);
+      return "会話履歴がありません。もう少し会話を続けると、あなたのキャリア適性について分析できるようになります。";
+    }
+
+    console.log(`→ キャリア分析開始: ${history.length}件の会話レコード`);
+    console.log(`→ 現在のメッセージ: "${currentMessage.substring(0, 50)}${currentMessage.length > 50 ? '...' : ''}"`);
+    
+    // 会話履歴からユーザーのメッセージのみを抽出
+    const userMessages = history.filter(msg => msg.role === 'user').map(msg => msg.content);
+    console.log(`→ ユーザーメッセージ抽出: ${userMessages.length}件`);
+    
+    // キャリア分析用プロンプト
+    const careerPrompt = `
+あなたは優れたキャリアカウンセラーです。ユーザーの会話履歴とキャリアに関する質問を分析し、具体的な適職診断と推薦を提供してください。
+
+以下の項目を必ずすべて含めた適職診断結果を作成してください:
+1. コミュニケーションスタイルと特性に基づいた具体的な職業推奨（少なくとも5つの具体的な職業名）
+2. 各推奨職業の簡潔な説明と、なぜユーザーに適しているかの理由
+3. 理想的な職場環境、社風、人間関係の特徴
+4. 適職に就くために活かせる強みと、伸ばすべきスキル
+5. キャリア満足度を高めるための具体的なアドバイス
+
+注意点:
+- 必ず具体的な職業名を複数挙げること（「エンジニア」ではなく、「フロントエンドエンジニア」「データサイエンティスト」など）
+- 抽象的な分析だけでなく、実践的で具体的な推奨を行うこと
+- たとえデータが少なくても、「十分な情報がない」などと言わず、利用可能なデータから最大限の分析を行うこと
+
+以下はユーザーの会話履歴と現在の質問です:
+会話履歴: ${userMessages.join('\n')}
+
+現在の質問: ${currentMessage}`;
+    
+    // OpenAIを使用した分析
+    let analysisResult = "";
+    
+    // Gemini APIが利用可能かチェック
+    if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 0 && process.env.GEMINI_API_KEY !== 'your_gemini_api_key') {
+      try {
+        // Gemini APIを使用した分析
+        console.log(`→ キャリア分析: Google Gemini APIを使用します`);
+        const { GoogleGenerativeAI } = require("@google/generative-ai");
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
+        
+        console.log(`→ Gemini API呼び出し準備完了`);
+        console.log(`→ キャリア分析専用プロンプトを使用`);
+        
+        const result = await model.generateContent(careerPrompt);
+        const response = await result.response;
+        const text = response.text();
+        
+        console.log(`→ Gemini API応答受信: ${text.substring(0, 100)}...`);
+        
+        // キャリア分析結果に必要な要素が含まれているか確認
+        if (!text.includes('適職') && !text.includes('職業') && !text.includes('キャリア')) {
+          console.log(`→ 不適切なキャリア応答を検出: OpenAIにフォールバック`);
+          throw new Error('Inappropriate career response detected');
+        }
+        
+        analysisResult = text;
+      } catch (error) {
+        // Gemini APIのエラーをログ出力
+        console.log(`Gemini API キャリア分析エラー: ${error}`);
+        console.log(`OpenAIにフォールバックします...`);
+        
+        // OpenAIにフォールバック
+        try {
+          console.log(`→ OpenAI API呼び出し準備完了`);
+          console.log(`→ キャリア分析専用プロンプトを使用`);
+          
+          const openaiResponse = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+              {
+                role: "system",
+                content: `あなたは優れたキャリアカウンセラーです。`
+              },
+              { 
+                role: "user", 
+                content: careerPrompt
+              }
+            ],
+            max_tokens: 1000,
+            temperature: 0.7,
+          });
+          
+          const openaiText = openaiResponse.choices[0].message.content;
+          console.log(`→ OpenAI API キャリア応答受信: ${openaiText.substring(0, 100)}...`);
+          
+          analysisResult = openaiText;
+        } catch (openaiError) {
+          console.error(`OpenAI キャリア分析エラー: ${openaiError}`);
+          // 両方のAPIが失敗した場合の静的な応答
+          analysisResult = "申し訳ありませんが、キャリア分析中にエラーが発生しました。しばらくしてからもう一度お試しください。";
+        }
+      }
+    } else {
+      // Gemini APIキーが設定されていない場合、直接OpenAIを使用
+      console.log(`→ Gemini APIキーが設定されていないか無効です。OpenAI APIを使用します。`);
+      
+      try {
+        console.log(`→ OpenAI API呼び出し準備完了`);
+        console.log(`→ キャリア分析専用プロンプトを使用`);
+        
+        const openaiResponse = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            { 
+              role: "system", 
+              content: `あなたは優れたキャリアカウンセラーです。`
+            },
+            {
+              role: "user",
+              content: careerPrompt
+            }
+          ],
+          max_tokens: 1000,
+          temperature: 0.7,
+        });
+        
+        const openaiText = openaiResponse.choices[0].message.content;
+        console.log(`→ OpenAI API キャリア応答受信: ${openaiText.substring(0, 100)}...`);
+        
+        analysisResult = openaiText;
+      } catch (openaiError) {
+        console.error(`OpenAI キャリア分析エラー: ${openaiError}`);
+        // OpenAI APIが失敗した場合の静的な応答
+        analysisResult = "申し訳ありませんが、キャリア分析中にエラーが発生しました。しばらくしてからもう一度お試しください。";
+      }
+    }
+    
+    console.log(`======= キャリア分析詳細ログ終了 =======`);
+    
+    return analysisResult;
+  } catch (error) {
+    console.error(`キャリア分析エラー: ${error}`);
+    return "申し訳ありませんが、キャリア分析中にエラーが発生しました。しばらくしてからもう一度お試しください。";
+  }
+}
