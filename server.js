@@ -4006,8 +4006,7 @@ async function handleAudio(event) {
     const audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
     
     // 残り回数が1回以下の場合は音声と一緒に利用状況メッセージも送信（Flex Message）
-    const dailyRemaining = limitInfo.dailyLimit - limitInfo.dailyCount;
-    
+    // dailyRemainingは3916行目で既に宣言済みのため再宣言しない
     if (dailyRemaining <= 1) {
       // 音声メッセージと利用制限テキストを一緒に送信
       await client.replyMessage(event.replyToken, [
