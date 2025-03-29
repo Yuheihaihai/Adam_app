@@ -769,7 +769,7 @@ function checkRateLimit(userId) {
   return true;
 }
 
-const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職診断'];
+const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職診断', '適職', '適職を教えてください', '適職教えて', '適職診断お願い'];
 
 /**
  * 掘り下げモードのリクエストかどうかを判断する
@@ -1494,8 +1494,26 @@ const anthropic = new Anthropic({
 
 // callPrimaryModel関数を元のシンプルな実装に戻す
 async function callPrimaryModel(gptOptions) {
-  const resp = await openai.chat.completions.create(gptOptions);
-  return resp.choices && resp.choices[0] && resp.choices[0].message ? resp.choices[0].message.content : '';
+  try {
+    console.log(`OpenAI API呼び出し: ${gptOptions.model}, メッセージ数: ${gptOptions.messages.length}`);
+    const resp = await openai.chat.completions.create(gptOptions);
+    
+    if (!resp || !resp.choices || !resp.choices[0]) {
+      console.error('OpenAI APIからの応答が無効: 空のレスポンス');
+      throw new Error('Empty response from OpenAI API');
+    }
+    
+    if (!resp.choices[0].message || !resp.choices[0].message.content) {
+      console.error('OpenAI APIからの応答が無効: メッセージコンテンツがない');
+      throw new Error('No message content in OpenAI API response');
+    }
+    
+    console.log(`OpenAI API応答受信: ${resp.choices[0].message.content.substring(0, 50)}...`);
+    return resp;
+  } catch (error) {
+    console.error(`OpenAI API呼び出しエラー: ${error.message}`, error);
+    throw error;
+  }
 }
 
 async function callClaudeModel(messages) {
@@ -2222,15 +2240,29 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     let finalSystemPrompt = enhancedSystemPrompt;
     
     // Add user needs
-    if (userNeeds && userNeeds.trim() !== '') {
-      finalSystemPrompt += `\n\n[ユーザーニーズの分析]:\n${userNeeds}`;
-      console.log('    ├─ [2.1.1] Added user needs analysis');
+    if (userNeeds) {
+      // userNeedsが文字列の場合はtrim()を使用し、オブジェクトの場合はそのまま処理
+      const needsContent = typeof userNeeds === 'string' ? 
+        (userNeeds.trim() !== '' ? userNeeds : null) : 
+        userNeeds;
+      
+      if (needsContent) {
+        finalSystemPrompt += `\n\n[ユーザーニーズの分析]:\n${typeof needsContent === 'string' ? needsContent : JSON.stringify(needsContent)}`;
+        console.log('    ├─ [2.1.1] Added user needs analysis');
+      }
     }
     
     // Add conversation context
-    if (conversationContext && conversationContext.trim() !== '') {
-      finalSystemPrompt += `\n\n[会話の背景]:\n${conversationContext}`;
-      console.log('    ├─ [2.1.2] Added conversation context');
+    if (conversationContext) {
+      // conversationContextが文字列の場合はtrim()を使用し、オブジェクトの場合はそのまま処理
+      const contextContent = typeof conversationContext === 'string' ? 
+        (conversationContext.trim() !== '' ? conversationContext : null) : 
+        conversationContext;
+      
+      if (contextContent) {
+        finalSystemPrompt += `\n\n[会話の背景]:\n${typeof contextContent === 'string' ? contextContent : JSON.stringify(contextContent)}`;
+        console.log('    ├─ [2.1.2] Added conversation context');
+      }
     }
     
     // If in career mode, add Perplexity data
@@ -2305,12 +2337,21 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     const apiStartTime = Date.now();
     const response = await tryPrimaryThenBackup(gptOptions);
     
-    if (!response || !response.choices || response.choices.length === 0) {
+    if (!response) {
       throw new Error('AI response is empty or invalid');
     }
     
-    // Extract AI message content
-    const aiResponseText = response.choices[0].message.content;
+    // Extract AI message content - レスポンスの形式に応じて処理
+    let aiResponseText;
+    if (typeof response === 'string') {
+      // 文字列の場合はそのまま使用（Claude APIやエラーフォールバック）
+      aiResponseText = response;
+    } else if (response.choices && response.choices[0] && response.choices[0].message) {
+      // OpenAI API形式のレスポンスからコンテンツを抽出
+      aiResponseText = response.choices[0].message.content;
+    } else {
+      throw new Error('AI response format is invalid');
+    }
     
     console.log(`\n✅ [3.4] AI API responded in ${Date.now() - apiStartTime}ms`);
     console.log(`    └─ Response length: ${aiResponseText.length} characters`);
@@ -2792,13 +2833,25 @@ async function handleText(event) {
         if (mode === 'characteristics') {
           console.log('特性分析モードを開始します');
           try {
-            replyMessage = await processWithAI(
-              getSystemPromptForMode('characteristics'),
-              sanitizedText,
-              history,
-              'characteristics',
-              userId
-            );
+            const characteristicsResult = await enhancedCharacteristics.analyzeCharacteristics(userId, sanitizedText);
+            
+            // 特性分析結果を文字列型に統一
+            if (typeof characteristicsResult === 'string') {
+              replyMessage = characteristicsResult;
+            } else if (characteristicsResult && typeof characteristicsResult === 'object') {
+              if (characteristicsResult.analysis) {
+                replyMessage = characteristicsResult.analysis;
+              } else if (characteristicsResult.response) {
+                replyMessage = characteristicsResult.response;
+              } else if (characteristicsResult.text) {
+                replyMessage = characteristicsResult.text;
+              } else {
+                // オブジェクトを文字列に変換
+                replyMessage = JSON.stringify(characteristicsResult);
+              }
+            } else {
+              replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。もう一度お試しください。';
+            }
           } catch (err) {
             console.error('特性分析処理エラー:', err);
             replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。';
@@ -2837,7 +2890,7 @@ async function handleText(event) {
         
         // 会話内容を保存
         try {
-          await storeInteraction(userId, 'user', text);
+        await storeInteraction(userId, 'user', text);
           await storeInteraction(userId, 'assistant', replyMessage);
         } catch (storageErr) {
           console.error('会話保存エラー:', storageErr);
@@ -3045,7 +3098,8 @@ setInterval(() => {
 
 // Export functions for use in other modules
 module.exports = {
-  fetchUserHistory
+  fetchUserHistory,
+  generateCareerAnalysis
 };
 
 /**
@@ -3767,16 +3821,28 @@ async function handleAudio(event) {
     if (mode === 'characteristics') {
       console.log('特性分析モードを開始します');
       try {
-        processedResult = await processWithAI(
-          getSystemPromptForMode('characteristics'),
-          sanitizedText,
-          history,
-          'characteristics',
-          userId
-        );
+        const characteristicsResult = await enhancedCharacteristics.analyzeCharacteristics(userId, sanitizedText);
+        
+        // 特性分析結果を文字列型に統一
+        if (typeof characteristicsResult === 'string') {
+          replyMessage = characteristicsResult;
+        } else if (characteristicsResult && typeof characteristicsResult === 'object') {
+          if (characteristicsResult.analysis) {
+            replyMessage = characteristicsResult.analysis;
+          } else if (characteristicsResult.response) {
+            replyMessage = characteristicsResult.response;
+          } else if (characteristicsResult.text) {
+            replyMessage = characteristicsResult.text;
+          } else {
+            // オブジェクトを文字列に変換
+            replyMessage = JSON.stringify(characteristicsResult);
+          }
+        } else {
+          replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。もう一度お試しください。';
+        }
       } catch (err) {
         console.error('特性分析処理エラー:', err);
-        processedResult = '申し訳ありません、特性分析中にエラーが発生しました。';
+        replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。';
       }
     }
     // 適職診断モードの場合の特別処理
@@ -3784,26 +3850,26 @@ async function handleAudio(event) {
       console.log('適職診断モードを開始します');
       // キャリア分析専用の関数を呼び出し
       try {
-        processedResult = await generateCareerAnalysis(history, sanitizedText);
+        replyMessage = await generateCareerAnalysis(history, sanitizedText);
       } catch (err) {
         console.error('キャリア分析エラー:', err);
-        processedResult = '申し訳ありません、キャリア分析中にエラーが発生しました。';
+        replyMessage = '申し訳ありません、キャリア分析中にエラーが発生しました。';
       }
     }
     // 通常の会話応答の生成
     else {
       try {
-        processedResult = await generateAIResponse(sanitizedText, history, contextMessages, userId, mode);
+        replyMessage = await generateAIResponse(sanitizedText, history, contextMessages, userId, mode);
       } catch (err) {
         console.error('AI応答生成エラー:', err);
-        processedResult = '申し訳ありません、応答生成中にエラーが発生しました。';
+        replyMessage = '申し訳ありません、応答生成中にエラーが発生しました。';
       }
     }
       
     // 会話履歴を更新
     if (!sessions[userId]) sessions[userId] = { history: [] };
     sessions[userId].history.push({ role: "user", content: transcribedText });
-    sessions[userId].history.push({ role: "assistant", content: processedResult });
+    sessions[userId].history.push({ role: "assistant", content: replyMessage });
       
     // 会話履歴が長すぎる場合は削除
     if (sessions[userId].history.length > 20) {
@@ -3813,7 +3879,7 @@ async function handleAudio(event) {
     // 会話内容を保存
     try {
       await storeInteraction(userId, 'user', transcribedText);
-      await storeInteraction(userId, 'assistant', processedResult);
+      await storeInteraction(userId, 'assistant', replyMessage);
     } catch (storageErr) {
       console.error('会話保存エラー:', storageErr);
     }
@@ -4237,3 +4303,200 @@ async function generateAIResponse(userMessage, history, contextMessages, userId,
 }
 
 // サーバー起動設定
+
+/**
+ * 会話履歴からキャリア分析を行い、適職診断を含む詳細な結果を返す関数
+ * @param {Array} history - 会話履歴の配列
+ * @param {string} currentMessage - 現在のユーザーメッセージ
+ * @returns {Promise<string>} - キャリア分析結果のテキスト
+ */
+async function generateCareerAnalysis(history, currentMessage) {
+  try {
+    console.log(`\n======= キャリア分析詳細ログ =======`);
+    
+    // historyがオブジェクトで、text属性を持っている場合の処理を追加
+    if (history && typeof history === 'object' && history.text) {
+      console.log(`→ history: オブジェクト形式 (text属性あり)`);
+      history = [{ role: 'user', content: history.text }];
+    }
+    
+    // 会話履歴が空の場合またはhistoryが配列でない場合
+    if (!history || !Array.isArray(history) || history.length === 0) {
+      console.log(`→ 会話履歴なし: 無効なhistoryオブジェクト`);
+      // 空の履歴でも分析を試みる
+      history = [];
+      console.log(`→ 空の履歴配列を作成し、続行します`);
+    }
+
+    console.log(`→ キャリア分析開始: ${history.length}件の会話レコード`);
+    console.log(`→ 現在のメッセージ: "${currentMessage.substring(0, 50)}${currentMessage.length > 50 ? '...' : ''}"`);
+    
+    // 会話履歴からユーザーのメッセージのみを抽出
+    const userMessages = Array.isArray(history) ? 
+      history.filter(msg => msg && msg.role === 'user').map(msg => msg.content || '') : 
+      [];
+    console.log(`→ ユーザーメッセージ抽出: ${userMessages.length}件`);
+    
+    // キャリア分析用プロンプト
+    const careerPrompt = `
+あなたは優れたキャリアカウンセラーです。ユーザーの会話履歴とキャリアに関する質問を分析し、具体的な適職診断と推薦を提供してください。
+
+以下の項目を必ずすべて含めた適職診断結果を作成してください:
+1. コミュニケーションスタイルと特性に基づいた具体的な職業推奨（少なくとも5つの具体的な職業名）
+2. 各推奨職業の簡潔な説明と、なぜユーザーに適しているかの理由
+3. 理想的な職場環境、社風、人間関係の特徴
+4. 適職に就くために活かせる強みと、伸ばすべきスキル
+5. キャリア満足度を高めるための具体的なアドバイス
+
+注意点:
+- 必ず具体的な職業名を複数挙げること（「エンジニア」ではなく、「フロントエンドエンジニア」「データサイエンティスト」など）
+- 抽象的な分析だけでなく、実践的で具体的な推奨を行うこと
+- たとえデータが少なくても、「十分な情報がない」などと言わず、利用可能なデータから最大限の分析を行うこと
+- 現在のメッセージだけでも、できる限り具体的な回答を提供すること
+
+以下はユーザーの会話履歴と現在の質問です:
+会話履歴: ${userMessages.length > 0 ? userMessages.join('\n') : '履歴は限られていますが、現在の質問に基づいて分析します。'}
+
+現在の質問: ${currentMessage}`;
+    
+    // OpenAIを使用した分析
+    let analysisResult = "";
+    
+    // Gemini APIが利用可能かチェック
+    if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 0 && process.env.GEMINI_API_KEY !== 'your_gemini_api_key') {
+      try {
+        // Gemini APIを使用した分析
+        console.log(`→ キャリア分析: Google Gemini APIを使用します`);
+        const { GoogleGenerativeAI } = require("@google/generative-ai");
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+        
+        console.log(`→ Gemini API呼び出し準備完了`);
+        console.log(`→ キャリア分析専用プロンプトを使用`);
+        
+        // Gemini APIのタイムアウト設定
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Gemini API request timeout')), 30000)
+        );
+        
+        // Gemini API呼び出しとタイムアウト処理
+        const apiCallPromise = model.generateContent(careerPrompt);
+        const result = await Promise.race([apiCallPromise, timeoutPromise]);
+        
+        const response = await result.response;
+        const text = response.text();
+        
+        console.log(`→ Gemini API応答受信: ${text.substring(0, 100)}...`);
+        
+        // キャリア分析結果に必要な要素が含まれているか確認
+        if (text && (text.includes('適職') || text.includes('職業') || text.includes('キャリア'))) {
+          console.log(`→ 有効なキャリア応答を検出`);
+          analysisResult = text;
+        } else {
+          console.log(`→ 不適切なキャリア応答を検出: OpenAIにフォールバック`);
+          throw new Error('Inappropriate career response detected');
+        }
+      } catch (error) {
+        // Gemini APIのエラーをログ出力
+        console.log(`Gemini API キャリア分析エラー: ${error}`);
+        console.log(`OpenAIにフォールバックします...`);
+        
+        // OpenAIにフォールバック
+        try {
+          console.log(`→ OpenAI API呼び出し準備完了`);
+          console.log(`→ キャリア分析専用プロンプトを使用`);
+          
+          // OpenAI APIのタイムアウト設定
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('OpenAI API request timeout')), 25000)
+          );
+          
+          // OpenAI API呼び出しとタイムアウト処理
+          const apiCallPromise = openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+              {
+                role: "system",
+                content: `あなたは優れたキャリアカウンセラーです。`
+              },
+              { 
+                role: "user", 
+                content: careerPrompt
+              }
+            ],
+            max_tokens: 1000,
+            temperature: 0.7,
+          });
+          
+          const openaiResponse = await Promise.race([apiCallPromise, timeoutPromise]);
+          
+          const openaiText = openaiResponse.choices[0].message.content;
+          console.log(`→ OpenAI API キャリア応答受信: ${openaiText.substring(0, 100)}...`);
+          
+          analysisResult = openaiText;
+        } catch (openaiError) {
+          console.error(`OpenAI キャリア分析エラー: ${openaiError}`);
+          // 両方のAPIが失敗した場合のフォールバック応答
+          analysisResult = "申し訳ありませんが、キャリア分析中にエラーが発生しました。しばらくしてからもう一度お試しください。";
+        }
+      }
+    } else {
+      // Gemini APIキーが設定されていない場合、直接OpenAIを使用
+      console.log(`→ Gemini APIキーが設定されていないか無効です。OpenAI APIを使用します。`);
+      
+      try {
+        console.log(`→ OpenAI API呼び出し準備完了`);
+        console.log(`→ キャリア分析専用プロンプトを使用`);
+        
+        // OpenAI APIのタイムアウト設定
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('OpenAI API request timeout')), 25000)
+        );
+        
+        // OpenAI API呼び出しとタイムアウト処理
+        const apiCallPromise = openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            { 
+              role: "system", 
+              content: `あなたは優れたキャリアカウンセラーです。`
+            },
+            {
+              role: "user",
+              content: careerPrompt
+            }
+          ],
+          max_tokens: 1000,
+          temperature: 0.7,
+        });
+        
+        const openaiResponse = await Promise.race([apiCallPromise, timeoutPromise]);
+        
+        const openaiText = openaiResponse.choices[0].message.content;
+        console.log(`→ OpenAI API キャリア応答受信: ${openaiText.substring(0, 100)}...`);
+        
+        analysisResult = openaiText;
+      } catch (openaiError) {
+        console.error(`OpenAI キャリア分析エラー: ${openaiError}`);
+        // OpenAI APIが失敗した場合のフォールバック応答
+        analysisResult = "申し訳ありませんが、キャリア分析中にエラーが発生しました。しばらくしてからもう一度お試しください。";
+      }
+    }
+    
+    console.log(`======= キャリア分析詳細ログ終了 =======`);
+    
+    return analysisResult;
+  } catch (error) {
+    console.error(`キャリア分析エラー: ${error}`);
+    return `申し訳ありませんが、キャリア分析中にエラーが発生しました。具体的な適職診断には、より多くの情報が必要です。
+
+以下のような情報を共有していただけると、より詳細な分析が可能です：
+1. これまでの職歴や経験
+2. 興味のある分野や好きな活動
+3. 得意なスキルや強み
+4. 仕事で大切にしている価値観
+5. 理想の働き方（在宅・オフィス・自由など）
+
+より詳しい情報をお聞かせいただければ、あなたに合った具体的な職業を提案できます。`;
+  }
+}
