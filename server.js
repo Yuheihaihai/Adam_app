@@ -4001,3 +4001,402 @@ async function generateCareerAnalysis(history, currentMessage) {
 // アプリケーションをエクスポート（main.jsから利用するため）
 module.exports = app;
 
+/**
+ * ユーザーメッセージの処理
+ * @param {string} userId - ユーザーID
+ * @param {string} messageText - ユーザーからのメッセージテキスト
+ * @returns {Promise<string|object>} - AIからの応答テキスト、または応答オブジェクト
+ */
+async function processMessage(userId, messageText) {
+  try {
+    // ユーザー入力の検証と無害化
+    messageText = sanitizeUserInput(messageText);
+    
+    // セッションとユーザー履歴の取得・初期化
+    if (!sessions[userId]) {
+      sessions[userId] = { history: [] };
+    }
+    
+    // AIへの送信前に、過去の関連メッセージをセマンティック検索で取得
+    let contextMessages = [];
+    if (semanticSearch) {
+      try {
+        const similarMessages = await semanticSearch.findSimilarMessages(userId, messageText);
+        if (similarMessages && similarMessages.length > 0) {
+          console.log(`セマンティック検索で ${similarMessages.length} 件の関連メッセージを発見`);
+          contextMessages = similarMessages.map(msg => ({
+            role: 'context',
+            content: msg.content
+          }));
+        }
+      } catch (searchErr) {
+        console.error('セマンティック検索エラー:', searchErr);
+      }
+    }
+    
+    // 会話履歴の取得（最新の会話を優先）
+    const history = sessions[userId].history || [];
+    
+    // GPT-4oモデルを使用して応答を生成
+    const response = await generateAIResponse(messageText, history, contextMessages, userId);
+    
+    // 画像生成リクエストのチェック
+    const isImageRequest = await checkImageGenerationRequest(messageText, response);
+    if (isImageRequest) {
+      console.log(`画像生成リクエスト検出: ${messageText.substring(0, 50)}...`);
+      return { 
+        isImageGenerationRequest: true,
+        text: response,
+        originalQuery: messageText 
+      };
+    }
+    
+    // 重要なメッセージまたは質問をセマンティック検索用に保存
+    if (semanticSearch) {
+      try {
+        // 重要なメッセージかどうかを判断
+        const isImportant = await checkIfImportantMessage(messageText);
+        const isQuestion = messageText.includes('?') || messageText.includes('？') || 
+                          messageText.endsWith('か') || messageText.endsWith('のですか');
+        
+        if (isImportant || isQuestion) {
+          await semanticSearch.saveMessage(userId, messageText, isQuestion, isImportant);
+          if (isImportant) {
+            console.log('重要なメッセージをセマンティック検索用に保存しました');
+          }
+          if (isQuestion) {
+            console.log('質問をセマンティック検索用に保存しました');
+          }
+        }
+        
+        // AIの応答も重要であれば保存
+        const isImportantResponse = await checkIfImportantMessage(response);
+        if (isImportantResponse) {
+          await semanticSearch.saveMessage(userId, response, false, true);
+          console.log('重要な応答をセマンティック検索用に保存しました');
+        }
+      } catch (saveErr) {
+        console.error('セマンティック検索保存エラー:', saveErr);
+      }
+    }
+    
+    return response;
+  } catch (error) {
+    console.error(`processMessage Error: ${error.message}`, error);
+    return "申し訳ありませんが、メッセージの処理中にエラーが発生しました。しばらくしてからもう一度お試しください。";
+  }
+}
+
+/**
+ * 会話履歴から特性分析を行い、レスポンスを生成する関数
+ * @param {Array} history - 会話履歴の配列
+ * @returns {Promise<string>} - 分析結果のテキスト
+ */
+async function generateHistoryResponse(history) {
+  try {
+    console.log(`\n======= 特性分析詳細ログ =======`);
+    
+    // historyがオブジェクトで、text属性を持っている場合の処理を追加
+    if (history && typeof history === 'object' && history.text) {
+      console.log(`→ history: オブジェクト形式 (text属性あり)`);
+      history = [{ role: 'user', content: history.text }];
+    }
+    
+    // 会話履歴が空の場合またはhistoryが配列でない場合
+    if (!history || !Array.isArray(history) || history.length === 0) {
+      console.log(`→ 会話履歴なし: 無効なhistoryオブジェクト`);
+      return "会話履歴がありません。もう少し会話を続けると、あなたの特性について分析できるようになります。";
+    }
+
+    console.log(`→ 分析開始: ${history.length}件の会話レコード`);
+    
+    // 会話履歴からユーザーのメッセージのみを抽出
+    const userMessages = history.filter(msg => msg.role === 'user').map(msg => msg.content);
+    console.log(`→ ユーザーメッセージ抽出: ${userMessages.length}件`);
+    
+    // OpenAIを使用した分析
+    let analysisResult = "";
+    
+    // Gemini APIが利用可能かチェック
+    if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 0 && process.env.GEMINI_API_KEY !== 'your_gemini_api_key') {
+      try {
+        // Gemini APIを使用した分析
+        console.log(`→ 分析開始: Google Gemini APIを使用します`);
+        const { GoogleGenerativeAI } = require("@google/generative-ai");
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+        
+        console.log(`→ Gemini API呼び出し準備完了`);
+        
+        const prompt = `以下はあるユーザーとの会話履歴からの抽出メッセージです。これらのメッセージを分析して、このユーザーの特性を300文字程度で説明してください。
+        
+特に注目すべき点:
+- コミュニケーションパターン
+- 思考プロセスの特徴
+- 社会的相互作用の傾向
+- 感情表現と自己認識
+- 興味・関心のあるトピック
+
+メッセージ:
+${userMessages.join('\n')}
+
+注意: たとえデータが少なくても、「過去の記録がない」などとは言わず、利用可能なデータから最大限の分析を行ってください。`;
+        
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+        
+        console.log(`→ Gemini API応答受信: ${text.substring(0, 100)}...`);
+        
+        // 「過去の記録がない」などの表現がないか確認
+        if (text.includes('過去の記録がない') || text.includes('履歴が少なく') || text.includes('データが不足')) {
+          console.log(`→ 不適切な応答を検出: OpenAIにフォールバック`);
+          throw new Error('Inappropriate response detected');
+        }
+        
+        analysisResult = text;
+      } catch (error) {
+        // Gemini APIのエラーをログ出力
+        console.log(`Gemini API分析エラー: ${error}`);
+        console.log(`OpenAIにフォールバックします...`);
+        
+        // OpenAIにフォールバック
+        try {
+      console.log(`→ OpenAI API呼び出し準備完了`);
+      
+          // 追加のプロンプト指示
+          const additionalInstruction = "たとえデータが少なくても、「過去の記録がない」などとは言わず、利用可能なデータから最大限の分析を行ってください";
+          console.log(`→ プロンプト付与: "${additionalInstruction}"`);
+      
+          const openaiResponse = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+                content: `あなたは卓越した心理学者です。ユーザーの会話パターンを分析して、その特性を簡潔に説明してください。${additionalInstruction}`
+              },
+              { 
+                role: "user", 
+                content: `以下のメッセージからユーザーの特性を300文字程度で分析してください：\n\n${userMessages.join('\n')}` 
+              }
+            ],
+            max_tokens: 500,
+            temperature: 0.7,
+          });
+          
+          const openaiText = openaiResponse.choices[0].message.content;
+          console.log(`→ OpenAI API応答受信: ${openaiText.substring(0, 100)}...`);
+          
+          // 「過去の記録がない」などの表現がないか確認
+          const hasNoDataMessage = openaiText.includes('過去の記録がない') || 
+                                  openaiText.includes('履歴が少なく') || 
+                                  openaiText.includes('データが不足');
+          console.log(`→ レスポンスが「過去の記録がない」を含むか: ${hasNoDataMessage}`);
+          
+          analysisResult = openaiText;
+        } catch (openaiError) {
+          console.error(`OpenAI分析エラー: ${openaiError}`);
+          // 両方のAPIが失敗した場合の静的な応答
+          analysisResult = "申し訳ありませんが、会話履歴の分析中にエラーが発生しました。しばらくしてからもう一度お試しください。";
+        }
+      }
+    } else {
+      // Gemini APIキーが設定されていない場合、直接OpenAIを使用
+      console.log(`→ Gemini APIキーが設定されていないか無効です。OpenAI APIを使用します。`);
+      
+      try {
+        console.log(`→ OpenAI API呼び出し準備完了`);
+        
+        // 追加のプロンプト指示
+        const additionalInstruction = "たとえデータが少なくても、「過去の記録がない」などとは言わず、利用可能なデータから最大限の分析を行ってください";
+        console.log(`→ プロンプト付与: "${additionalInstruction}"`);
+        
+        const openaiResponse = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            { 
+              role: "system", 
+              content: `あなたは卓越した心理学者です。ユーザーの会話パターンを分析して、その特性を簡潔に説明してください。${additionalInstruction}`
+          },
+          {
+            role: "user",
+              content: `以下のメッセージからユーザーの特性を300文字程度で分析してください：\n\n${userMessages.join('\n')}` 
+            }
+          ],
+          max_tokens: 500,
+          temperature: 0.7,
+        });
+        
+        const openaiText = openaiResponse.choices[0].message.content;
+        console.log(`→ OpenAI API キャリア応答受信: ${openaiText.substring(0, 100)}...`);
+        
+        // 「過去の記録がない」などの表現がないか確認
+        const hasNoDataMessage = openaiText.includes('過去の記録がない') || 
+                                openaiText.includes('履歴が少なく') || 
+                                openaiText.includes('データが不足');
+        console.log(`→ レスポンスが「過去の記録がない」を含むか: ${hasNoDataMessage}`);
+        
+        analysisResult = openaiText;
+      } catch (openaiError) {
+        console.error(`OpenAI分析エラー: ${openaiError}`);
+        // OpenAI APIが失敗した場合の静的な応答
+        analysisResult = "申し訳ありませんが、会話履歴の分析中にエラーが発生しました。しばらくしてからもう一度お試しください。";
+      }
+    }
+    
+    console.log(`======= 特性分析詳細ログ終了 =======`);
+    
+    return analysisResult;
+  } catch (error) {
+    console.error(`特性分析エラー: ${error}`);
+    return "申し訳ありませんが、会話履歴の分析中にエラーが発生しました。しばらくしてからもう一度お試しください。";
+  }
+}
+
+/**
+ * メッセージが画像生成リクエストかどうかを判断する関数
+ * @param {string} userMessage - ユーザーからのメッセージ
+ * @param {string} aiResponse - AIの応答
+ * @returns {Promise<boolean>} - 画像生成リクエストかどうか
+ */
+async function checkImageGenerationRequest(userMessage, aiResponse) {
+  try {
+    // 明示的なキーワードを含む場合は直接検出
+    const directRequestPatterns = [
+      /画像.*(生成|作成|作って|表示|見せて)/i,
+      /(絵|イラスト).*(描いて|作って|生成|表示)/i,
+      /写真.*(作って|生成|表示|見せて)/i,
+      /(generate|create|make|show).*(image|picture|photo)/i,
+      /(draw|visualize).*(image|picture|scene)/i
+    ];
+    
+    for (const pattern of directRequestPatterns) {
+      if (pattern.test(userMessage)) {
+        return true;
+      }
+    }
+    
+    // 既存モデルを用いた判定でも対応
+    if (enhancedImageDecision) {
+      try {
+        const result = await enhancedImageDecision.detectImageRequest(userMessage, aiResponse);
+        if (result && result.score > 0.75) {
+          console.log(`拡張モデルによる画像生成リクエスト検出 (信頼度: ${result.score.toFixed(2)})`);
+          return true;
+        }
+      } catch (modelError) {
+        console.error('拡張モデルによる画像生成判定エラー:', modelError);
+      }
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('画像生成リクエスト判定エラー:', error);
+    return false;
+  }
+}
+
+/**
+ * メッセージが重要かどうかを判断する関数
+ * @param {string} message - 評価するメッセージ
+ * @returns {Promise<boolean>} - 重要かどうか
+ */
+async function checkIfImportantMessage(message) {
+  // 短すぎるメッセージは重要ではない
+  if (!message || message.length < 10) {
+    return false;
+  }
+  
+  // 特定のパターンを含むメッセージは重要
+  const importantPatterns = [
+    /(覚えて|記憶して|忘れないで)/i,
+    /(大事|重要|忘れないで)/i,
+    /私の.*(名前|誕生日|好き|苦手)/i,
+    /(remember|don't forget|important)/i
+  ];
+  
+  for (const pattern of importantPatterns) {
+    if (pattern.test(message)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * AI応答を生成する関数
+ * @param {string} userMessage - ユーザーメッセージ
+ * @param {Array} history - 会話履歴
+ * @param {Array} contextMessages - コンテキストメッセージ
+ * @param {string} userId - ユーザーID
+ * @returns {Promise<string>} - AI応答
+ */
+async function generateAIResponse(userMessage, history, contextMessages, userId) {
+  try {
+    // システムメッセージを設定
+    const currentDate = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+    let systemMessage = `あなたはLINE上で動作するAI「ADAM」です。現在の日付と時刻は${currentDate}です。`;
+    systemMessage += `返答は簡潔かつ親しみやすい口調で行い、絵文字を適度に使って表現豊かにしてください。`;
+    
+    // ユーザー情報があれば追加
+    if (sessions[userId] && sessions[userId].userInfo) {
+      const userInfo = sessions[userId].userInfo;
+      if (userInfo.name) {
+        systemMessage += `このユーザーの名前は${userInfo.name}です。`;
+      }
+      if (userInfo.preferences && Object.keys(userInfo.preferences).length > 0) {
+        systemMessage += `ユーザーの好みや特性: ${JSON.stringify(userInfo.preferences)}`;
+      }
+    }
+    
+    // OpenAI APIを使用して応答を生成
+    const messages = [
+      { role: "system", content: systemMessage }
+    ];
+    
+    // コンテキストメッセージを追加（最大3件）
+    if (contextMessages && contextMessages.length > 0) {
+      const limitedContext = contextMessages.slice(0, 3);
+      limitedContext.forEach(ctx => {
+        messages.push({ 
+          role: "system",
+          content: `関連する過去の会話: ${ctx.content}`
+        });
+      });
+    }
+    
+    // 会話履歴を追加（最新の5件）
+    const recentHistory = history.slice(-5);
+    messages.push(...recentHistory);
+    
+    // ユーザーの現在のメッセージを追加
+    messages.push({ role: "user", content: userMessage });
+    
+    // GPT-4oを使用して応答を生成
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: messages,
+      temperature: 0.7,
+      max_tokens: 500
+    });
+    
+    // 応答を取得
+    const reply = completion.choices[0].message.content;
+    
+    // 会話履歴を更新
+    sessions[userId].history.push({ role: "user", content: userMessage });
+    sessions[userId].history.push({ role: "assistant", content: reply });
+    
+    // 履歴が長すぎる場合は古いものを削除
+    if (sessions[userId].history.length > 20) {
+      sessions[userId].history = sessions[userId].history.slice(-20);
+    }
+    
+    return reply;
+  } catch (error) {
+    console.error('AI応答生成エラー:', error);
+    return "申し訳ありませんが、応答の生成中にエラーが発生しました。しばらくしてからもう一度お試しください。";
+  }
+}
+
