@@ -1070,11 +1070,12 @@ async function storeInteraction(userId, role, content) {
 
 async function fetchUserHistory(userId, limit) {
   try {
-    console.log(`Fetching history for user ${userId}, limit: ${limit}`);
+    console.log(`\n📚 ==== 会話履歴取得プロセス開始 - ユーザー: ${userId} ====`);
+    console.log(`📚 リクエスト内容: ${limit}件の会話履歴を取得します`);
     
     // API認証情報の検証（デバッグ用）
-    console.log(`[接続検証] Airtable認証情報 => API_KEY存在: ${!!process.env.AIRTABLE_API_KEY}, BASE_ID存在: ${!!process.env.AIRTABLE_BASE_ID}`);
-    console.log(`[接続検証] airtableBase初期化状態: ${airtableBase ? '成功' : '未初期化'}`);
+    console.log(`📚 [接続検証] Airtable認証情報 => API_KEY存在: ${!!process.env.AIRTABLE_API_KEY}, BASE_ID存在: ${!!process.env.AIRTABLE_BASE_ID}`);
+    console.log(`📚 [接続検証] airtableBase初期化状態: ${airtableBase ? '成功' : '未初期化'}`);
     
     // 履歴分析用のメタデータオブジェクトを初期化
     const historyMetadata = {
@@ -1085,54 +1086,58 @@ async function fetchUserHistory(userId, limit) {
     };
     
     if (!airtableBase) {
-      console.error('Airtable接続が初期化されていないため、履歴を取得できません');
+      console.error('📚 ❌ Airtable接続が初期化されていないため、履歴を取得できません');
       historyMetadata.insufficientReason = 'airtable_not_initialized';
       return { history: [], metadata: historyMetadata };
     }
     
     // ConversationHistoryテーブルからの取得を試みる
     try {
-      console.log(`ConversationHistory テーブルからユーザー ${userId} の履歴を取得中...`);
+      console.log(`📚 🔍 ConversationHistory テーブルからユーザー ${userId} の履歴を取得中...`);
           
       // すべてのフィールドを確実に取得するためのカラム指定
       const columns = ['UserID', 'Role', 'Content', 'Timestamp', 'Mode', 'MessageType'];
       
       // filterByFormulaとsortを設定
-          const conversationRecords = await airtableBase('ConversationHistory')
-            .select({
-              filterByFormula: `{UserID} = "${userId}"`,
+      console.log(`📚 📊 クエリ: UserID="${userId}" で最大${limit * 2}件を時間降順で取得`);
+      const conversationRecords = await airtableBase('ConversationHistory')
+        .select({
+          filterByFormula: `{UserID} = "${userId}"`,
           sort: [{ field: 'Timestamp', direction: 'desc' }], // 降順に変更
           fields: columns,  // 明示的にフィールドを指定
-              maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
-            })
-            .all();
+          maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
+        })
+        .all();
             
-          if (conversationRecords && conversationRecords.length > 0) {
-        console.log(`Found ${conversationRecords.length} records for user in ConversationHistory table`);
+      if (conversationRecords && conversationRecords.length > 0) {
+        console.log(`📚 ✅ 取得成功: ConversationHistoryテーブルから${conversationRecords.length}件のレコードを取得しました`);
         
         // 取得したデータを変換
         const history = [];
         
         // 降順で取得したレコードを逆順（昇順）に処理
         const recordsInAscOrder = [...conversationRecords].reverse();
+        console.log(`📚 🔄 レコードを時系列順（古い順）に並べ替えました`);
         
+        console.log(`📚 📝 レコード処理開始 (${recordsInAscOrder.length}件)`);
         for (const record of recordsInAscOrder) {
           try {
             // デバッグを追加
             if (history.length === 0) {
-              console.log(`\n===== レコード構造サンプル =====`);
-              console.log(`  レコードID: ${record.id}`);
-              console.log(`  フィールド: ${JSON.stringify(record.fields)}`);
-              console.log(`===== レコード構造サンプル終了 =====\n`);
+              console.log(`\n📚 📋 レコード構造サンプル =====`);
+              console.log(`📚 📌 レコードID: ${record.id}`);
+              console.log(`📚 📌 フィールド: ${JSON.stringify(record.fields)}`);
+              console.log(`📚 📋 レコード構造サンプル終了 =====\n`);
             }
             
             // フィールドから直接データを取得（最も一般的な方法）
             const role = record.fields.Role || '';
             const content = record.fields.Content || '';
+            const timestamp = record.fields.Timestamp || '';
             
             // データのチェック
             if (!content || content.trim() === '') {
-              console.log(`⚠ 警告: レコード ${record.id} のContent (${content}) が空です。スキップします。`);
+              console.log(`📚 ⚠️ 警告: レコード ${record.id} のContent (${content}) が空です。スキップします。`);
               continue;
             }
             
@@ -1140,53 +1145,69 @@ async function fetchUserHistory(userId, limit) {
             const normalizedRole = role.toLowerCase() === 'assistant' ? 'assistant' : 'user';
             history.push({
               role: normalizedRole,
-              content: content
+              content: content,
+              timestamp: timestamp
             });
             
-          } catch (recordErr) {
-            console.error(`レコード処理エラー: ${recordErr.message}`);
-          }
-        }
-            
-            // 履歴の内容を分析
-        historyMetadata.totalRecords += history.length;
-            analyzeHistoryContent(history, historyMetadata);
-            
-        // 最新のlimit件を取得
-            if (history.length > limit) {
-              return { history: history.slice(-limit), metadata: historyMetadata };
+            // 進行状況ログ（10件ごと）
+            if (history.length % 10 === 0) {
+              console.log(`📚 🔢 ${history.length}件のメッセージを処理しました...`);
             }
-            return { history, metadata: historyMetadata };
-      } else {
-        console.log(`No records found for user ${userId} in ConversationHistory table`);
+            
+          } catch (recordErr) {
+            console.error(`📚 ❌ レコード処理エラー: ${recordErr.message}`);
           }
-        } catch (tableErr) {
-      console.error(`ConversationHistory table not found or error: ${tableErr.message}. Falling back to UserAnalysis.`);
         }
         
+        console.log(`📚 ✓ レコード処理完了 (${history.length}件のメッセージを正常に処理)`);
+            
+        // 履歴の内容を分析
+        historyMetadata.totalRecords += history.length;
+        analyzeHistoryContent(history, historyMetadata);
+            
+        // 最新のlimit件を取得
+        if (history.length > limit) {
+          console.log(`📚 ✂️ 履歴が多すぎるため、最新の${limit}件に制限します (${history.length}件→${limit}件)`);
+          return { history: history.slice(-limit), metadata: historyMetadata };
+        }
+        
+        console.log(`📚 ✅ 履歴取得完了: ${history.length}件のメッセージを返します`);
+        console.log(`📚 ==== 会話履歴取得プロセス終了 - ユーザー: ${userId} ====\n`);
+        return { history, metadata: historyMetadata };
+      } else {
+        console.log(`📚 ⚠️ ConversationHistoryテーブルにユーザー${userId}のレコードが見つかりませんでした`);
+      }
+    } catch (tableErr) {
+      console.error(`📚 ❌ ConversationHistoryテーブルエラー: ${tableErr.message}. UserAnalysisテーブルにフォールバックします。`);
+    }
+    
     // ConversationHistoryが使えないかデータがない場合は旧テーブルからの取得を試みる
-        try {
+    console.log(`📚 🔍 UserAnalysisテーブルからの履歴取得を試みます...`);
+    try {
       const records = await airtableBase('UserAnalysis')
-            .select({
+        .select({
           filterByFormula: `{UserID} = "${userId}"`,
           maxRecords: 100
-            })
-            .all();
+        })
+        .all();
             
       if (records && records.length > 0) {
-        console.log(`Found ${records.length} records for user in original INTERACTIONS_TABLE`);
+        console.log(`📚 ✅ UserAnalysisテーブルから${records.length}件のレコードを取得しました`);
         
         // まず会話履歴として明示的に保存されたものを探す
         const conversationRecord = records.find(r => r.get('Mode') === 'conversation');
         if (conversationRecord) {
+          console.log(`📚 🔍 会話履歴レコードを発見しました (Mode='conversation')`);
           try {
             const analysisData = conversationRecord.get('AnalysisData');
             if (analysisData) {
+              console.log(`📚 📦 AnalysisDataフィールドが存在します (サイズ: ${analysisData.length}文字)`);
               let data;
               try {
                 data = JSON.parse(analysisData);
                 if (data && data.conversation && Array.isArray(data.conversation)) {
                   const history = data.conversation;
+                  console.log(`📚 ✅ 会話履歴の解析に成功: ${history.length}件のメッセージを取得`);
                   
                   // 履歴の内容を分析
                   historyMetadata.totalRecords += history.length;
@@ -1194,20 +1215,31 @@ async function fetchUserHistory(userId, limit) {
                   
                   // 最新のlimit件を取得
                   if (history.length > limit) {
+                    console.log(`📚 ✂️ 履歴が多すぎるため、最新の${limit}件に制限します (${history.length}件→${limit}件)`);
                     return { history: history.slice(-limit), metadata: historyMetadata };
                   }
+                  
+                  console.log(`📚 ✅ 履歴取得完了: ${history.length}件のメッセージを返します`);
+                  console.log(`📚 ==== 会話履歴取得プロセス終了 - ユーザー: ${userId} ====\n`);
                   return { history, metadata: historyMetadata };
+                } else {
+                  console.log(`📚 ⚠️ 無効なデータ形式: conversation配列が見つかりませんでした`);
                 }
               } catch (jsonErr) {
-                console.error(`JSON parse error in AnalysisData: ${jsonErr.message}`);
+                console.error(`📚 ❌ JSON解析エラー: ${jsonErr.message}`);
               }
+            } else {
+              console.log(`📚 ⚠️ AnalysisDataフィールドが空または存在しません`);
             }
           } catch (getErr) {
-            console.error(`Error getting AnalysisData: ${getErr.message}`);
+            console.error(`📚 ❌ AnalysisData取得エラー: ${getErr.message}`);
           }
+        } else {
+          console.log(`📚 ⚠️ 会話履歴レコード(Mode='conversation')が見つかりませんでした`);
         }
         
         // 履歴レコードが見つからない場合は、テキストフィールドから最小限の情報を抽出
+        console.log(`📚 🔍 個別のメッセージレコードから履歴を再構築します...`);
         const history = [];
         
         for (const record of records) {
@@ -1233,9 +1265,11 @@ async function fetchUserHistory(userId, limit) {
           }
         }
     
-    // 履歴の内容を分析
+        console.log(`📚 ✅ メッセージの再構築完了: ${history.length}件のメッセージを抽出しました`);
+        
+        // 履歴の内容を分析
         historyMetadata.totalRecords += history.length;
-    analyzeHistoryContent(history, historyMetadata);
+        analyzeHistoryContent(history, historyMetadata);
     
         // 時間順に並べ替え (最も古いものから新しいものへ)
         history.sort((a, b) => {
@@ -1246,65 +1280,107 @@ async function fetchUserHistory(userId, limit) {
         
         // 最新のlimit件を取得
         if (history.length > limit) {
+          console.log(`📚 ✂️ 履歴が多すぎるため、最新の${limit}件に制限します (${history.length}件→${limit}件)`);
           return { history: history.slice(-limit), metadata: historyMetadata };
         }
-    return { history, metadata: historyMetadata };
+        
+        console.log(`📚 ✅ 履歴取得完了: ${history.length}件のメッセージを返します`);
+        console.log(`📚 ==== 会話履歴取得プロセス終了 - ユーザー: ${userId} ====\n`);
+        return { history, metadata: historyMetadata };
+      } else {
+        console.log(`📚 ⚠️ UserAnalysisテーブルにもレコードが見つかりませんでした`);
       }
     } catch (tableErr) {
-      console.error(`UserAnalysis table error: ${tableErr.message}`);
+      console.error(`📚 ❌ UserAnalysisテーブルエラー: ${tableErr.message}`);
     }
     
     // どちらのテーブルからも取得できなかった場合は空配列を返す
+    console.log(`📚 ⚠️ どのテーブルからも履歴を取得できませんでした`);
+    console.log(`📚 ==== 会話履歴取得プロセス終了 - ユーザー: ${userId} ====\n`);
     return { history: [], metadata: historyMetadata };
   } catch (err) {
-    console.error(`Error fetching user history: ${err.message}`);
+    console.error(`📚 ❌ 履歴取得中の致命的エラー: ${err.message}`);
+    console.log(`📚 ==== 会話履歴取得プロセス終了(エラー) - ユーザー: ${userId} ====\n`);
     return { history: [], metadata: { totalRecords: 0, insufficientReason: 'error' } };
   }
 }
 
 // 履歴の内容を分析する関数
 function analyzeHistoryContent(history, metadata) {
-  console.log(`\n======= 履歴内容分析デバッグ =======`);
-  console.log(`→ 分析対象メッセージ数: ${history.length}件`);
+  console.log(`\n📊 ======= 履歴内容分析デバッグ =======`);
+  console.log(`📊 → 分析対象メッセージ数: ${history.length}件`);
   
   // 記録タイプのカウンターを初期化
   metadata.recordsByType = metadata.recordsByType || {};
   
   // キャリア関連のキーワード
   const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職'];
+  console.log(`📊 → キャリア関連キーワード: ${careerKeywords.join(', ')}`);
   
   // カウンター初期化
   let careerContentCount = 0;
   let userMessageCount = 0;
   
   // 各メッセージを分析
-  history.forEach(msg => {
+  console.log(`📊 → メッセージ分析開始...`);
+  history.forEach((msg, index) => {
     if (msg.role === 'user') {
       userMessageCount++;
       const content = msg.content.toLowerCase();
+      
+      // 詳細ログ（最初の5件だけ表示）
+      if (index < 5) {
+        console.log(`📊 → [メッセージ ${index+1}] ${content.substring(0, 40)}...`);
+      } else if (index === 5) {
+        console.log(`📊 → ... (残り ${history.length - 5} 件のメッセージは省略します)`);
+      }
       
       // キャリア関連の内容かチェック
       if (careerKeywords.some(keyword => content.includes(keyword))) {
         metadata.recordsByType.career = (metadata.recordsByType.career || 0) + 1;
         metadata.hasCareerRelatedContent = true;
         careerContentCount++;
+        
+        // キャリアキーワードがマッチした場合のみ詳細ログ
+        if (index >= 5) { // すでに省略されたメッセージの場合だけ表示
+          console.log(`📊 → [重要 ${index+1}] キャリア関連: ${content.substring(0, 40)}...`);
+        }
       }
     }
   });
   
   // 分析結果ログ
-  console.log(`→ ユーザーメッセージ: ${userMessageCount}件`);
-  console.log(`→ キャリア関連: ${careerContentCount}件 (${Math.round(careerContentCount/userMessageCount*100)}%)`);
+  console.log(`\n📊 === 分析サマリー ===`);
+  console.log(`📊 → 総メッセージ数: ${history.length}件`);
+  console.log(`📊 → ユーザーメッセージ: ${userMessageCount}件`);
+  console.log(`📊 → キャリア関連: ${careerContentCount}件 (${Math.round(careerContentCount/Math.max(userMessageCount,1)*100)}%)`);
+  
+  // メッセージの時間範囲分析（タイムスタンプがある場合）
+  try {
+    const timestamps = history
+      .filter(msg => msg.timestamp)
+      .map(msg => new Date(msg.timestamp).getTime());
+    
+    if (timestamps.length > 0) {
+      const oldestTime = new Date(Math.min(...timestamps));
+      const newestTime = new Date(Math.max(...timestamps));
+      const durationDays = Math.round((newestTime - oldestTime) / (24 * 60 * 60 * 1000));
+      
+      console.log(`📊 → 会話期間: ${durationDays}日間 (${oldestTime.toLocaleDateString('ja-JP')} 〜 ${newestTime.toLocaleDateString('ja-JP')})`);
+    }
+  } catch (timeErr) {
+    console.log(`📊 → 会話期間: タイムスタンプ分析でエラー (${timeErr.message})`);
+  }
   
   // メタデータの設定
   if (history.length < 3) {
     metadata.insufficientReason = 'few_records';
-    console.log(`→ 結論: 履歴が少ない (${history.length}件)`);
+    console.log(`📊 → 結論: 履歴が少ない (${history.length}件)`);
   } else {
-    console.log(`→ 結論: 分析に十分な履歴あり`);
+    console.log(`📊 → 結論: 分析に十分な履歴あり (${history.length}件)`);
   }
   
-  console.log(`======= 履歴内容分析デバッグ終了 =======\n`);
+  console.log(`📊 ======= 履歴内容分析デバッグ終了 =======\n`);
 }
 
 function applyAdditionalInstructions(basePrompt, mode, historyData, userMessage) {
@@ -2220,7 +2296,7 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
       messages: messages,
       temperature: 0.7,
       max_tokens: 1000,
-      top_p: 1,
+            top_p: 1,
       frequency_penalty: 0.1,
       presence_penalty: 0.1
     };
@@ -2765,10 +2841,10 @@ const PORT = process.env.PORT || 3000;
 
 // サーバーを直接実行した場合のみ起動（main.jsからインポートされた場合は起動しない）
 if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`Listening on port ${PORT}`);
-    console.log(`Visit: http://localhost:${PORT} (if local)\n`);
-  });
+app.listen(PORT, () => {
+  console.log(`Listening on port ${PORT}`);
+  console.log(`Visit: http://localhost:${PORT} (if local)\n`);
+});
 }
 
 /**
@@ -4340,6 +4416,11 @@ async function checkIfImportantMessage(message) {
  */
 async function generateAIResponse(userMessage, history, contextMessages, userId) {
   try {
+    console.log(`\n🤖 ====== AI応答生成プロセス開始 - ユーザー: ${userId} ======`);
+    console.log(`🤖 → 入力メッセージ: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
+    console.log(`🤖 → 会話履歴: ${history.length}件のメッセージ`);
+    console.log(`🤖 → コンテキストメッセージ: ${contextMessages.length}件`);
+    
     // ASD支援の使い方質問を検出するパターン
     const asdSupportPattern = /(ASD|発達障害|自閉症)(の|に関する|に対する|の|症)?(支援|サポート|助け)(で|に|について)?(あなた|Adam)(が|の)?(対応|使い方|質問例|機能|できること)/i;
     const exactPattern = /ASD症支援であなたが対応できる具体的な質問例とあなたの使い方/i;
@@ -4349,7 +4430,7 @@ async function generateAIResponse(userMessage, history, contextMessages, userId)
     if (asdSupportPattern.test(userMessage) || 
        exactPattern.test(userMessage) ||
        (manualRequestPattern.test(userMessage) && userMessage.toLowerCase().includes('asd'))) {
-      console.log('ASD支援の使い方質問を検出しました。マニュアルを直接返します。');
+      console.log('🤖 → ASD支援の使い方質問を検出しました。マニュアルを直接返します。');
       return `【Adamの使い方-ユーザ向けマニュアル】
 ・お気軽に相談内容や質問をテキストで送信してください。
 ・必要に応じて、送信された画像の内容を解析し、アドバイスに反映します。
@@ -4381,8 +4462,10 @@ async function generateAIResponse(userMessage, history, contextMessages, userId)
     
     // コンテキストメッセージを追加（最大3件）
     if (contextMessages && contextMessages.length > 0) {
+      console.log(`🤖 → コンテキストメッセージ追加: ${Math.min(contextMessages.length, 3)}/${contextMessages.length}件`);
       const limitedContext = contextMessages.slice(0, 3);
-      limitedContext.forEach(ctx => {
+      limitedContext.forEach((ctx, index) => {
+        console.log(`🤖 → [コンテキスト${index+1}] ${ctx.content.substring(0, 30)}...`);
         messages.push({ 
           role: "system",
           content: `関連する過去の会話: ${ctx.content}`
@@ -4392,12 +4475,18 @@ async function generateAIResponse(userMessage, history, contextMessages, userId)
     
     // 会話履歴を追加（最新の5件）
     const recentHistory = history.slice(-5);
+    console.log(`🤖 → 会話履歴追加: 最新${recentHistory.length}/${history.length}件`);
+    recentHistory.forEach((msg, index) => {
+      console.log(`🤖 → [履歴${index+1}] ${msg.role}: ${msg.content.substring(0, 30)}...`);
+    });
     messages.push(...recentHistory);
     
     // ユーザーの現在のメッセージを追加
     messages.push({ role: "user", content: userMessage });
+    console.log(`🤖 → メッセージ配列構築完了: ${messages.length}件`);
     
     // GPT-4oを使用して応答を生成
+    console.log(`🤖 → OpenAI API (GPT-4o) リクエスト送信中...`);
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: messages,
@@ -4407,19 +4496,26 @@ async function generateAIResponse(userMessage, history, contextMessages, userId)
     
     // 応答を取得
     const reply = completion.choices[0].message.content;
+    console.log(`🤖 → 応答受信完了: ${reply.length}文字`);
+    console.log(`🤖 → 応答内容: "${reply.substring(0, 50)}${reply.length > 50 ? '...' : ''}"`);
     
     // 会話履歴を更新
     sessions[userId].history.push({ role: "user", content: userMessage });
     sessions[userId].history.push({ role: "assistant", content: reply });
+    console.log(`🤖 → 会話履歴更新: 現在のサイズ=${sessions[userId].history.length}件`);
     
     // 履歴が長すぎる場合は古いものを削除
     if (sessions[userId].history.length > 20) {
+      const removedCount = sessions[userId].history.length - 20;
       sessions[userId].history = sessions[userId].history.slice(-20);
+      console.log(`🤖 → 履歴サイズ調整: ${removedCount}件の古い履歴を削除 (新サイズ=${sessions[userId].history.length}件)`);
     }
     
+    console.log(`🤖 ====== AI応答生成プロセス終了 - ユーザー: ${userId} ======\n`);
     return reply;
   } catch (error) {
-    console.error('AI応答生成エラー:', error);
+    console.error('🤖 ❌ AI応答生成エラー:', error);
+    console.log(`🤖 ====== AI応答生成プロセス終了(エラー) - ユーザー: ${userId} ======\n`);
     return "申し訳ありませんが、応答の生成中にエラーが発生しました。しばらくしてからもう一度お試しください。";
   }
 }
