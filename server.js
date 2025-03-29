@@ -17,6 +17,9 @@ const xss = require('xss');
 const Tokens = require('csrf');
 const crypto = require('crypto');
 
+// Expressアプリケーションを作成
+const app = express();
+
 // 画像生成モジュールをインポート
 const imageGenerator = require('./imageGenerator');
 
@@ -311,7 +314,6 @@ const userPreferences = {
   }
 };
 
-const app = express();
 app.set('trust proxy', 1);
 // セキュリティヘッダーの強化
 app.use(helmet({
@@ -3995,4 +3997,7 @@ async function generateCareerAnalysis(history, currentMessage) {
     return "申し訳ありませんが、キャリア分析中にエラーが発生しました。しばらくしてからもう一度お試しください。";
   }
 }
+
+// アプリケーションをエクスポート（main.jsから利用するため）
+module.exports = app;
 
