@@ -2326,8 +2326,8 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     const gptOptions = {
       model: model,
       messages: messages,
-      temperature: 0.7,
-      max_tokens: 1000,
+      temperature: 0.8,
+      max_tokens: 500,
             top_p: 1,
       frequency_penalty: 0.1,
       presence_penalty: 0.1
@@ -2841,26 +2841,21 @@ async function handleText(event) {
       if (mode === 'characteristics') {
         console.log('特性分析モードを開始します');
         try {
-          const characteristicsResult = await enhancedCharacteristics.analyzeUserCharacteristics(userId, { history });
+          const characteristicsResult = await enhancedCharacteristics.analyzeCharacteristics(userId, sanitizedText);
           
           // 特性分析結果を文字列型に統一
           if (typeof characteristicsResult === 'string') {
             replyMessage = characteristicsResult;
           } else if (characteristicsResult && typeof characteristicsResult === 'object') {
-            // structuredDataプロパティから結果を取得
-            const resultData = characteristicsResult.structuredData || characteristicsResult;
-            
-            if (resultData.analysis) {
-              replyMessage = resultData.analysis;
-            } else if (resultData.response) {
-              replyMessage = resultData.response;
-            } else if (resultData.text) {
-              replyMessage = resultData.text;
-            } else if (resultData.legacyMode && resultData.analysis) {
-              replyMessage = resultData.analysis;
-            } else {
+            if (characteristicsResult.analysis) {
+              replyMessage = characteristicsResult.analysis;
+            } else if (characteristicsResult.response) {
+              replyMessage = characteristicsResult.response;
+            } else if (characteristicsResult.text) {
+              replyMessage = characteristicsResult.text;
+          } else {
               // オブジェクトを文字列に変換
-              replyMessage = JSON.stringify(resultData);
+              replyMessage = JSON.stringify(characteristicsResult);
             }
           } else {
             replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。もう一度お試しください。';
@@ -3852,26 +3847,21 @@ async function handleAudio(event) {
     if (mode === 'characteristics') {
       console.log('特性分析モードを開始します');
       try {
-        const characteristicsResult = await enhancedCharacteristics.analyzeUserCharacteristics(userId, { history });
+        const characteristicsResult = await enhancedCharacteristics.analyzeCharacteristics(userId, sanitizedText);
         
         // 特性分析結果を文字列型に統一
         if (typeof characteristicsResult === 'string') {
           replyMessage = characteristicsResult;
         } else if (characteristicsResult && typeof characteristicsResult === 'object') {
-          // structuredDataプロパティから結果を取得
-          const resultData = characteristicsResult.structuredData || characteristicsResult;
-          
-          if (resultData.analysis) {
-            replyMessage = resultData.analysis;
-          } else if (resultData.response) {
-            replyMessage = resultData.response;
-          } else if (resultData.text) {
-            replyMessage = resultData.text;
-          } else if (resultData.legacyMode && resultData.analysis) {
-            replyMessage = resultData.analysis;
+          if (characteristicsResult.analysis) {
+            replyMessage = characteristicsResult.analysis;
+          } else if (characteristicsResult.response) {
+            replyMessage = characteristicsResult.response;
+          } else if (characteristicsResult.text) {
+            replyMessage = characteristicsResult.text;
           } else {
             // オブジェクトを文字列に変換
-            replyMessage = JSON.stringify(resultData);
+            replyMessage = JSON.stringify(characteristicsResult);
           }
         } else {
           replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。もう一度お試しください。';
@@ -4349,7 +4339,7 @@ Adamでは以下のようなASD(自閉症スペクトラム障害)に関する�
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: messages,
-      temperature: 0.7,
+      temperature: 0.8,
       max_tokens: 500
     });
     
