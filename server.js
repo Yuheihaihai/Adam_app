@@ -2327,7 +2327,7 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
       model: model,
       messages: messages,
       temperature: 0.8,
-      max_tokens: 500,
+      max_tokens: 1000,
             top_p: 1,
       frequency_penalty: 0.1,
       presence_penalty: 0.1
@@ -4340,7 +4340,7 @@ Adamでは以下のようなASD(自閉症スペクトラム障害)に関する�
       model: "gpt-4o",
       messages: messages,
       temperature: 0.8,
-      max_tokens: 500
+      max_tokens: 1000
     });
     
     // 応答を取得
