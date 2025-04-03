@@ -411,64 +411,32 @@ class AudioHandler {
     return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
   }
   
-  // 音声の特性（感情、トーン、スピードなど）を分析
+  /**
+   * 音声ファイルから特性（感情、トーン、話速など）を分析する関数 (プレースホルダー)
+   * @param {string} audioFilePath - 分析対象の音声ファイルパス
+   * @param {string} userId - ユーザーID (将来的な拡張用)
+   * @returns {Promise<object>} - 音声特性の分析結果オブジェクト
+   *   - emotion: 推定される感情 (例: 'neutral', 'happy', 'sad')
+   *   - tone: 話し方のトーン (例: 'calm', 'energetic', 'formal')
+   *   - speed: 話速 (例: 'normal', 'slow', 'fast')
+   *   - intensity: 感情やトーンの強度 (例: 0.0 - 1.0)
+   *   - isVoiceChangeRequest: 音声設定変更リクエストが含まれるか (これは別関数で処理される想定)
+   *   @devNote 手動で詳細な音声分析ロジックを実装する必要があります。
+   *           外部ライブラリ(e.g., librosa, SpeechAnalysis.js)やAPI(e.g., Azure Cognitive Services)の利用を検討。
+   *           現在はデフォルト値を返します。
+   */
   async _analyzeAudioCharacteristics(audioFilePath, userId) {
-    try {
-      console.log('音声特性分析開始');
-      
-      // OpenAI GPT-4oを使用して音声特性を推定（実際の音声特性分析機能がないため、テキストからの推定）
-      const transcribedText = await this._transcribeWithWhisper(audioFilePath, { language: 'ja' });
-      
-      // テキストから感情などを推測
-      const prompt = `
-      以下のテキストを分析し、話者の音声特性を推定してください。
-      テキスト: "${transcribedText}"
-      
-      以下の項目を含むJSON形式で回答してください:
-      1. 感情状態(emotion): 喜び/悲しみ/怒り/恐れ/驚き/中立 から最も可能性の高いもの
-      2. 感情強度(intensity): 1-5の数値（1が最も弱く、5が最も強い）
-      3. 話速の印象(speed_impression): 遅い/普通/速い から最も可能性の高いもの
-      4. トーン(tone): 優しい/厳しい/熱意のある/落ち着いた/緊張した から最も可能性の高いもの
-      5. ボリューム印象(volume_impression): 小さい/普通/大きい から最も可能性の高いもの
-      6. 自信度(confidence): テキストからの推測なので、0-1の値（例: 0.7）
-      `;
-      
-      const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
-          { role: 'system', content: 'あなたは音声特性分析の専門家です。テキストから話者の感情や話し方の特徴を推定します。' },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.3,
-        response_format: { type: "json_object" }
-      });
-      
-      // レスポンスをJSON解析
-      const characteristics = JSON.parse(response.choices[0].message.content);
-      
-      // タイムスタンプと元テキストを追加
-      characteristics.timestamp = Date.now();
-      characteristics.text = transcribedText;
-      characteristics.userId = userId;
-      
-      console.log('音声特性分析結果:', JSON.stringify(characteristics, null, 2).substring(0, 200) + '...');
-      
-      return characteristics;
-    } catch (error) {
-      console.error('音声特性分析エラー:', error.message);
-      // 基本的な特性データを返す
-      return {
-        timestamp: Date.now(),
-        text: '',
-        emotion: 'neutral',
-        intensity: 3,
-        speed_impression: 'normal',
-        tone: 'calm',
-        volume_impression: 'normal',
-        confidence: 0.5,
-        error: error.message
-      };
-    }
+    console.log(`音声特性分析を実行 (プレースホルダー): ${audioFilePath}`);
+    // TODO: ここに実際の音声分析ロジックを実装する
+    
+    // 現時点ではデフォルト/ニュートラルな値を返す
+    return {
+      emotion: 'neutral',
+      tone: 'calm',
+      speed: 'normal',
+      intensity: 0.5,
+      isVoiceChangeRequest: false // 実際の検出は detectVoiceChangeRequest で行う想定
+    };
   }
   
   // 音声特性データをファイルに保存
@@ -548,11 +516,11 @@ class AudioHandler {
       }
       
       // 話速カウント更新
-      if (newCharacteristics.speed_impression) {
-        if (!summary.speedCounts[newCharacteristics.speed_impression]) {
-          summary.speedCounts[newCharacteristics.speed_impression] = 0;
+      if (newCharacteristics.speed) {
+        if (!summary.speedCounts[newCharacteristics.speed]) {
+          summary.speedCounts[newCharacteristics.speed] = 0;
         }
-        summary.speedCounts[newCharacteristics.speed_impression]++;
+        summary.speedCounts[newCharacteristics.speed]++;
       }
       
       // 強度平均更新

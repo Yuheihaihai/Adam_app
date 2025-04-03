@@ -16,9 +16,59 @@ const rateLimit = require('express-rate-limit');
 const xss = require('xss');
 const Tokens = require('csrf');
 const crypto = require('crypto');
+     // コサイン類似度を計算するヘルパー関数
+     function cosineSimilarity(vecA, vecB) {
+      if (!vecA || !vecB || vecA.length !== vecB.length) {
+        return 0;
+      }
+      let dotProduct = 0;
+      let normA = 0;
+      let normB = 0;
+      for (let i = 0; i < vecA.length; i++) {
+        dotProduct += vecA[i] * vecB[i];
+        normA += vecA[i] * vecA[i];
+        normB += vecB[i] * vecB[i];
+      }
+      if (normA === 0 || normB === 0) {
+        return 0;
+      }
+      return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+    }
+
+    // Embedding を取得する関数 (エラーハンドリング付き)
+    async function getEmbedding(text, model = "text-embedding-3-small") {
+      try {
+        // テキストが空でないかチェック
+        if (!text || typeof text !== 'string' || text.trim().length === 0) {
+            console.warn('Embedding取得試行: 空または無効なテキストです。nullを返します。');
+            return null;
+        }
+        // テキストが長すぎる場合の切り詰め（モデルの制限に合わせる）
+        const maxLength = 8000; // 例: text-embedding-3-small の最大トークン数に近い値
+        const truncatedText = text.length > maxLength ? text.substring(0, maxLength) : text;
+
+        const response = await openai.embeddings.create({
+          model: model,
+          input: truncatedText,
+        });
+        // response.data[0]?.embedding が存在するかチェック
+        if (response && response.data && response.data[0] && response.data[0].embedding) {
+            return response.data[0].embedding;
+        } else {
+            console.warn(`Embedding取得失敗: APIからの応答にembeddingが含まれていません。テキスト: "${truncatedText.substring(0, 50)}..."`);
+            return null;
+        }
+      } catch (error) {
+        console.error(`Embedding取得エラー: ${error.message}`, { text: text.substring(0, 50) + "..." });
+        // エラータイプによって再試行などのロジックも検討可能
+        return null; // エラー時は null を返す
+      }
+    }
 
 // Expressアプリケーションを作成
 const app = express();
+app.use(express.json()); // JSONリクエストボディを解析するためのミドルウェア
+app.use(express.urlencoded({ extended: true }));
 
 // 画像生成モジュールをインポート
 const imageGenerator = require('./imageGenerator');
@@ -38,6 +88,8 @@ const audioHandler = require('./audioHandler');
 let semanticSearch;
 try {
   semanticSearch = require('./semanticSearch');
+ 
+      // --- ここまで挿入 ---
   console.log('Semantic search module loaded successfully');
 } catch (error) {
   console.warn('Semantic search module not available:', error.message);
@@ -874,75 +926,104 @@ function checkAdminCommand(text) {
  * @param {string} userMessage - ユーザーメッセージ
  * @return {object} モードと制限 {mode, limit}
  */
-function determineModeAndLimit(userMessage) {
-  console.log('Checking message for mode:', userMessage);
-  
-  // 掘り下げモードかどうかをチェック
-  if (isDeepExplorationRequest(userMessage)) {
-    return {
-      mode: 'deep-exploration',
-      tokenLimit: 8000,  // 掘り下げモードは詳細な回答が必要なので多めのトークン数
-      temperature: 0.7
-    };
-  }
-  
-  // Only check the current message for career keywords, not the history
-  const hasCareerKeyword = careerKeywords.some(keyword => userMessage.includes(keyword));
+     // --- ここから line 876 から始まる既存の関数と置き換え ---
+    /**
+     * Determines the conversation mode and history limit based on user message embedding similarity.
+     * Fetches embeddings for user message and mode representative phrases on each call.
+     *
+     * @param {string} userMessage - The user's message.
+     * @returns {Promise<object>} - An object containing the determined mode and history limit {mode, limit}.
+     */
+    // server.js line 941 (ここから置き換え開始)
+async function determineModeAndLimit(userMessage, getEmbFunc) { // 第2引数 getEmbFunc を追加
+  console.log(`🔄 [Mode Determination] Starting Embedding-based analysis for: \"${userMessage.substring(0, 50)}...\"`);
 
-  if (hasCareerKeyword) {
-    console.log('Setting career mode');
-    return { mode: 'career', limit: 200 };
-  }
+  // モードと代表フレーズの定義 (ここは元のまま)
+  const modePhrases = {
+    career: [
+      "仕事の適性", "キャリアプラン", "向いている職業", "転職の相談", "自己分析 仕事"
+    ],
+    memoryTest: [
+      "以前話した内容", "覚えているか確認", "記憶力のテスト", "記録の呼び出し", "思い出してほしい"
+    ],
+    characteristics: [
+      "私の性格について", "自分自身の分析", "長所と短所", "自己理解を深める", "どのような人間か"
+    ],
+    humanRelationship: [
+      "対人関係の悩み", "コミュニケーション方法", "家族や友人とのこと", "人付き合いのアドバイス", "職場の人間関係"
+    ],
+    'deep-exploration': [
+      "もっと詳しく教えて", "深く掘り下げたい", "なぜそうなるのか", "背景を知りたい", "さらに探求する"
+    ],
+    share: [
+      "Adamは素晴らしい", "友達にも勧めたい", "このサービスをシェアしたい", "他の人にも教えたい", "とても役に立ったので共有したい"
+    ]
+  };
+  const modeLimits = {
+    career: 200, memoryTest: 50, characteristics: 200, humanRelationship: 200,
+    'deep-exploration': 30, share: 10, general: 30
+  };
+  const similarityThreshold = 0.75;
+  let bestMatch = { mode: 'general', score: 0 };
 
-  // 記憶テスト用の特別なモード判定
-  const memoryTestPatterns = [
-    '覚えてる', '覚えていますか', '前の', '過去の', 
-    '前回', '以前', '記憶してる', '思い出せる'
-  ];
-  if (memoryTestPatterns.some(pattern => userMessage.includes(pattern))) {
-    console.log('Setting memory test mode');
-    return { mode: 'memoryTest', limit: 50 }; // より多くの履歴を取得
-  }
+  try {
+    // getEmbFunc が渡されているかチェック
+    if (typeof getEmbFunc !== 'function') {
+        console.error("❌ [Mode Determination] Error: getEmbedding function was not provided correctly.");
+        return { mode: 'general', limit: modeLimits.general }; // エラー時はフォールバック
+    }
 
-  // Only check current message for characteristics keywords, not the history
-  const lcMsg = userMessage.toLowerCase();
-  if (
-    lcMsg.includes('特性') ||
-    lcMsg.includes('分析') ||
-    lcMsg.includes('思考') ||
-    lcMsg.includes('傾向') ||
-    lcMsg.includes('パターン') ||
-    lcMsg.includes('コミュニケーション') ||
-    lcMsg.includes('対人関係') ||
-    lcMsg.includes('性格')
-  ) {
-    return { mode: 'characteristics', limit: 200 };
+    // 2. ユーザーメッセージの Embedding を取得 (引数で渡された関数を使用)
+    const userEmbedding = await getEmbFunc(userMessage); // await getEmbedding(userMessage) から変更
+    if (!userEmbedding) {
+      console.warn("⚠️ [Mode Determination] Failed to get embedding for user message via provided function. Falling back to general mode.");
+      return { mode: 'general', limit: modeLimits.general };
+    }
+
+    // 3. 各モードの代表フレーズとの類似度を計算
+    for (const mode in modePhrases) {
+      let maxSimilarityForMode = 0;
+      console.log(`  Comparing with mode: ${mode}`);
+      for (const phrase of modePhrases[mode]) {
+        const phraseEmbedding = await getEmbFunc(phrase); // await getEmbedding(phrase) から変更
+        if (phraseEmbedding) {
+          const similarity = cosineSimilarity(userEmbedding, phraseEmbedding);
+          console.log(`    Phrase: \"${phrase}\", Similarity: ${similarity.toFixed(4)}`);
+          if (similarity > maxSimilarityForMode) {
+            maxSimilarityForMode = similarity;
+          }
+        } else {
+           console.warn(`    ⚠️ Failed to get embedding for phrase: \"${phrase}\" in mode ${mode}`);
+        }
+      }
+      console.log(`  Mode ${mode} - Max Similarity: ${maxSimilarityForMode.toFixed(4)}`);
+      if (maxSimilarityForMode > bestMatch.score) {
+        bestMatch = { mode: mode, score: maxSimilarityForMode };
+      }
+    }
+
+    // 4. モード決定
+    console.log(`🏆 [Mode Determination] Best match: ${bestMatch.mode} with score ${bestMatch.score.toFixed(4)}`);
+       // このブロックを挿入 (server.js の 1012行目から始まる位置に)
+       const newThreshold = 0.5; // 新しい閾値を設定
+
+       if (bestMatch.score >= newThreshold) {
+         // 最高スコアが新しい閾値以上の場合、そのモードを採用
+         console.log(`✅ [Mode Determination] Best score ${bestMatch.score.toFixed(4)} meets the new threshold (${newThreshold}). Mode set to: ${bestMatch.mode}`);
+         return { mode: bestMatch.mode, limit: modeLimits[bestMatch.mode] || modeLimits.general };
+       } else {
+         // 最高スコアが閾値未満の場合は general モード
+         console.log(`ℹ️ [Mode Determination] Best score ${bestMatch.score.toFixed(4)} is below the new threshold (${newThreshold}). Defaulting to general mode.`);
+         return { mode: 'general', limit: modeLimits.general };
+       }
+
+  } catch (error) {
+    // error オブジェクトの内容を詳しくログ出力
+    console.error("❌ [Mode Determination] Error during embedding-based mode determination:", error.message, error.stack);
+    return { mode: 'general', limit: modeLimits.general }; // エラー時は general にフォールバック
   }
-  if (lcMsg.includes('思い出して') || lcMsg.includes('今までの話')) {
-    return { mode: 'memoryRecall', limit: 200 };
-  }
-  if (
-    lcMsg.includes('人間関係') ||
-    lcMsg.includes('友人') ||
-    lcMsg.includes('同僚') ||
-    lcMsg.includes('恋愛') ||
-    lcMsg.includes('パートナー')
-  ) {
-    return { mode: 'humanRelationship', limit: 200 };
-  }
-  
-  // シェアモードの簡易検出（詳細な判断はLLMで行う）
-  // 明らかなポジティブフィードバックとパーソナルレファレンスの組み合わせのみを抽出
-  if (
-    PERSONAL_REFERENCES.some(ref => lcMsg.includes(ref)) && 
-    POSITIVE_KEYWORDS.some(keyword => lcMsg.includes(keyword))
-  ) {
-    console.log('Potential share mode detected, will confirm with LLM');
-    return { mode: 'share', limit: 10 };
-  }
-  
-  return { mode: 'general', limit: 30 };  // 10から30に変更: 会話履歴の記憶問題を修正
 }
+// (ここまでが置き換え後のコード)
 
 function getSystemPromptForMode(mode) {
   switch (mode) {
@@ -2941,7 +3022,7 @@ async function handleText(event) {
 const PORT = process.env.PORT || 3000;
 
 // テスト用エンドポイントを追加
-app.post("/test/message", express.json(), async (req, res) => {
+app.post("/test/message", async (req, res) => {
   try {
     console.log("テストエンドポイントが呼び出されました:", req.body);
     const { userId, text } = req.body;
@@ -2950,8 +3031,33 @@ app.post("/test/message", express.json(), async (req, res) => {
       return res.status(400).json({ error: "ユーザーIDとテキストメッセージは必須です" });
     }
     
-    // メッセージからモードを検出
-    const { mode, limit } = determineModeAndLimit(text);
+    // server.js line 3037 (ここから置き換え開始)
+    // getEmbedding 関数がこのスコープで利用可能か確認
+    let getEmbFunc;
+    try {
+      // typeof チェックで ReferenceError を避ける
+      if (typeof getEmbedding === 'function') {
+        getEmbFunc = getEmbedding;
+        console.log("テストエンドポイント: ローカルスコープの getEmbedding を使用します。");
+      } else {
+        // グローバルスコープなど他の場所にある可能性も考慮 (もしあれば)
+        // 例: if (global.getEmbedding) getEmbFunc = global.getEmbedding;
+        // 見つからない場合はフォールバック
+        console.warn("テストエンドポイント: このスコープで getEmbedding が直接見つかりません。フォールバックします。");
+        // エラーにするか、nullを返すダミー関数を渡す
+        // getEmbFunc = async (txt) => null; // またはエラーを投げる
+        // ここでは、エラーを発生させて問題特定を優先する
+         throw new Error("getEmbedding is not accessible in this scope");
+      }
+    } catch (e) {
+       console.error("テストエンドポイント: getEmbedding アクセス試行中にエラー:", e.message);
+       // エラーレスポンスを返し、処理を中断
+       return res.status(500).json({ error: "内部エラー: Embedding機能へのアクセスに失敗", message: e.message });
+    }
+
+    // getEmbFunc を使ってモードを検出
+    const { mode, limit } = await determineModeAndLimit(text, getEmbFunc); // getEmbFunc を引数に追加
+// (ここまでが置き換え後のコード)
     console.log(`📊 テストエンドポイント: モード検出 "${text.substring(0, 30)}..." => モード: ${mode}, 履歴制限: ${limit}件`);
     
     // 履歴の取得
@@ -4351,11 +4457,35 @@ Adamでは以下のようなASD(自閉症スペクトラム障害)に関する�
     console.log(`🤖 ====== AI応答生成プロセス終了 - ユーザー: ${userId} ======\n`);
     return reply;
   } catch (error) {
-    console.error('🤖 ❌ AI応答生成エラー:', error);
-    console.log(`🤖 ====== AI応答生成プロセス終了(エラー) - ユーザー: ${userId} ======\n`);
-    return "申し訳ありませんが、応答の生成中にエラーが発生しました。しばらくしてからもう一度お試しください。";
+    console.error('🤖 ❌ OpenAI API 応答生成エラー:', error);
+    console.log(`🤖 → OpenAI API エラーのため、バックアップAPI (Claude) を試行します...`);
+
+    // tryPrimaryThenBackup関数を呼び出してフォールバックを試みる
+    // generateAIResponseの引数をそのまま渡す
+    try {
+      const fallbackReply = await tryPrimaryThenBackup(
+        userMessage,
+        history,
+        contextMessages,
+        userId,
+        mode,
+        customSystemPrompt,
+        error 
+      );
+
+      // フォールバックが成功した場合
+      console.log(`🤖 → バックアップAPI (Claude) 応答受信完了`);
+      console.log(`🤖 ====== AI応答生成プロセス終了(フォールバック成功) - ユーザー: ${userId} ======\\n`);
+      return fallbackReply;
+
+    } catch (fallbackError) {
+      // フォールバックも失敗した場合
+      console.error('🤖 ❌ バックアップAPI (Claude) もエラー:', fallbackError);
+      console.log(`🤖 ====== AI応答生成プロセス終了(フォールバック失敗) - ユーザー: ${userId} ======\\n`);
+      // 最終的なエラーメッセージを返す
+      return "申し訳ありませんが、応答の生成中にエラーが発生しました。プライマリおよびバックアップのAIモデルの両方で問題が発生した可能性があります。しばらくしてからもう一度お試しください。";
+    }}
   }
-}
 
 // サーバー起動設定
 

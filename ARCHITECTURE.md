@@ -61,13 +61,37 @@ Adam AIアプリケーションは、発達障害を持つユーザーをサポ�
 
 ### 4. 機械学習コンポーネント
 
-- **主要ファイル**: `localML.js`
-- **主な機能**:
-  - ユーザー特性の分析
-  - 会話パターンの検出
-  - サポートニーズの特定
-  - 意味的類似度計算によるコンテキスト理解
-  - OpenAI Embeddings APIを活用した深層意味理解
+#### 4.1 概要
+本システムの機械学習機能は、外部の高度な AI/ML API と、ローカルで実行される特定のタスクに特化した TensorFlow.js モデルを組み合わせたハイブリッド構成です。
+
+#### 4.2 外部 AI/ML API の利用
+多様なタスクに対応するため、複数の外部 API を活用しています。
+
+- **主要な応答生成・分析:**
+  - **OpenAI GPT (GPT-3.5, GPT-4oなど):** ユーザーとの対話応答生成のコア (`server.js` 内 `processWithAI` など)。
+  - **Google Gemini AI:** 会話履歴からのユーザー特性分析 (`enhancedCharacteristicsAnalyzer.js`)。OpenAI へのフォールバックあり。
+  - **Anthropic Claude:** 特定コマンド (`Claudeモードで〜`) による直接呼び出し、API フォールバック (`server.js`)。
+- **特定タスク向け API:**
+  - **Perplexity AI:** Web 検索、情報収集、適職診断サポート (`perplexitySearch.js`)。
+  - **OpenAI DALL-E:** テキストからの画像生成 (`imageGenerator.js`)。
+  - **OpenAI Whisper:** 音声メッセージのテキスト変換 (`audioHandler.js`)。
+  - **OpenAI TTS:** テキスト応答の音声合成 (`audioHandler.js`)。
+  - **OpenAI Embeddings:** 意味的類似度計算など (主に `localML.js` で利用される想定)。
+- **利用箇所:** 主に `server.js`, `enhancedCharacteristicsAnalyzer.js`, `perplexitySearch.js`, `imageGenerator.js`, `audioHandler.js` から呼び出されます。
+
+#### 4.3 ローカル TensorFlow.js モデル
+特定のタスクについては、ローカルで実行可能なモデルを実装しています。
+
+- **意図検出モデル (`intentDetectionModel.js`):**
+  - **ステータス:** **アクティブ**
+  - **実装:** TensorFlow.js を使用。
+  - **利用箇所:** `/api/intent/*` エンドポイント (`routes/api/intent.js`) 経由で利用。テキストの意図を分類し、フィードバックによる再学習機能も持つ。
+- **感情分析モデル (`emotionAnalysisModel.js`):**
+  - **ステータス:** **非アクティブ (またはデッドコード)**
+  - **実装:** TensorFlow.js を使用したモデルファイルは存在する。
+  - **利用箇所:** 現在のコードベースでは、**このモデルを呼び出している箇所は確認されていません。**
+
+- **主要ファイル**: `localML.js` (Embeddings API利用やその他のローカル処理を担当する可能性あり), `intentDetectionModel.js` (アクティブ), `emotionAnalysisModel.js` (非アクティブ)
 
 ### 5. サービス推薦システム
 

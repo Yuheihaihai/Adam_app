@@ -269,15 +269,20 @@ Indeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度�
       let urls = '';
       
       if (resultContent) {
-        const sections = resultContent.split('[求人情報]');
+        // Try splitting by the markdown header first, then the bracketed version
+        let sections = resultContent.split(/## 求人情報|\[求人情報\]/);
+
         if (sections.length > 1) {
-          analysis = sections[0].replace('[キャリア市場分析]', '').trim();
+          // Remove the initial analysis marker
+          analysis = sections[0].replace(/## キャリア市場分析|\[キャリア市場分析\]/, '').trim();
           urls = sections[1].trim();
+          console.log('   ├─ Successfully extracted career analysis and job URLs using regex split.');
         } else {
+          // Fallback if split fails
           analysis = resultContent;
+          console.warn('   ├─ Could not split response into analysis and URLs. Assuming entire content is analysis.');
         }
-        
-        console.log('   ├─ Successfully extracted career analysis and job URLs');
+
         console.log('   └─ Sample of analysis:', analysis.substring(0, 50), '...');
       } else {
         console.log('   └─ ❌ No content returned from API');
@@ -287,6 +292,7 @@ Indeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度�
         analysis,
         urls
       };
+
     } catch (error) {
       console.error('   ❌ [PERPLEXITY ML] Job trends error:', error.message);
       return null;

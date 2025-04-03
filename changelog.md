@@ -336,3 +336,15 @@
 1. **新しいテストスイートの作成**:
    - `comprehensive_test_suite.js`: 全100パターンのメッセージテスト
    - `
+
+## [日付未定] - ML構造の明確化
+### 機械学習アーキテクチャの現状確認と文書化
+- **外部AI/ML API利用:**
+  - 主要応答生成・分析: OpenAI GPT, Google Gemini, Anthropic Claude
+  - 特定タスク: Perplexity AI (検索), OpenAI DALL-E (画像生成), OpenAI Whisper (音声認識), OpenAI TTS (音声合成), OpenAI Embeddings (意味理解)
+  - 利用箇所: `server.js`, `enhancedCharacteristicsAnalyzer.js`, `perplexitySearch.js`, `imageGenerator.js`, `audioHandler.js` など。
+- **ローカル TensorFlow.js モデル:**
+  - **意図検出モデル (`intentDetectionModel.js`):** アクティブ。`/api/intent/*` 経由で利用。再学習機能あり。
+  - **感情分析モデル (`emotionAnalysisModel.js`):** 非アクティブ (デッドコードの可能性)。ファイルは存在するが、呼び出し箇所は確認されず。
+- **構造:** 外部 API とローカルモデル (意図検出) を組み合わせたハイブリッド構成であることを確認。
+- **ドキュメント:** `ARCHITECTURE.md` に詳細な構成を追記。
