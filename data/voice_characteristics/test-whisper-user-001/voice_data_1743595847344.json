@@ -1,0 +1,16 @@
+{
+  "userId": "test-whisper-user-001",
+  "timestamp": 1743595847344,
+  "text": "こんにちは。音声認識のテストです。",
+  "characteristics": {
+    "emotion": "中立",
+    "intensity": 1,
+    "speed_impression": "普通",
+    "tone": "落ち着いた",
+    "volume_impression": "普通",
+    "confidence": 0.8,
+    "timestamp": 1743595847343,
+    "text": "こんにちは。音声認識のテストです。",
+    "userId": "test-whisper-user-001"
+  }
+}

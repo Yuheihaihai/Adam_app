@@ -1,0 +1,16 @@
+{
+  "userId": "test-whisper-user-001",
+  "recordCount": 3,
+  "lastUpdated": 1743595847345,
+  "emotionCounts": {
+    "中立": 3
+  },
+  "toneCounts": {
+    "落ち着いた": 3
+  },
+  "speedCounts": {
+    "普通": 3
+  },
+  "averageIntensity": 1.3333333333333333,
+  "totalIntensity": 4
+}

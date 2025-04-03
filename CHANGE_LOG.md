@@ -1,5 +1,43 @@
 # Change Log
 
+## 2025-04-01: 各種API連携テストの実施と統合テストスクリプトの作成
+
+### 外部API接続の動作確認と問題分析
+
+#### Changes Made:
+1. **テストスクリプトの作成と実行**:
+   - `test_whisper.js`: OpenAI Whisper API（音声認識）の動作を確認
+   - `test_dalle.js`: OpenAI DALL-E API（画像生成）の動作を確認 
+   - `test_fallback.js`: OpenAI API障害時のAnthropicのClaude APIへのフォールバックを確認
+   - `test_gemini.js`: Google Gemini API（特性分析）の動作を確認
+   - `test_perplexity.js`: Perplexity API（キャリア分析、求人トレンド取得、職業推薦、一般検索）の動作を確認
+   - `test_airtable_connection.js`: Airtable APIの接続問題を診断
+
+2. **統合テストスクリプト**:
+   - `test_integration.js`: 各APIクライアントの初期化と基本動作を一括でテストするスクリプトを作成
+   - 複数のAPIを組み合わせた機能テストを実装
+   - 各API呼び出しのタイミングとレスポンスを検証
+   - エラー発生時の詳細ログを実装
+
+#### Test Results:
+- **正常動作確認済み**:
+  - OpenAI GPT（基本応答）
+  - OpenAI TTS（音声合成）
+  - OpenAI Whisper（音声認識）- ※DBエラーとは別問題
+  - OpenAI DALL-E（画像生成）
+  - Anthropic Claude（フォールバック）
+  - Perplexity API（全機能）
+  - OpenAI Embedding API（テキスト類似度計算）
+  - Google Gemini API（特性分析）
+  - Airtable API（特定テーブルへの操作）
+
+- **問題発見**:
+  - Airtable API: `Users`テーブルへのアクセス権限不足
+  - PostgreSQL接続エラー: ローカル環境でのデータベース接続問題
+
+#### Reason for Change:
+アプリケーションが利用する主要なAPIとその連携機能の動作を体系的に検証するため、様々なテストスクリプトを作成・実行しました。これにより、各APIが期待通りに動作しているか、また問題がある場合はその具体的な原因を特定することができました。特にAirtable APIの権限問題とPostgreSQLの接続エラーを明確に特定したことで、今後の対応策を立てやすくなりました。このテストにより、アプリケーションの中核機能が正常に動作していることを確認し、同時に改善が必要な部分も明らかになりました。
+
 ## 2023-04-01: キャリア分析機能の検出力強化
 
 ### キャリア分析モード検出の改善とキーワード拡充

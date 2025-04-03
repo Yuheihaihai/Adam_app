@@ -1,0 +1,22 @@
+{
+  "textRequests": 0,
+  "imageRequests": 0,
+  "audioRequests": 1,
+  "audioRequestsToday": 1,
+  "lastAudioRequestDate": 1743595821730,
+  "lastConversationTimestamp": 1743595821730,
+  "lastAudioNotificationDate": null,
+  "totalInputLength": 0,
+  "longestInput": 0,
+  "shortestInput": null,
+  "lastInputPreview": "",
+  "firstSeen": 1743595821730,
+  "lastSeen": 1743595821730,
+  "recentQueries": [
+    {
+      "type": "audio",
+      "content": "音声メッセージ",
+      "timestamp": 1743595821730
+    }
+  ]
+}
