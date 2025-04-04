@@ -4340,42 +4340,42 @@ const config = {
 const client = new line.Client(config);
 
 // webhookエンドポイントの定義
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: app.post('/webhook', rawBodyParser, line.middleware(config), (req, res) => {
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   console.log('Webhook was called! Events:', JSON.stringify(req.body, null, 2));
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   // リクエストにeventsがない場合のエラー処理を追加
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   if (!req.body || !req.body.events || !Array.isArray(req.body.events)) {
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     console.warn('Invalid webhook request format:', req.body);
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     // 常に200 OKを返す（LINEプラットフォームの要件）
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     return res.status(200).json({
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       message: 'Invalid webhook data received, but still returning 200 OK as per LINE Platform requirements'
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     });
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   }
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   // 重要な変更: すぐに200 OKを返して、Herokuのタイムアウトを防ぐ
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   res.status(200).json({
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     message: 'Webhook received, processing in background'
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   });
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   // 処理をバックグラウンドで継続（レスポンス後に処理を続行）
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   (async () => {
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     try {
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       // 各イベントを非同期で処理
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       const results = await Promise.all(req.body.events.map(event => {
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     // handleEventが例外をスローする可能性があるため、Promise.resolveでラップする
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     return Promise.resolve().then(() => handleEvent(event))
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       .catch(err => {
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:         console.error(`Error handling event: ${JSON.stringify(event)}`, err);
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:         return null; // エラーを飲み込んで処理を続行
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       });
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       }));
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       console.log(`Webhook processing completed for ${results.filter(r => r !== null).length} events`);
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     } catch (err) {
-// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       console.error('Webhook background processing error:', err);
-    }
-  })();
-});
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE: app.post('/webhook', rawBodyParser, line.middleware(config), (req, res) => {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   console.log('Webhook was called! Events:', JSON.stringify(req.body, null, 2));
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   // リクエストにeventsがない場合のエラー処理を追加
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   if (!req.body || !req.body.events || !Array.isArray(req.body.events)) {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     console.warn('Invalid webhook request format:', req.body);
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     // 常に200 OKを返す（LINEプラットフォームの要件）
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     return res.status(200).json({
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       message: 'Invalid webhook data received, but still returning 200 OK as per LINE Platform requirements'
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     });
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   }
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   // 重要な変更: すぐに200 OKを返して、Herokuのタイムアウトを防ぐ
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   res.status(200).json({
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     message: 'Webhook received, processing in background'
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   });
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   // 処理をバックグラウンドで継続（レスポンス後に処理を続行）
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   (async () => {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     try {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       // 各イベントを非同期で処理
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       const results = await Promise.all(req.body.events.map(event => {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     // handleEventが例外をスローする可能性があるため、Promise.resolveでラップする
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     return Promise.resolve().then(() => handleEvent(event))
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       .catch(err => {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:         console.error(`Error handling event: ${JSON.stringify(event)}`, err);
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:         return null; // エラーを飲み込んで処理を続行
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       });
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       }));
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       console.log(`Webhook processing completed for ${results.filter(r => r !== null).length} events`);
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     } catch (err) {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: // COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       console.error('Webhook background processing error:', err);
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     }
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   })();
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: });
 
 // テスト用エンドポイントを追加
 app.get('/test-feedback', (req, res) => {
