@@ -2352,6 +2352,33 @@ async function processMessage(userId, message) {
     
     return id;
   }
+  
+  // Define sanitizeUserInput function that was missing
+  function sanitizeUserInput(input) {
+    if (!input) return '';
+    
+    // 文字列でない場合は文字列に変換
+    if (typeof input !== 'string') {
+      input = String(input);
+    }
+    
+    // 最大長の制限
+    const MAX_INPUT_LENGTH = 2000;
+    if (input.length > MAX_INPUT_LENGTH) {
+      console.warn(`ユーザー入力が長すぎます (${input.length} > ${MAX_INPUT_LENGTH}). 切り詰めます。`);
+      input = input.substring(0, MAX_INPUT_LENGTH);
+    }
+    
+    // 危険な文字をエスケープ
+    input = input
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;');
+    
+    return input;
+  }
 
   // ユーザーIDのバリデーション
   const validatedUserId = validateUserId(userId);
@@ -2715,7 +2742,10 @@ async function handleText(event) {
   try {
     const userId = event.source.userId;
     const text = event.message.text.trim();
-    const isAudioMessage = event.message && event.message.deliveryContext && event.message.deliveryContext.isRedelivery;
+    
+    // メッセージが音声変換からのものか通常のテキスト入力かを判断
+    // audioOriginフラグを確認（音声ハンドラからの転送時に設定される）
+    const isAudioMessage = event.message.audioOrigin === true;
     
     console.log(`メッセージタイプ: ${isAudioMessage ? '音声→テキスト変換' : 'テキスト入力'}`);
     
@@ -3092,6 +3122,89 @@ function updateUserStats(userId, statType, increment = 1) {
     console.log(`ユーザー統計更新: ${userId}, タイプ: ${statType}, 増加: ${increment}`);
   } catch (error) {
     console.error('ユーザー統計更新エラー:', error);
+  }
+}
+
+async function handleAudio(event) {
+  const userId = event.source.userId;
+  let audioUrl = '';
+  let transcription = '';
+  const messageId = event.message.id;
+  
+  try {
+    // LINE APIを使用して音声コンテンツを取得
+    const stream = await client.getMessageContent(messageId);
+    const tempAudioDir = path.join(__dirname, 'temp');
+    
+    // ディレクトリが存在しない場合は作成
+    if (!fs.existsSync(tempAudioDir)) {
+      fs.mkdirSync(tempAudioDir, { recursive: true });
+    }
+    
+    // 一時ファイルパスを作成
+    const timestamp = Date.now();
+    const audioPath = path.join(tempAudioDir, `audio_${timestamp}.m4a`);
+    
+    // 音声データをファイルに保存
+    const writeStream = fs.createWriteStream(audioPath);
+    await new Promise((resolve, reject) => {
+      stream.pipe(writeStream)
+        .on('finish', resolve)
+        .on('error', reject);
+    });
+    
+    console.log(`音声ファイルを保存しました: ${audioPath}`);
+    
+    // 音声をWhisperで文字起こし
+    transcription = await audioHandler.transcribeAudio(audioPath, userId);
+    console.log(`文字起こし結果: ${transcription}`);
+    
+    if (!transcription || transcription.trim() === '') {
+      console.log('文字起こしに失敗または空の結果');
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '申し訳ありません、音声を認識できませんでした。もう少し大きな声で、はっきりと話していただけますか？'
+      });
+      return;
+    }
+    
+    // 文字起こしをセッションに保存
+    if (!sessions[userId]) {
+      sessions[userId] = { history: [], metadata: { messageCount: 0, lastInteractionTime: Date.now() } };
+    }
+    
+    sessions[userId].history.push({
+      role: 'user',
+      content: transcription,
+      type: 'audio',  // 音声由来であることを記録
+      timestamp: new Date().toISOString()
+    });
+    
+    // audioOriginフラグを付与して、新しいイベントオブジェクトを生成
+    const textEvent = {
+      ...event,
+      message: {
+        ...event.message,
+        text: transcription,
+        type: 'text',
+        audioOrigin: true  // 音声入力由来であることを示すフラグ
+      }
+    };
+    
+    // テキストイベントとして処理
+    await handleText(textEvent);
+    
+  } catch (error) {
+    console.error(`音声処理エラー: ${error}`);
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '申し訳ありません、音声処理中にエラーが発生しました。もう一度お試しください。'
+    });
+  } finally {
+    // 不要になった一時ファイルを削除
+    if (audioUrl && fs.existsSync(audioUrl)) {
+      fs.unlinkSync(audioUrl);
+    }
   }
 }
 
