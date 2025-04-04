@@ -3194,16 +3194,52 @@ async function handleAudio(event) {
     
     console.log(`音声ファイルを保存しました: ${audioPath}`);
     
-    // 音声をWhisperで文字起こし
-    transcription = await audioHandler.transcribeAudio(audioPath, userId);
-    console.log(`文字起こし結果: ${transcription}`);
+    try {
+      // 音声をWhisperで文字起こし
+      const transcriptionResult = await audioHandler.transcribeAudio(audioPath, userId);
+      
+      // 結果がオブジェクトの場合はtext属性を取得、文字列の場合はそのまま使用
+      if (transcriptionResult && typeof transcriptionResult === 'object') {
+        transcription = transcriptionResult.text || '';
+      } else if (typeof transcriptionResult === 'string') {
+        transcription = transcriptionResult;
+      } else {
+        throw new Error('Transcription result is not valid');
+      }
+      
+      console.log(`文字起こし結果: ${transcription}`);
+    } catch (transcriptionError) {
+      console.error(`音声テキスト変換エラー: ${transcriptionError.message}`);
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '申し訳ありません、音声を認識できませんでした。もう少し大きな声で、はっきりと話していただけますか？'
+      });
+      
+      // 一時ファイルを削除して終了
+      try {
+        if (fs.existsSync(audioPath)) {
+          fs.unlinkSync(audioPath);
+        }
+      } catch (e) { /* 削除失敗は無視 */ }
+      
+      return;
+    }
     
+    // 空の結果チェック
     if (!transcription || transcription.trim() === '') {
       console.log('文字起こしに失敗または空の結果');
       await client.replyMessage(event.replyToken, {
         type: 'text',
         text: '申し訳ありません、音声を認識できませんでした。もう少し大きな声で、はっきりと話していただけますか？'
       });
+      
+      // 一時ファイルを削除して終了
+      try {
+        if (fs.existsSync(audioPath)) {
+          fs.unlinkSync(audioPath);
+        }
+      } catch (e) { /* 削除失敗は無視 */ }
+      
       return;
     }
     
@@ -3241,9 +3277,11 @@ async function handleAudio(event) {
     });
   } finally {
     // 不要になった一時ファイルを削除
-    if (audioUrl && fs.existsSync(audioUrl)) {
-      fs.unlinkSync(audioUrl);
-    }
+    try {
+      if (fs.existsSync(audioPath)) {
+        fs.unlinkSync(audioPath);
+      }
+    } catch (e) { /* 削除失敗は無視 */ }
   }
 }
 

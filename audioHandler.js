@@ -568,13 +568,57 @@ class AudioHandler {
   // Whisperを使用したテキスト変換
   async _transcribeWithWhisper(filePath, options = {}) {
     try {
+      // ファイル形式の確認
+      const fileExt = path.extname(filePath).toLowerCase();
+      const supportedFormats = ['.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'];
+      
+      let fileToTranscribe = filePath;
+      let tempConvertedFile = null;
+      
+      // サポートされていない形式の場合、変換を試みる
+      if (!supportedFormats.includes(fileExt)) {
+        console.log(`非サポートのファイル形式: ${fileExt}。MP3形式に変換します。`);
+        
+        try {
+          // ffmpegが利用可能か確認
+          const ffmpegPath = require('ffmpeg-static');
+          const ffmpeg = require('fluent-ffmpeg');
+          ffmpeg.setFfmpegPath(ffmpegPath);
+          
+          // 変換先ファイルパス
+          tempConvertedFile = `${filePath.substring(0, filePath.lastIndexOf('.'))}.mp3`;
+          
+          // ファイル変換
+          await new Promise((resolve, reject) => {
+            ffmpeg(filePath)
+              .outputFormat('mp3')
+              .on('end', () => resolve())
+              .on('error', (err) => reject(new Error(`ファイル変換エラー: ${err.message}`)))
+              .save(tempConvertedFile);
+          });
+          
+          console.log(`ファイルをMP3形式に変換しました: ${tempConvertedFile}`);
+          fileToTranscribe = tempConvertedFile;
+        } catch (conversionError) {
+          console.error(`ファイル形式変換エラー: ${conversionError.message}`);
+          throw new Error(`Unsupported file format (${fileExt}) and conversion failed`);
+        }
+      }
+      
+      // Whisper APIを呼び出し
       const response = await this.openai.audio.transcriptions.create({
-        file: fs.createReadStream(filePath),
+        file: fs.createReadStream(fileToTranscribe),
         model: 'whisper-1',
         language: options.language || 'ja'
       });
       
       console.log('Whisper音声テキスト変換成功:', response.text.substring(0, 30) + '...');
+      
+      // 一時変換ファイルを削除
+      if (tempConvertedFile && fs.existsSync(tempConvertedFile)) {
+        fs.unlinkSync(tempConvertedFile);
+      }
+      
       return response.text;
     } catch (error) {
       console.error('Whisper音声変換エラー:', error.message);
