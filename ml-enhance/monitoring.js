@@ -123,7 +123,7 @@ class MonitoringSystem {
     const result = await db.query(`
       SELECT 
         COUNT(*) as error_count,
-        array_agg(error_message ORDER BY created_at DESC LIMIT 5) as recent_errors
+        array_agg(error_message ORDER BY created_at DESC) as recent_errors
       FROM error_logs
       WHERE created_at > NOW() - INTERVAL '24 hours'
     `);

@@ -1,5 +1,13 @@
 // main.js - アプリケーション起動スクリプト
-require('dotenv').config();
+// ml-enhance 用の環境変数もロード (先に読み込む)
+try {
+  require('dotenv').config({ path: './ml-enhance/.env' });
+} catch (error) {
+  console.log('ml-enhance/.env ファイルが見つからないため、デフォルトの設定を使用します');
+}
+// メインの .env ファイルをロード（ml-enhance/.env の値があれば上書きしない）
+require('dotenv').config({ override: false }); 
+
 const db = require('./db');
 const app = require('./server'); // expressアプリケーションオブジェクトをインポート
 
