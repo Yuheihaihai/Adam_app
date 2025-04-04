@@ -17,6 +17,10 @@ const xss = require('xss');
 const Tokens = require('csrf');
 const crypto = require('crypto');
 
+// ロガーをインポート
+const logger = require('./logger');
+logger.info('Server', 'Starting Adam LINE Bot server...');
+
 // 画像生成モジュールをインポート
 const imageGenerator = require('./imageGenerator');
 

@@ -6,6 +6,7 @@
  */
 
 const { getMLData, generateSystemPrompt } = require('./mlIntegration');
+const logger = require('./logger');
 
 /**
  * 機械学習データを取得して処理する
@@ -16,17 +17,21 @@ const { getMLData, generateSystemPrompt } = require('./mlIntegration');
  */
 async function processMlData(userId, userMessage, mode) {
   console.log(`\n🤖 [ML Hook] プロセス開始: mode=${mode}`);
+  logger.info('MLHook', `Processing ML data for user ${userId}`, { mode });
   
   try {
     // 機械学習データを取得
+    logger.debug('MLHook', 'Fetching ML data', { userMessageLength: userMessage ? userMessage.length : 0 });
     const mlData = await getMLData(userId, userMessage, mode);
     
     if (!mlData) {
       console.log('    └─ MLデータなし: スキップ');
+      logger.info('MLHook', 'No ML data available, skipping');
       return { mlData: null, systemPrompt: null };
     }
     
     // 機械学習データからシステムプロンプトを生成
+    logger.debug('MLHook', 'Generating system prompt from ML data');
     const systemPrompt = generateSystemPrompt(mode, mlData);
     
     // MLデータ統合の概要を表示
@@ -36,6 +41,11 @@ async function processMlData(userId, userMessage, mode) {
     
     // 最終的な結果を返す
     console.log('    └─ ML処理完了');
+    logger.info('MLHook', 'ML processing completed', {
+      dataSize: JSON.stringify(mlData).length,
+      promptLength: systemPrompt ? systemPrompt.length : 0
+    });
+    
     return {
       mlData,
       systemPrompt
@@ -43,6 +53,7 @@ async function processMlData(userId, userMessage, mode) {
     
   } catch (error) {
     console.error(`    └─ [ML Hook] エラー発生: ${error.message}`);
+    logger.error('MLHook', 'Error processing ML data', error);
     return { mlData: null, systemPrompt: null };
   }
 }
@@ -60,6 +71,7 @@ function analyzeResponseWithMl(aiResponse, mlData, mode) {
   }
   
   console.log(`\n📊 [ML Hook] 応答分析: mode=${mode}`);
+  logger.info('MLHook', 'Analyzing AI response with ML data', { mode });
   
   try {
     const analysis = {
@@ -73,11 +85,13 @@ function analyzeResponseWithMl(aiResponse, mlData, mode) {
     if (mode === 'career' && mlData) {
       // ここでは既存のPerplexity分析ロジックを使用
       console.log('    └─ キャリアモード: 既存の分析ロジックを使用');
+      logger.debug('MLHook', 'Using career mode analysis logic');
       return null;
     }
 
     // その他のモード: LocalMLデータの反映分析
     else if (['general', 'mental_health', 'analysis'].includes(mode) && mlData) {
+      logger.debug('MLHook', `Using ${mode} mode analysis logic`);
       // 特徴語の検出
       const terms = getKeyTermsForMode(mode, mlData);
       const detectedTerms = terms.filter(term => aiResponse.includes(term));
@@ -113,12 +127,32 @@ function analyzeResponseWithMl(aiResponse, mlData, mode) {
       }
       
       console.log('    └─ 分析完了');
+      
+      logger.info('MLHook', 'Analysis completed', {
+        influenceDetected: analysis.influence_detected,
+        influenceScore: Math.round(analysis.influence_score),
+        detectedTermsCount: detectedTerms.length,
+        totalTermsCount: terms.length
+      });
+      
+      // 詳細なパーソナライゼーション指標をデバッグログに記録
+      if (analysis.personalization_metrics && Object.keys(analysis.personalization_metrics).length > 0) {
+        logger.debug('MLHook', 'Personalization metrics', analysis.personalization_metrics);
+      }
+      
+      // 詳細な特徴語検出をデバッグログに記録
+      if (detectedTerms.length > 0) {
+        logger.debug('MLHook', 'Detected terms', {
+          terms: detectedTerms.slice(0, 10) // 長すぎる場合は最初の10個だけ
+        });
+      }
     }
     
     return analysis;
     
   } catch (error) {
     console.error(`    └─ [ML Hook] 応答分析エラー: ${error.message}`);
+    logger.error('MLHook', 'Error analyzing response with ML', error);
     return null;
   }
 }

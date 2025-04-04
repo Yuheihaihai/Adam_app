@@ -3,19 +3,29 @@ const services = require('./services');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const logger = require('./logger'); // Import the logger
 
 // サービスデータが正しく読み込まれているか確認
 console.log(`Loaded ${services.length} services from services.js`);
+logger.info('ServiceRecommender', `Loaded ${services.length} services from services.js`);
+
 if (services.length > 0) {
   console.log(`First service: ${JSON.stringify(services[0].id)} - ${JSON.stringify(services[0].name)}`);
   console.log(`Sample criteria: ${JSON.stringify(services[0].criteria)}`);
+  logger.debug('ServiceRecommender', 'Sample service loaded', {
+    id: services[0].id,
+    name: services[0].name,
+    criteria: services[0].criteria
+  });
 } else {
   console.log('WARNING: No services found in services.js!');
+  logger.warn('ServiceRecommender', 'No services found in services.js!');
 }
 
 // Define constants at the module level to prevent accidental changes
 const DEFAULT_CONFIDENCE_THRESHOLD = 0.7; // 70%に設定 (元は80%)
 console.log(`Service matching module loaded with DEFAULT_CONFIDENCE_THRESHOLD: ${DEFAULT_CONFIDENCE_THRESHOLD} (${DEFAULT_CONFIDENCE_THRESHOLD * 100}%)`);
+logger.info('ServiceRecommender', `Service matching module loaded with DEFAULT_CONFIDENCE_THRESHOLD: ${DEFAULT_CONFIDENCE_THRESHOLD * 100}%`);
 const DEFAULT_COOLDOWN_DAYS = 7;
 
 class ServiceRecommender {
@@ -246,9 +256,22 @@ class ServiceRecommender {
       console.log(`Current CONFIDENCE_THRESHOLD: ${this.CONFIDENCE_THRESHOLD} (${this.CONFIDENCE_THRESHOLD * 100}%)`);
       console.log('User needs (detailed):', JSON.stringify(userNeeds, null, 2));
       
+      // Add detailed logging
+      logger.info('ServiceRecommender', `Getting recommendations for user ${userId}`, {
+        confidenceThreshold: this.CONFIDENCE_THRESHOLD,
+        userNeedsCount: userNeeds ? Object.keys(userNeeds).length : 0
+      });
+      logger.debug('ServiceRecommender', 'User needs details', userNeeds);
+      
       // Enhanced detection: Check if conversationContext contains messages with keywords
       if (conversationContext && conversationContext.recentMessages && conversationContext.recentMessages.length > 0) {
         const combinedText = conversationContext.recentMessages.join(' ').toLowerCase();
+        
+        // Add logging for conversation context
+        logger.debug('ServiceRecommender', 'Processing conversation context', {
+          messageCount: conversationContext.recentMessages.length,
+          combinedTextSample: combinedText.substring(0, 100) + (combinedText.length > 100 ? '...' : '')
+        });
         
         // Check for developmental disorder keywords
         if (combinedText.includes('発達障害') || 
@@ -257,6 +280,7 @@ class ServiceRecommender {
             combinedText.includes('自閉症') || 
             combinedText.includes('アスペルガー')) {
           console.log('⚠️ Directly detected developmental disorder keywords in message');
+          logger.info('ServiceRecommender', 'Detected developmental disorder keywords in message');
           // Ensure mental_health category exists
           if (!userNeeds.mental_health) userNeeds.mental_health = {};
           // Set neurodivergent_traits flag
@@ -270,6 +294,7 @@ class ServiceRecommender {
             combinedText.includes('テレワーク') || 
             combinedText.includes('家から働')) {
           console.log('⚠️ Directly detected remote work keywords in message');
+          logger.info('ServiceRecommender', 'Detected remote work keywords in message');
           // Ensure employment category exists
           if (!userNeeds.employment) userNeeds.employment = {};
           // Set remote_work_interest flag
@@ -283,6 +308,7 @@ class ServiceRecommender {
             combinedText.includes('働く') || 
             combinedText.includes('転職')) {
           console.log('⚠️ Directly detected employment keywords in message');
+          logger.info('ServiceRecommender', 'Detected employment keywords in message');
           // Ensure employment category exists
           if (!userNeeds.employment) userNeeds.employment = {};
           // Set general_employment_interest flag
@@ -290,10 +316,13 @@ class ServiceRecommender {
           // If they're asking about jobs, they're likely seeking one
           userNeeds.employment.seeking_job = true;
         }
+      } else {
+        logger.debug('ServiceRecommender', 'No conversation context available');
       }
       
       // Log enhanced userNeeds after direct keyword detection
       console.log('Enhanced user needs after keyword detection:', JSON.stringify(userNeeds, null, 2));
+      logger.debug('ServiceRecommender', 'Enhanced user needs after keyword detection', userNeeds);
       
       // Check if userNeeds is empty or has empty categories
       let hasNeeds = false;
@@ -965,46 +994,75 @@ class ServiceRecommender {
     }
   }
 
-  // New method to use AI for service matching
-  async findMatchingServicesWithAI(userNeeds, conversationContext = null) {
+  /**
+   * Use AI to find matching services
+   * @param {Object} userNeeds - The user's needs
+   * @param {number} limit - Maximum number of services to return
+   * @returns {Promise<Array>} - Array of matching services
+   */
+  async findMatchingServicesWithAI(userNeeds, limit = 5) {
+    logger.info('ServiceRecommender', 'Starting AI-based service matching', { limit });
+    
+    if (!this.openaiApiKey) {
+      logger.error('ServiceRecommender', 'OpenAI API key is required for AI matching');
+      return [];
+    }
+    
+    if (!userNeeds) {
+      logger.warn('ServiceRecommender', 'AI matching called with empty userNeeds');
+      return [];
+    }
+    
     try {
-      const axios = require('axios');
+      // Create prompt for the model
+      const userNeedsStr = JSON.stringify(userNeeds, null, 2);
       
-      // Prepare the services data
-      const servicesData = this.services.map(service => ({
+      // Services information for the model
+      const servicesInfoArray = this.services.map(service => ({
         id: service.id,
         name: service.name,
-        criteria: service.criteria
+        description: service.description,
+        criteria: service.criteria,
+        tags: service.tags
       }));
       
-      // Prepare the prompt for the AI model
-      const prompt = {
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: "You are a service matching assistant. Your task is to match user needs and conversation context with appropriate services. Return a JSON object with a 'matchingServices' property containing an array of service IDs, sorted by relevance. Include only services with a confidence score of 0.4 or higher."
-          },
-          {
-            role: "user",
-            content: JSON.stringify({
-              userNeeds: userNeeds,
-              conversationContext: conversationContext,
-              availableServices: servicesData
-            })
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 500,
-        response_format: { type: "json_object" }
-      };
+      const servicesInfoStr = JSON.stringify(servicesInfoArray, null, 2);
       
-      console.log('Calling OpenAI API for service matching...');
+      logger.debug('ServiceRecommender', 'Preparing AI matching prompt', {
+        needsLength: userNeedsStr.length,
+        servicesCount: servicesInfoArray.length,
+        model: this.aiModel
+      });
       
-      // Call the OpenAI API
+      // Call the model
       const response = await axios.post(
         'https://api.openai.com/v1/chat/completions',
-        prompt,
+        {
+          model: this.aiModel,
+          messages: [
+            {
+              role: 'system',
+              content: `あなたは利用者のニーズとサービス情報をマッチングする専門システムです。利用者の特性やニーズに最も適したサービスを見つけてください。マッチングは以下のルールに従って行います：
+1. サービスの criteria.needs に含まれる項目がユーザーニーズに存在する場合、そのサービスは適合の可能性があります
+2. サービスの criteria.excludes に含まれる項目がユーザーニーズに存在する場合、そのサービスは除外されます
+3. ユーザーのニーズカテゴリ（employment, mental_health など）がサービスの criteria.topics に含まれる場合、より適合度が高まります
+4. サービスのタグ（tags）とユーザーニーズの内容の類似性も考慮します
+
+結果は confidence スコア（0.0〜1.0）と共に、JSONフォーマットで以下の構造で返してください：
+[
+  { "serviceId": "service1", "confidence": 0.95, "reason": "マッチング理由の簡潔な説明" },
+  { "serviceId": "service2", "confidence": 0.82, "reason": "マッチング理由の簡潔な説明" }
+]
+
+サービスIDが正確であることを確認してください。信頼度（confidence）が ${this.CONFIDENCE_THRESHOLD} 未満のサービスは含めないでください。`
+            },
+            {
+              role: 'user',
+              content: `# ユーザーニーズ:\n${userNeedsStr}\n\n# 利用可能なサービス:\n${servicesInfoStr}`
+            }
+          ],
+          temperature: 0.1
+        },
         {
           headers: {
             'Content-Type': 'application/json',
@@ -1013,168 +1071,133 @@ class ServiceRecommender {
         }
       );
       
-      // Parse the response
-      const result = response.data.choices[0].message.content;
-      console.log('AI response:', result);
-      
-      let matchedServiceIds = [];
-      try {
-        const parsedResult = JSON.parse(result);
-        if (parsedResult && Array.isArray(parsedResult.matchingServices)) {
-          matchedServiceIds = parsedResult.matchingServices;
-        } else {
-          console.error('Invalid AI response format, expected array of service IDs');
-          return this.findMatchingServices(userNeeds, conversationContext);
-        }
-      } catch (parseError) {
-        console.error('Error parsing AI response:', parseError);
-        return this.findMatchingServices(userNeeds, conversationContext);
-      }
-      
-      // Get the full service objects for the matched IDs
-      const matchingServices = matchedServiceIds
-        .map(id => this.services.find(service => service.id === id))
-        .filter(service => service !== undefined);
-      
-      console.log(`AI matched ${matchingServices.length} services`);
-      
-      if (matchingServices.length === 0) {
-        console.log('No services matched by AI, falling back to rule-based matching');
-        return this.findMatchingServices(userNeeds, conversationContext);
-      }
-      
-      return matchingServices;
-    } catch (error) {
-      console.error('Error in AI service matching:', error);
-      // Fallback to rule-based matching if AI fails
-      console.log('Falling back to rule-based matching');
-      return this.findMatchingServices(userNeeds, conversationContext);
-    }
-  }
-
-  async findMatchingServicesWithVectors(userNeeds, conversationContext = null) {
-    try {
-      // Ensure embeddings are loaded
-      if (!this.embeddingsLoaded) {
-        const success = await this._generateAllServiceEmbeddings();
-        if (!success) {
-          throw new Error('Failed to generate service embeddings');
-        }
-      }
-      
-      // Create a text representation of the user needs and context
-      const userNeedsText = JSON.stringify(userNeeds);
-      const contextText = conversationContext ? JSON.stringify({
-        topics: conversationContext.recentTopics,
-        mood: conversationContext.currentMood,
-        urgency: conversationContext.urgency
-      }) : '';
-      
-      const queryText = `${userNeedsText} ${contextText}`.trim();
-      
-      // Generate embedding for the query
-      console.log('Generating embedding for user query...');
-      console.log(`Detailed query: ${queryText.substring(0, 200)}${queryText.length > 200 ? '...' : ''}`);
-      const queryEmbedding = await this._generateEmbedding(queryText);
-      
-      // Calculate similarity scores for all services
-      const matches = [];
-      console.log('🔍 [VECTOR MATCHING] Beginning service comparison:');
-      console.log(`Current confidence threshold: ${(this.CONFIDENCE_THRESHOLD * 100).toFixed(1)}%`);
-      
-      const allScores = []; // 全サービスのスコアを記録
-
-      for (const service of this.services) {
-        try {
-          const serviceEmbedding = this.serviceEmbeddings[service.id];
-          if (!serviceEmbedding) {
-            console.warn(`No embedding found for service ${service.id}`);
-            continue;
-          }
-          
-          const similarityScore = this._cosineSimilarity(queryEmbedding, serviceEmbedding);
-          
-          // Apply additional adjustments based on context if available
-          let finalScore = similarityScore;
-          let adjustments = [];
-
-          if (conversationContext) {
-            // Adjust score based on topic match
-            if (conversationContext.recentTopics && service.criteria && service.criteria.topics) {
-              const topicOverlap = conversationContext.recentTopics.filter(
-                topic => service.criteria.topics.includes(topic)
-              ).length;
-              
-              if (topicOverlap > 0) {
-                const topicBoost = 0.05 * topicOverlap;
-                finalScore += topicBoost;
-                adjustments.push(`+${(topicBoost * 100).toFixed(1)}% (${topicOverlap} topic matches)`);
-              }
-            }
-            
-            // Adjust score based on mood match
-            if (conversationContext.currentMood && service.criteria && service.criteria.moods) {
-              if (service.criteria.moods.includes(conversationContext.currentMood)) {
-                finalScore += 0.1;
-                adjustments.push(`+10% (mood match: ${conversationContext.currentMood})`);
-              }
-            }
-            
-            // Adjust score based on urgency
-            if (conversationContext.urgency > 0 && service.criteria && service.criteria.urgent) {
-              finalScore += 0.15;
-              adjustments.push(`+15% (urgency match)`);
-            }
-          }
-          
-          // Cap the score at 1.0
-          finalScore = Math.min(finalScore, 1.0);
-          
-          // ログに各サービスの詳細スコアを追加
-          allScores.push({
-            id: service.id,
-            name: service.serviceName,
-            baseScore: similarityScore,
-            finalScore: finalScore,
-            adjustments: adjustments
-          });
-          
-          matches.push({
-            service,
-            score: finalScore
-          });
-        } catch (error) {
-          console.error(`Error processing service ${service.id}:`, error);
-          // Continue with other services
-        }
-      }
-      
-      // Sort all scores for logging
-      allScores.sort((a, b) => b.finalScore - a.finalScore);
-      
-      // ログに全サービスのスコアを出力
-      console.log('🔍 [VECTOR MATCHING] All service scores:');
-      allScores.forEach((item, index) => {
-        const passedThreshold = item.finalScore >= this.CONFIDENCE_THRESHOLD;
-        const scoreInfo = `${(item.finalScore * 100).toFixed(1)}% (base: ${(item.baseScore * 100).toFixed(1)}%)`;
-        const status = passedThreshold ? '✅ PASS' : '❌ BELOW THRESHOLD';
-        const adjustInfo = item.adjustments.length > 0 ? ` | Adjustments: ${item.adjustments.join(', ')}` : '';
-        console.log(`${index + 1}. ${item.name} (${item.id}): ${scoreInfo} ${status}${adjustInfo}`);
+      // Parse results
+      const aiResponseText = response.data.choices[0].message.content;
+      logger.debug('ServiceRecommender', 'AI matching raw response', {
+        responseSample: aiResponseText.substring(0, 200) + (aiResponseText.length > 200 ? '...' : '')
       });
       
-      // Filter services that meet the confidence threshold
-      const filteredMatches = matches.filter(match => match.score >= this.CONFIDENCE_THRESHOLD);
-      
-      // Sort by score in descending order
-      filteredMatches.sort((a, b) => b.score - a.score);
-      
-      console.log(`Vector matching found ${filteredMatches.length} services above threshold (${(this.CONFIDENCE_THRESHOLD * 100).toFixed(1)}%)`);
-      
-      // Return just the service objects
-      return filteredMatches.map(match => match.service);
+      try {
+        const aiResponse = JSON.parse(aiResponseText);
+        
+        // Validate and filter the results
+        const validResults = aiResponse.filter(result => 
+          result && 
+          typeof result.serviceId === 'string' && 
+          typeof result.confidence === 'number' && 
+          result.confidence >= this.CONFIDENCE_THRESHOLD
+        );
+        
+        // Get full service objects
+        const matchingServices = validResults.map(result => {
+          const service = this.services.find(s => s.id === result.serviceId);
+          if (service) {
+            return {
+              ...service,
+              confidence: result.confidence,
+              matching_reason: result.reason || 'マッチング理由なし'
+            };
+          }
+          return null;
+        }).filter(Boolean);
+        
+        // Sort by confidence
+        matchingServices.sort((a, b) => b.confidence - a.confidence);
+        
+        // Log results
+        logger.info('ServiceRecommender', 'AI matching completed', {
+          matchCount: matchingServices.length,
+          inputCount: servicesInfoArray.length,
+          topResult: matchingServices.length > 0 ? 
+            `${matchingServices[0].id} (${(matchingServices[0].confidence * 100).toFixed(0)}%)` : 'None'
+        });
+        
+        // Limit results
+        return matchingServices.slice(0, limit);
+      } catch (parseError) {
+        logger.error('ServiceRecommender', 'Failed to parse AI response', parseError);
+        return [];
+      }
     } catch (error) {
-      console.error('Error in vector-based service matching:', error);
-      throw error;
+      logger.error('ServiceRecommender', 'AI matching error', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Use vector similarity to find matching services
+   * @param {Object} userNeeds - The user's needs
+   * @param {number} limit - Maximum number of services to return
+   * @returns {Promise<Array>} - Array of matching services
+   */
+  async findMatchingServicesWithVectors(userNeeds, limit = 5) {
+    logger.info('ServiceRecommender', 'Starting vector-based service matching', { limit });
+    
+    if (!this.openaiApiKey) {
+      logger.error('ServiceRecommender', 'OpenAI API key is required for vector matching');
+      return [];
+    }
+    
+    if (!userNeeds) {
+      logger.warn('ServiceRecommender', 'Vector matching called with empty userNeeds');
+      return [];
+    }
+    
+    try {
+      // Check if embeddings are loaded
+      if (!this.embeddingsLoaded) {
+        if (Object.keys(this.serviceEmbeddings).length === 0) {
+          // Generate embeddings for services
+          const success = await this._generateAllServiceEmbeddings();
+          if (!success) {
+            logger.error('ServiceRecommender', 'Failed to generate service embeddings');
+            return [];
+          }
+        }
+        this.embeddingsLoaded = true;
+      }
+      
+      // Convert userNeeds to text
+      const userNeedsText = JSON.stringify(userNeeds);
+      
+      // Generate embedding for userNeeds
+      logger.debug('ServiceRecommender', 'Generating embedding for user needs', { 
+        userNeedsLength: userNeedsText.length 
+      });
+      const userEmbedding = await this._generateEmbedding(userNeedsText);
+      
+      // Calculate similarity scores
+      const scores = [];
+      for (const serviceId in this.serviceEmbeddings) {
+        const serviceEmbedding = this.serviceEmbeddings[serviceId];
+        const similarity = this._cosineSimilarity(userEmbedding, serviceEmbedding);
+        
+        const service = this.services.find(s => s.id === serviceId);
+        if (service && similarity >= this.CONFIDENCE_THRESHOLD) {
+          scores.push({
+            ...service,
+            confidence: similarity,
+            matching_reason: 'ベクトル類似度によるマッチング'
+          });
+        }
+      }
+      
+      // Sort by confidence
+      scores.sort((a, b) => b.confidence - a.confidence);
+      
+      // Log results
+      logger.info('ServiceRecommender', 'Vector matching completed', {
+        matchCount: scores.length,
+        inputCount: Object.keys(this.serviceEmbeddings).length,
+        topResult: scores.length > 0 ? 
+          `${scores[0].id} (${(scores[0].confidence * 100).toFixed(0)}%)` : 'None'
+      });
+      
+      // Return top matches
+      return scores.slice(0, limit);
+    } catch (error) {
+      logger.error('ServiceRecommender', 'Vector matching error', error);
+      return [];
     }
   }
 

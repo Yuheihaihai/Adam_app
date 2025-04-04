@@ -9,12 +9,17 @@
 
 const localML = require('./ml-enhance');
 const PerplexitySearch = require('./perplexitySearch');
+const logger = require('./logger');
+
 // Helper function for knowledge needs detection
 function needsKnowledge(userMessage) {
   // For career mode, we always want to run the knowledge enhancement
   // unless the message is very short or not relevant
   if (userMessage.length < 10) {
     console.log('📊 [PERPLEXITY ML] Message too short for knowledge enhancement:', userMessage.length, 'characters');
+    logger.debug('MLIntegration', 'Message too short for knowledge enhancement', {
+      messageLength: userMessage.length
+    });
     return false;
   }
   
@@ -32,7 +37,13 @@ function needsKnowledge(userMessage) {
     '社風', '企業', '組織', '会社', '給料', '年収', '報酬'
   ];
   
-  return careerTerms.some(term => userMessage.includes(term));
+  const found = careerTerms.some(term => userMessage.includes(term));
+  
+  if (found) {
+    logger.debug('MLIntegration', 'Career-related terms detected in message');
+  }
+  
+  return found;
 }
 
 const Airtable = require('airtable');
@@ -87,6 +98,10 @@ const airtableBase = process.env.AIRTABLE_API_KEY ?
  */
 async function getMLData(userId, userMessage, mode) {
   console.log(`\n🔍 [ML Integration] モード: ${mode}, ユーザーID: ${userId.substring(0, 8)}...`);
+  logger.info('MLIntegration', `Retrieving ML data for mode: ${mode}`, { 
+    userIdPrefix: userId.substring(0, 8) + '...',
+    messageLength: userMessage ? userMessage.length : 0
+  });
   
   try {
     // キャッシュチェック
@@ -95,55 +110,94 @@ async function getMLData(userId, userMessage, mode) {
     
     if (cachedData && cachedData.timestamp > Date.now() - USER_TRAITS_INTEGRATION.TRAITS_CACHE_TTL) {
       console.log(`    ├─ Using cached ML data for user ${userId} in ${mode} mode`);
+      logger.info('MLIntegration', 'Using cached ML data', { 
+        mode,
+        cacheAge: Math.round((Date.now() - cachedData.timestamp) / 1000 / 60) + ' minutes'
+      });
       return cachedData.data;
     }
     
     // 新しいデータを取得
     console.log(`    ├─ Fetching fresh ML data for user ${userId} in ${mode} mode`);
+    logger.info('MLIntegration', 'Fetching fresh ML data', { mode });
     
     // キャリアモード: Perplexityを使用
     if (mode === 'career') {
       console.log('    ├─ キャリアモード: Perplexity APIを使用');
+      logger.info('MLIntegration', 'Using Perplexity API for career mode');
       
       if (!needsKnowledge(userMessage)) {
         console.log('    ├─ Perplexity: 必要性なし - スキップ');
+        logger.info('MLIntegration', 'Perplexity: Knowledge enhancement not needed, skipping');
         return null;
       }
       
       console.log('    ├─ Perplexity: データ取得開始');
+      logger.debug('MLIntegration', 'Starting Perplexity data retrieval');
       
       // Perplexityクライアントが初期化されているか確認
       if (!perplexity) {
         console.error('    ├─ ❌ Perplexity API key missing or initialization failed');
+        logger.error('MLIntegration', 'Perplexity API key missing or initialization failed');
         return null;
       }
       
       // Perplexityからデータを取得 - perplexityクライアントのメソッドを使用
-      const [knowledge, jobTrends] = await Promise.all([
-        perplexity.enhanceKnowledge([], userMessage), // 空の配列をhistoryとして渡す
-        perplexity.getJobTrends(userMessage)
-      ]);
-      
-      return {
-        knowledge,
-        jobTrends
-      };
+      try {
+        logger.debug('MLIntegration', 'Calling Perplexity API methods');
+        const [knowledge, jobTrends] = await Promise.all([
+          perplexity.enhanceKnowledge([], userMessage), // 空の配列をhistoryとして渡す
+          perplexity.getJobTrends(userMessage)
+        ]);
+        
+        const result = {
+          knowledge,
+          jobTrends
+        };
+        
+        logger.info('MLIntegration', 'Perplexity data retrieved successfully', {
+          hasKnowledge: !!knowledge,
+          hasJobTrends: !!jobTrends?.analysis
+        });
+        
+        return result;
+      } catch (perplexityError) {
+        logger.error('MLIntegration', 'Error retrieving data from Perplexity', perplexityError);
+        console.error('    ├─ ❌ Perplexity data retrieval error:', perplexityError.message);
+        return null;
+      }
     } 
     // 他のモード: LocalMLを使用
     else if (['general', 'mental_health', 'analysis'].includes(mode)) {
       console.log(`    ├─ ${mode}モード: LocalMLを使用`);
+      logger.info('MLIntegration', `Using LocalML for ${mode} mode`);
       
-      // LocalMLからユーザー分析を取得
-      const analysis = await localML.enhanceResponse(userId, userMessage, mode);
-      return analysis;
+      try {
+        // LocalMLからユーザー分析を取得
+        logger.debug('MLIntegration', 'Calling LocalML enhanceResponse method', { mode });
+        const analysis = await localML.enhanceResponse(userId, userMessage, mode);
+        
+        logger.info('MLIntegration', 'LocalML data retrieved successfully', {
+          hasAnalysis: !!analysis,
+          dataSize: analysis ? JSON.stringify(analysis).length : 0
+        });
+        
+        return analysis;
+      } catch (localMLError) {
+        logger.error('MLIntegration', 'Error retrieving data from LocalML', localMLError);
+        console.error(`    ├─ ❌ LocalML data retrieval error:`, localMLError.message);
+        return null;
+      }
     }
     
     // 未対応モード
     console.log(`    ├─ 未対応モード: ${mode}`);
+    logger.warn('MLIntegration', `Unsupported mode: ${mode}`);
     return null;
     
   } catch (error) {
     console.error(`    ├─ [ML Integration] エラー発生: ${error.message}`);
+    logger.error('MLIntegration', 'Error in ML data retrieval', error);
     return null;
   }
 }
