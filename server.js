@@ -3007,23 +3007,17 @@ async function sendAudioWithTextFallback(replyToken, text, audioResponse, userId
   const fileBaseName = path.basename(audioResponse.filePath);
   const audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
   
-  // テキストと音声の両方を返信
+  // 音声のみを返信
   try {
-    await client.replyMessage(replyToken, [
-      {
-        type: 'text',
-        text: text
-      },
-      {
-        type: 'audio',
-        originalContentUrl: audioUrl,
-        duration: 60000 // 適当な値（実際の長さを計算するのは難しい）
-      }
-    ]).catch(error => {
-      console.error('LINE返信エラー:', error.message);
-      // 音声メッセージ送信に失敗した場合、テキストのみで再試行
+    await client.replyMessage(replyToken, {
+      type: 'audio',
+      originalContentUrl: audioUrl,
+      duration: 60000 // 適当な値（実際の長さを計算するのは難しい）
+    }).catch(error => {
+      console.error('LINE音声返信エラー:', error.message);
+      // 音声メッセージ送信に失敗した場合、テキストでフォールバック
       if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
-        console.log('音声メッセージ送信失敗、テキストのみで再試行します');
+        console.log('音声メッセージ送信失敗、テキストでフォールバックします');
         return client.replyMessage(replyToken, {
           type: 'text',
           text: text
@@ -3044,14 +3038,14 @@ async function sendAudioWithTextFallback(replyToken, text, audioResponse, userId
     }
   } catch (error) {
     console.error('音声メッセージ送信エラー:', error);
-    // エラー時はテキストのみでの送信を試みる
+    // エラー時はテキストでの送信を試みる
     try {
       await client.replyMessage(replyToken, {
         type: 'text',
         text: text
       });
     } catch (textError) {
-      console.error('テキストのみの送信も失敗:', textError);
+      console.error('テキストフォールバックも失敗:', textError);
     }
   }
 }
