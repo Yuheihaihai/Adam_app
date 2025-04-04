@@ -8,8 +8,8 @@ try {
 // メインの .env ファイルをロード（ml-enhance/.env の値があれば上書きしない）
 require('dotenv').config({ override: false }); 
 
-// Make sure .env doesn't override Heroku's PORT
-delete process.env.PORT;
+// Make sure we use Heroku's PORT
+console.log("HEROKU PORT ENV: ", process.env.PORT);
 
 const db = require('./db');
 const app = require('./server'); // expressアプリケーションオブジェクトをインポート
@@ -53,9 +53,13 @@ async function initialize() {
     scheduleCleanupTasks();
     
     // アプリケーションの起動
+    // Ensure we read the PORT directly from the environment for Heroku
     const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-      console.log(`サーバーがポート ${PORT} で起動しました`);
+    console.log(`Using PORT: ${PORT} (env: ${process.env.PORT})`);
+    
+    // Bind to 0.0.0.0 to accept all incoming connections
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`サーバーがポート ${PORT} で起動しました (host: 0.0.0.0)`);
       console.log('=== アプリケーション初期化完了 ===');
     });
     
@@ -65,8 +69,11 @@ async function initialize() {
     
     // エラーがあってもサーバーは起動する
     const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-      console.log(`サーバーがポート ${PORT} で起動しました（エラーあり）`);
+    console.log(`エラー発生後、PORT: ${PORT} を使用します`);
+    
+    // Bind to 0.0.0.0 to accept all incoming connections
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`サーバーがポート ${PORT} で起動しました（エラーあり、host: 0.0.0.0）`);
     });
   }
 }
