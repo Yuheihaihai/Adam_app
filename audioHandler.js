@@ -568,6 +568,20 @@ class AudioHandler {
   // Whisperを使用したテキスト変換
   async _transcribeWithWhisper(filePath, options = {}) {
     try {
+      console.log(`Whisper音声変換開始: ${filePath}`);
+      
+      // ファイルの存在確認
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`ファイルが存在しません: ${filePath}`);
+      }
+      
+      // ファイルサイズの確認
+      const fileStats = fs.statSync(filePath);
+      if (fileStats.size === 0) {
+        throw new Error(`ファイルサイズが0です: ${filePath}`);
+      }
+      console.log(`ファイルサイズ: ${fileStats.size} バイト`);
+      
       // ファイル形式の確認
       const fileExt = path.extname(filePath).toLowerCase();
       const supportedFormats = ['.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm'];
@@ -592,6 +606,7 @@ class AudioHandler {
           await new Promise((resolve, reject) => {
             ffmpeg(filePath)
               .outputFormat('mp3')
+              .audioCodec('libmp3lame')
               .on('end', () => resolve())
               .on('error', (err) => reject(new Error(`ファイル変換エラー: ${err.message}`)))
               .save(tempConvertedFile);
@@ -601,18 +616,73 @@ class AudioHandler {
           fileToTranscribe = tempConvertedFile;
         } catch (conversionError) {
           console.error(`ファイル形式変換エラー: ${conversionError.message}`);
-          throw new Error(`Unsupported file format (${fileExt}) and conversion failed`);
+          throw new Error(`Unsupported file format (${fileExt}) and conversion failed: ${conversionError.message}`);
+        }
+      }
+      
+      // ファイルを読み込んで先頭16バイトを確認（マジックナンバーチェック）
+      const fileHandle = fs.openSync(fileToTranscribe, 'r');
+      const buffer = Buffer.alloc(16);
+      fs.readSync(fileHandle, buffer, 0, 16, 0);
+      fs.closeSync(fileHandle);
+      
+      const fileSignature = buffer.toString('hex').substring(0, 8);
+      console.log(`ファイルシグネチャ: ${fileSignature}`);
+      
+      // 一般的な音声フォーマットのマジックナンバーチェック
+      // MP3: ID3 (494433) または MPEG フレームヘッダ (FFFA, FFF9, 等)
+      // MP4/M4A: ftyp (66747970)
+      // OGG: 'OggS' (4f676753)
+      // FLAC: 'fLaC' (664c6143)
+      
+      if (fileExt === '.mp3' && !(['494433', 'fff'].some(sig => fileSignature.startsWith(sig)))) {
+        console.warn(`警告: MP3ファイルのシグネチャが不正です: ${fileSignature}`);
+        
+        // 強制的に再変換を試みる
+        try {
+          console.log(`フォーマットの再変換を試みます...`);
+          const reConvertedFile = `${fileToTranscribe}.fixed.mp3`;
+          
+          await new Promise((resolve, reject) => {
+            ffmpeg(fileToTranscribe)
+              .outputFormat('mp3')
+              .audioCodec('libmp3lame')
+              // より強力な変換オプションを追加
+              .outputOptions([
+                '-ar 16000', // サンプルレート16kHz
+                '-ac 1',     // モノラル
+                '-b:a 128k'  // ビットレート
+              ])
+              .on('end', () => resolve())
+              .on('error', (err) => reject(new Error(`再変換エラー: ${err.message}`)))
+              .save(reConvertedFile);
+          });
+          
+          console.log(`ファイルをMP3形式に再変換しました: ${reConvertedFile}`);
+          
+          // 古いファイルを削除して新しいファイルと入れ替え
+          if (tempConvertedFile) {
+            fs.unlinkSync(tempConvertedFile);
+          }
+          tempConvertedFile = reConvertedFile;
+          fileToTranscribe = reConvertedFile;
+        } catch (reConversionError) {
+          console.error(`ファイル再変換エラー: ${reConversionError.message}`);
+          // 再変換エラーがあっても、元のファイルで続行を試みる
         }
       }
       
       // Whisper APIを呼び出し
+      console.log(`Whisper APIを呼び出し: ${fileToTranscribe}`);
+      
       const response = await this.openai.audio.transcriptions.create({
         file: fs.createReadStream(fileToTranscribe),
         model: 'whisper-1',
-        language: options.language || 'ja'
+        language: options.language || 'ja',
+        response_format: 'json' // JSONレスポンス形式を明示的に指定
       });
       
-      console.log('Whisper音声テキスト変換成功:', response.text.substring(0, 30) + '...');
+      console.log('Whisper音声テキスト変換成功:', response.text ? response.text.substring(0, 30) + '...' : '[空のレスポンス]');
       
       // 一時変換ファイルを削除
       if (tempConvertedFile && fs.existsSync(tempConvertedFile)) {
@@ -622,6 +692,52 @@ class AudioHandler {
       return response.text;
     } catch (error) {
       console.error('Whisper音声変換エラー:', error.message);
+      
+      // エラータイプに応じた処理
+      if (error.message.includes('Invalid file format')) {
+        // 形式エラー: 別の方法での変換を試みる
+        try {
+          console.log('Invalid file format エラー - 別形式での変換を試みます...');
+          
+          // ffmpegで強制的にWAV形式に変換
+          const wavFile = `${filePath}.forced.wav`;
+          const ffmpegPath = require('ffmpeg-static');
+          const ffmpeg = require('fluent-ffmpeg');
+          ffmpeg.setFfmpegPath(ffmpegPath);
+          
+          await new Promise((resolve, reject) => {
+            ffmpeg(filePath)
+              .outputFormat('wav')
+              .audioFrequency(16000) // Whisperは16kHzが最適
+              .audioChannels(1)      // モノラルに変換
+              .on('end', () => resolve())
+              .on('error', (err) => reject(err))
+              .save(wavFile);
+          });
+          
+          console.log(`強制的にWAV形式に変換しました: ${wavFile}`);
+          
+          // 変換したWAVファイルで再度Whisperを呼び出し
+          const response = await this.openai.audio.transcriptions.create({
+            file: fs.createReadStream(wavFile),
+            model: 'whisper-1',
+            language: options.language || 'ja'
+          });
+          
+          // WAVファイルを削除
+          if (fs.existsSync(wavFile)) {
+            fs.unlinkSync(wavFile);
+          }
+          
+          console.log('WAV変換後のWhisper音声テキスト変換成功:', response.text.substring(0, 30) + '...');
+          return response.text;
+          
+        } catch (recoveryError) {
+          console.error('フォールバック変換にも失敗:', recoveryError.message);
+          throw new Error(`音声変換のリカバリに失敗しました: ${recoveryError.message}`);
+        }
+      }
+      
       throw error;
     }
   }

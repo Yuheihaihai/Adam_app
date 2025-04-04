@@ -2786,7 +2786,7 @@ async function handleText(event) {
     // audioOriginフラグを確認（音声ハンドラからの転送時に設定される）
     const isAudioMessage = event.message.audioOrigin === true;
     
-    console.log(`メッセージタイプ: ${isAudioMessage ? '音声→テキスト変換' : 'テキスト入力'}`);
+    console.log(`メッセージタイプ: ${isAudioMessage ? '音声→テキスト変換' : 'テキスト入力'}, userId: ${userId}`);
     
     // ユーザーセッションを初期化
     if (!sessions[userId]) {
@@ -2817,21 +2817,35 @@ async function handleText(event) {
         responseText = `コマンド ${commandCheck.type} を処理しました。`;
       }
       
-      // テキスト応答を送信
+      // 管理コマンドでも、音声入力だった場合は音声で返す
+      if (isAudioMessage) {
+        const audioResponse = await audioHandler.generateAudioResponse(responseText, userId);
+        await sendAudioWithTextFallback(event.replyToken, responseText, audioResponse, userId);
+      } else {
+        // テキストのみ返信
         await client.replyMessage(event.replyToken, {
           type: 'text',
-        text: responseText
+          text: responseText
         });
-        return;
+      }
+      return;
     }
     
     // 特別コマンドの処理
     if (text === "履歴をクリア" || text === "クリア" || text === "clear") {
       sessions[userId].history = [];
-      await client.replyMessage(event.replyToken, {
-        type: "text",
-        text: "会話履歴をクリアしました。"
-      });
+      const responseText = "会話履歴をクリアしました。";
+      
+      // 特別コマンドも音声入力なら音声で返す
+      if (isAudioMessage) {
+        const audioResponse = await audioHandler.generateAudioResponse(responseText, userId);
+        await sendAudioWithTextFallback(event.replyToken, responseText, audioResponse, userId);
+      } else {
+        await client.replyMessage(event.replyToken, {
+          type: "text",
+          text: responseText
+        });
+      }
       return;
     }
     
@@ -2841,12 +2855,10 @@ async function handleText(event) {
     if (isVoiceChangeRequest) {
       // 音声設定変更リクエストを解析
       const parseResult = await audioHandler.parseVoiceChangeRequest(text, userId);
+      let replyMessage = "";
       
       if (parseResult.isVoiceChangeRequest && parseResult.confidence > 0.7) {
         // 明確な設定変更リクエストがあった場合
-        let replyMessage;
-        let audioResponse;
-        // LINE Voice Message準拠フラグを設定（統計用）
         const isLineCompliant = parseResult.lineCompliant || false;
         
         if (parseResult.voiceChanged || parseResult.speedChanged) {
@@ -2863,25 +2875,6 @@ async function handleText(event) {
           if (isLineCompliant) {
             updateUserStats(userId, 'line_compliant_voice_requests', 1);
           }
-          
-          // replyMessageが空でないことを確認
-          if (!replyMessage) {
-            console.error('警告: 音声設定更新のreplyMessageが空です。デフォルトメッセージを使用します。');
-            replyMessage = "音声設定を更新しました。新しい設定で応答します。いかがでしょうか？";
-          }
-          
-          // 入力が音声の場合、音声で応答
-          if (isAudioMessage) {
-            // 新しい設定で音声応答
-            audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
-          } else {
-            // テキスト入力にはテキスト応答
-            await client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: replyMessage
-            });
-            return;
-          }
         } else {
           // 変更できなかった場合、音声設定選択メニューを返信
           replyMessage = `音声設定の変更リクエストを受け付けました。\n\n`;
@@ -2891,222 +2884,72 @@ async function handleText(event) {
           if (isLineCompliant) {
             updateUserStats(userId, 'line_compliant_voice_requests', 1);
           }
-          
-          // replyMessageが空でないことを確認
-    if (!replyMessage) {
-            console.error('警告: 音声設定選択のreplyMessageが空です。デフォルトメッセージを使用します。');
-            replyMessage = "音声設定の変更リクエストを受け付けました。設定を選択してください。";
-          }
-          
-          // 入力が音声の場合、音声で応答
-          if (isAudioMessage) {
-            // デフォルト設定で音声応答
-            audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
-          } else {
-            // テキスト入力にはテキスト応答
-            await client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: replyMessage
-            });
-            return;
-          }
         }
       } else if (text.includes("音声") || text.includes("声")) {
         // 詳細が不明確な音声関連の問い合わせに対して選択肢を提示
         replyMessage = audioHandler.generateVoiceSelectionMessage();
-        
-        // LINE統計記録
-        const isLineCompliant = false; // デフォルトではLINE準拠ではない
-        if (isLineCompliant) {
-          updateUserStats(userId, 'line_compliant_voice_requests', 1);
-        }
-        
-        // replyMessageが空でないことを確認
-        if (!replyMessage) {
-          console.error('警告: 音声選択のreplyMessageが空です。デフォルトメッセージを使用します。');
-          replyMessage = "音声設定を選択してください。";
-        }
-        
-        if (isAudioMessage) {
-          // 入力が音声の場合は音声で応答
-          let audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
-            } else {
-          // テキスト入力にはテキスト応答
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-          text: replyMessage
-        });
-          return;
-        }
       } else {
         // 通常の応答処理へフォールバック
         replyMessage = await processMessage(userId, text);
-        
-        // replyMessageが空の場合のチェックを追加
-        if (!replyMessage) {
-          console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
-          replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
-        }
-        
-        if (isAudioMessage) {
-          // 入力が音声の場合は音声で応答
-          // ユーザー設定を反映した音声応答生成
-          const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
-          audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
-    } else {
-          // テキスト入力にはテキスト応答
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: replyMessage
-          });
-          // テキスト処理の場合はここで終了
-      return;
-    }
       }
-        } else {
-      // 通常のメッセージ処理
-      replyMessage = await processMessage(userId, text);
       
-      // replyMessageが空の場合のチェックを追加
+      // replyMessageが空の場合のチェック
       if (!replyMessage) {
-        console.error('警告: 応答のreplyMessageが空です。デフォルトメッセージを使用します。');
+        console.error('警告: 音声設定のreplyMessageが空です。デフォルトメッセージを使用します。');
         replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
       }
       
+      // 音声入力には音声で応答、テキスト入力にはテキストで応答
       if (isAudioMessage) {
-        // 入力が音声の場合は音声で応答
-        // ユーザー設定を反映した音声応答生成
+        console.log('音声入力に音声で応答します');
         const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
-        audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
-    } else {
-        // テキスト入力にはテキスト応答
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
+        const audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
+        await sendAudioWithTextFallback(event.replyToken, replyMessage, audioResponse, userId);
+      } else {
+        console.log('テキスト入力にテキストで応答します');
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
           text: replyMessage
-      });
-        // テキスト処理の場合はここで終了
-      return;
-    }
-    }
-    
-    // ここから先は音声応答の処理のみ
-    
-    // 利用制限チェック（音声応答生成後）
-    if (audioResponse && audioResponse.limitExceeded) {
-      // 制限に達している場合はテキストのみを返信し、制限メッセージを追加
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: replyMessage + '\n\n' + audioResponse.limitMessage
-      });
-      return;
-    }
-    
-    if (!audioResponse || !audioResponse.buffer) {
-      // 音声生成に失敗した場合はテキストのみ返信
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: replyMessage
-      });
-      return;
-    } 
-    
-    // 正しいURLを構築（audioResponse.filePathがnullの場合に対応）
-    let audioUrl = '';
-    let audioFileExists = false;
-    try {
-      if (audioResponse.filePath) {
-        // ファイルが実際に存在するか確認
-        if (fs.existsSync(audioResponse.filePath)) {
-          const fileBaseName = path.basename(audioResponse.filePath);
-          audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
-          audioFileExists = true;
-          } else {
-          console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
-          throw new Error('音声ファイルが見つかりません');
-          }
-        } else {
-        throw new Error('音声ファイルパスが見つかりません');
-      }
-    } catch (error) {
-      console.error('音声URL生成エラー:', error.message);
-      // 音声なしでテキストのみ返信
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: replyMessage
-      });
-      return;
-    }
-    
-    // テキストと音声の両方を返信（ファイルが存在する場合のみ）
-    if (audioFileExists) {
-      try {
-      await client.replyMessage(event.replyToken, [
-        {
-            type: 'text',
-            text: replyMessage
-        },
-        {
-            type: 'audio',
-            originalContentUrl: audioUrl,
-            duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
-        }
-      ]).catch(error => {
-          console.error('LINE返信エラー:', error.message);
-          // 音声メッセージ送信に失敗した場合、テキストのみで再試行
-        if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
-            console.log('音声メッセージ送信失敗、テキストのみで再試行します');
-          return client.replyMessage(event.replyToken, {
-            type: 'text',
-              text: replyMessage
-            }).catch(retryError => {
-              console.error('テキストのみの再試行も失敗:', retryError.message);
-          });
-        }
-      });
-      } catch (replyError) {
-        console.error('メッセージ送信エラー:', replyError);
-        // エラー時はテキストのみでの送信を試みる
-        try {
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: replyMessage
-          }).catch(e => console.error('テキスト送信も失敗:', e.message));
-        } catch (textError) {
-          console.error('テキストのみの送信も失敗:', textError);
-        }
-      }
-    } else {
-      // テキストのみ返信
-      try {
-      await client.replyMessage(event.replyToken, {
-            type: 'text',
-          text: replyMessage
-        }).catch(error => {
-          console.error('テキスト送信エラー:', error.message);
         });
-      } catch (textError) {
-        console.error('テキスト送信エラー:', textError);
       }
+      return;
     }
     
-    // 音声使用状況の追加メッセージ（毎回は表示せず、特定の閾値に達した場合のみ）
-    if (audioResponse && audioResponse.limitInfo && audioResponse.limitInfo.dailyCount >= Math.floor(audioResponse.limitInfo.dailyLimit * 0.7)) {
-      // 残り回数が少なくなった場合（例: 70%以上使用）に警告を送信
-      const usageMessage = audioHandler.generateUsageLimitMessage(audioResponse.limitInfo);
-      await client.pushMessage(userId, {
+    // 通常のメッセージ処理
+    const replyMessage = await processMessage(userId, text);
+    
+    // replyMessageが空の場合のチェック
+    const finalReplyMessage = replyMessage || "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
+    
+    if (!replyMessage) {
+      console.error('警告: 応答のreplyMessageが空です。デフォルトメッセージを使用します。');
+    }
+    
+    // 音声入力には音声で応答、テキスト入力にはテキストで応答
+    if (isAudioMessage) {
+      console.log('通常メッセージ: 音声入力に音声で応答します');
+      
+      // ユーザー設定を反映した音声応答生成
+      const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
+      const audioResponse = await audioHandler.generateAudioResponse(finalReplyMessage, userId, userVoicePrefs);
+      
+      // 統計データ更新
+      updateUserStats(userId, 'audio_messages', 1);
+      updateUserStats(userId, 'audio_responses', 1);
+      
+      // 音声と共にテキストも送信（失敗時のフォールバック付き）
+      await sendAudioWithTextFallback(event.replyToken, finalReplyMessage, audioResponse, userId);
+    } else {
+      console.log('通常メッセージ: テキスト入力にテキストで応答します');
+      
+      // テキスト入力にはテキスト応答
+      await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: usageMessage
+        text: finalReplyMessage
       }).catch(error => {
-        console.error('使用状況メッセージ送信エラー:', error.message);
+        console.error('テキスト送信エラー:', error.message);
       });
     }
-    
-    // 統計データ更新（音声応答の場合のみ）
-    if (isAudioMessage) {
-    updateUserStats(userId, 'audio_messages', 1);
-    updateUserStats(userId, 'audio_responses', 1);
-    }
-    
   } catch (error) {
     console.error('テキスト/音声メッセージ処理エラー:', error);
     
@@ -3117,6 +2960,98 @@ async function handleText(event) {
       });
     } catch (replyError) {
       console.error('エラー応答送信エラー:', replyError);
+    }
+  }
+}
+
+/**
+ * 音声応答とテキストをセットで送信する関数（フォールバック機能付き）
+ * @param {string} replyToken - LINE応答トークン
+ * @param {string} text - テキスト応答
+ * @param {object} audioResponse - 音声応答オブジェクト
+ * @param {string} userId - ユーザーID
+ */
+async function sendAudioWithTextFallback(replyToken, text, audioResponse, userId) {
+  // 利用制限チェック
+  if (audioResponse && audioResponse.limitExceeded) {
+    // 制限に達している場合はテキストのみを返信し、制限メッセージを追加
+    await client.replyMessage(replyToken, {
+      type: 'text',
+      text: text + '\n\n' + audioResponse.limitMessage
+    });
+    return;
+  }
+  
+  // 音声生成チェック
+  if (!audioResponse || !audioResponse.buffer || !audioResponse.filePath) {
+    // 音声生成に失敗した場合はテキストのみ返信
+    console.warn('音声生成に失敗したため、テキストのみで応答します');
+    await client.replyMessage(replyToken, {
+      type: 'text',
+      text: text
+    });
+    return;
+  }
+  
+  // 音声ファイル存在チェック
+  if (!fs.existsSync(audioResponse.filePath)) {
+    console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
+    await client.replyMessage(replyToken, {
+      type: 'text',
+      text: text
+    });
+    return;
+  }
+  
+  // 音声URLの構築
+  const fileBaseName = path.basename(audioResponse.filePath);
+  const audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
+  
+  // テキストと音声の両方を返信
+  try {
+    await client.replyMessage(replyToken, [
+      {
+        type: 'text',
+        text: text
+      },
+      {
+        type: 'audio',
+        originalContentUrl: audioUrl,
+        duration: 60000 // 適当な値（実際の長さを計算するのは難しい）
+      }
+    ]).catch(error => {
+      console.error('LINE返信エラー:', error.message);
+      // 音声メッセージ送信に失敗した場合、テキストのみで再試行
+      if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
+        console.log('音声メッセージ送信失敗、テキストのみで再試行します');
+        return client.replyMessage(replyToken, {
+          type: 'text',
+          text: text
+        });
+      }
+    });
+    
+    // 音声使用状況の追加メッセージ（閾値に達した場合のみ）
+    if (audioResponse.limitInfo && audioResponse.limitInfo.dailyCount >= Math.floor(audioResponse.limitInfo.dailyLimit * 0.7)) {
+      // 残り回数が少なくなった場合に警告を送信
+      const usageMessage = audioHandler.generateUsageLimitMessage(audioResponse.limitInfo);
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: usageMessage
+      }).catch(error => {
+        console.error('使用状況メッセージ送信エラー:', error.message);
+      });
+    }
+  } catch (error) {
+    console.error('音声メッセージ送信エラー:', error);
+    // エラー時はテキストのみでの送信を試みる
+    try {
+      await client.replyMessage(replyToken, {
+        type: 'text',
+        text: text
+      });
+    } catch (textError) {
+      console.error('テキストのみの送信も失敗:', textError);
     }
   }
 }
@@ -3169,6 +3104,8 @@ async function handleAudio(event) {
   let audioUrl = '';
   let transcription = '';
   const messageId = event.message.id;
+  let rawAudioPath = null;
+  let convertedAudioPath = null;
   
   try {
     // LINE APIを使用して音声コンテンツを取得
@@ -3180,23 +3117,44 @@ async function handleAudio(event) {
       fs.mkdirSync(tempAudioDir, { recursive: true });
     }
     
-    // 一時ファイルパスを作成
+    // LINE音声フォーマットの問題を回避するため、いったん生データとして保存
     const timestamp = Date.now();
-    const audioPath = path.join(tempAudioDir, `audio_${timestamp}.m4a`);
+    rawAudioPath = path.join(tempAudioDir, `audio_raw_${timestamp}.bin`);
     
     // 音声データをファイルに保存
-    const writeStream = fs.createWriteStream(audioPath);
+    const writeStream = fs.createWriteStream(rawAudioPath);
     await new Promise((resolve, reject) => {
       stream.pipe(writeStream)
         .on('finish', resolve)
         .on('error', reject);
     });
     
-    console.log(`音声ファイルを保存しました: ${audioPath}`);
+    console.log(`音声ファイルを保存しました: ${rawAudioPath}`);
+    
+    // ffmpegを使用してMP3形式に変換
+    convertedAudioPath = path.join(tempAudioDir, `audio_${timestamp}.mp3`);
+    const ffmpegPath = require('ffmpeg-static');
+    const ffmpeg = require('fluent-ffmpeg');
+    ffmpeg.setFfmpegPath(ffmpegPath);
+    
+    await new Promise((resolve, reject) => {
+      ffmpeg(rawAudioPath)
+        .outputFormat('mp3')
+        .audioCodec('libmp3lame')
+        .on('end', () => {
+          console.log(`音声ファイルをMP3形式に変換しました: ${convertedAudioPath}`);
+          resolve();
+        })
+        .on('error', (err) => {
+          console.error(`音声変換エラー: ${err.message}`);
+          reject(err);
+        })
+        .save(convertedAudioPath);
+    });
     
     try {
       // 音声をWhisperで文字起こし
-      const transcriptionResult = await audioHandler.transcribeAudio(audioPath, userId);
+      const transcriptionResult = await audioHandler.transcribeAudio(convertedAudioPath, userId);
       
       // 結果がオブジェクトの場合はtext属性を取得、文字列の場合はそのまま使用
       if (transcriptionResult && typeof transcriptionResult === 'object') {
@@ -3215,13 +3173,6 @@ async function handleAudio(event) {
         text: '申し訳ありません、音声を認識できませんでした。もう少し大きな声で、はっきりと話していただけますか？'
       });
       
-      // 一時ファイルを削除して終了
-      try {
-        if (fs.existsSync(audioPath)) {
-          fs.unlinkSync(audioPath);
-        }
-      } catch (e) { /* 削除失敗は無視 */ }
-      
       return;
     }
     
@@ -3232,13 +3183,6 @@ async function handleAudio(event) {
         type: 'text',
         text: '申し訳ありません、音声を認識できませんでした。もう少し大きな声で、はっきりと話していただけますか？'
       });
-      
-      // 一時ファイルを削除して終了
-      try {
-        if (fs.existsSync(audioPath)) {
-          fs.unlinkSync(audioPath);
-        }
-      } catch (e) { /* 削除失敗は無視 */ }
       
       return;
     }
@@ -3278,10 +3222,16 @@ async function handleAudio(event) {
   } finally {
     // 不要になった一時ファイルを削除
     try {
-      if (fs.existsSync(audioPath)) {
-        fs.unlinkSync(audioPath);
+      if (rawAudioPath && fs.existsSync(rawAudioPath)) {
+        fs.unlinkSync(rawAudioPath);
       }
-    } catch (e) { /* 削除失敗は無視 */ }
+      
+      if (convertedAudioPath && fs.existsSync(convertedAudioPath)) {
+        fs.unlinkSync(convertedAudioPath);
+      }
+    } catch (e) { 
+      console.error(`一時ファイル削除エラー: ${e.message}`);
+    }
   }
 }
 
