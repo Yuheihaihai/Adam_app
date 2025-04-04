@@ -42,34 +42,35 @@ class ImageGenerator {
         text: '画像を生成しています。少々お待ちください...'
       });
 
-      // 画像生成プロンプトの前処理
-      let cleanExplanationText = explanationText;
+      // 画像生成プロンプトの準備
+      let dallePrompt = explanationText;
       
       // [生成画像]プレフィックスがあれば削除
-      if (cleanExplanationText.startsWith('[生成画像]')) {
-        cleanExplanationText = cleanExplanationText.replace('[生成画像]', '').trim();
-        console.log(`[DALL-E] Removed [生成画像] prefix from explanation text`);
+      if (dallePrompt.startsWith('[生成画像]')) {
+        dallePrompt = dallePrompt.replace('[生成画像]', '').trim();
+        console.log(`[DALL-E] Removed [生成画像] prefix. Using prompt: "${dallePrompt.substring(0, 50)}..."`);
       }
       
-      // 説明テキストが短すぎる場合はデフォルトの文脈を追加
-      if (cleanExplanationText.length < 10) {
-        console.log(`[DALL-E] Explanation text is too short (${cleanExplanationText.length} chars). Adding default context`);
-        cleanExplanationText = `${cleanExplanationText}についての画像。イラスト風に美しく描かれています。`;
+      // プロンプトが空でないか確認
+      if (!dallePrompt) {
+        console.error('[DALL-E] Error: Prompt is empty after removing prefix.');
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: '画像生成のリクエスト内容が空です。もう一度お試しください。'
+        });
+        await storeInteraction(userId, 'system', '[画像生成エラー] プロンプトが空です');
+        return false;
       }
       
-      // 画像生成プロンプトを拡張（日本語説明をより詳細に変換）
-      const enhancedPrompt = `${cleanExplanationText}\n\n高品質なイラスト風に描かれています。明るく鮮やかな色彩で、細部まで丁寧に描かれています。`;
-      
-      console.log(`[DALL-E] Enhanced prompt created (length: ${enhancedPrompt.length})`);
-      console.log(`[DALL-E] Sending request to OpenAI API (model: dall-e-3, size: 1024x1024, quality: standard)`);
+      console.log(`[DALL-E] Sending request to OpenAI API (model: dall-e-3, size: 1024x1024, quality: standard) with prompt: "${dallePrompt.substring(0, 50)}..."`);
       
       // 画像生成APIの呼び出し
       const response = await this.openai.images.generate({
         model: "dall-e-3",
-        prompt: enhancedPrompt,
+        prompt: dallePrompt, // ユーザーのテキストを直接使用
         n: 1,
         size: "1024x1024",
-        quality: "standard",
+        quality: "standard", // standard quality is faster and cheaper
         response_format: "url"
       });
       
@@ -84,21 +85,14 @@ class ImageGenerator {
       const tempFilePath = path.join(this.tempDir, `dalle_${Date.now()}.png`);
       fs.writeFileSync(tempFilePath, imageBuffer);
       
-      // LINE Messaging APIで画像を送信
-      console.log(`[DALL-E] Sending image to user ${userId} via LINE`);
+      // LINE Messaging APIで画像のみを送信
+      console.log(`[DALL-E] Sending only image to user ${userId} via LINE`);
       
-      // 画像とテキストメッセージの両方を送信
-      await client.pushMessage(userId, [
-        {
-          type: 'text',
-          text: `「${cleanExplanationText.substring(0, 50)}${cleanExplanationText.length > 50 ? '...' : ''}」についての画像を生成しました：`
-        },
-        {
+      await client.pushMessage(userId, {
           type: 'image',
           originalContentUrl: `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${path.basename(tempFilePath)}`,
           previewImageUrl: `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${path.basename(tempFilePath)}`
-        }
-      ]);
+      });
       
       // 生成した画像の情報を会話履歴に記録
       console.log(`[DALL-E] Storing interaction record for user ${userId}`);
@@ -106,6 +100,16 @@ class ImageGenerator {
       // 生成した画像情報をストア
       const textPreview = explanationText.substring(0, 30) + (explanationText.length > 30 ? '...' : '');
       await storeInteraction(userId, 'assistant', `[生成画像参照] URL:${imageUrl.substring(0, 20)}... - ${textPreview}`);
+      
+      // 一時ファイルを削除 (送信後)
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          fs.unlinkSync(tempFilePath);
+          console.log(`[DALL-E] Deleted temporary image file: ${tempFilePath}`);
+        }
+      } catch (unlinkError) {
+        console.error(`[DALL-E] Error deleting temporary image file: ${unlinkError.message}`);
+      }
       
       return true;
     } catch (error) {
