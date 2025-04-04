@@ -2028,7 +2028,8 @@ ${additionalPromptData.jobTrends.analysis}`;
     }
     console.log(`===== 会話履歴の状態確認終了 =====\n`);
     
-    const messages = [
+    // 会話履歴のシステムメッセージへの統合と最適化は以前に行われている
+    let messages = [
       { role: 'system', content: updatedSystemPrompt }
     ];
     
@@ -2076,13 +2077,13 @@ ${additionalPromptData.jobTrends.analysis}`;
       
       // システムメッセージと最後のユーザーメッセージを保持
       const systemMessage = messages[0];
-      const userMessage = messages[messages.length - 1];
+      const lastUserMessage = messages[messages.length - 1];
       
       // 中間の会話履歴を最大1500件に制限（重要な文脈を保持するため、新しいものを優先）
       const reducedHistory = messages.slice(1, -1).slice(-1500);
       
       // 新しいメッセージ配列を構築
-      messages = [systemMessage, ...reducedHistory, userMessage];
+      messages = [systemMessage, ...reducedHistory, lastUserMessage];
       
       console.log(`会話履歴を ${messages.length} メッセージに削減しました`);
     }
