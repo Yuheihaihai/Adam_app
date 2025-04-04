@@ -6,7 +6,7 @@ const {
     cosineSimilarity,
     MODE_LIMITS
     // MODE_VECTORS はここでは require しない ★★★ 変更点 ★★★
-} = require('./server'); // Ensure this path is correct
+} = require('./adam-app-cloud-v2-4/server'); // Ensure this path is correct
         // このヘルパー関数を追加
         const createSparseVector = (index, value = 0.9, length = 1536) => {
             const vector = Array(length).fill(0);
