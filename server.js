@@ -8821,7 +8821,7 @@ async function generateAIResponse(userMessage, history, contextMessages, userId,
       console.log(`🤖 ====== AI応答生成プロセス終了(フォールバック失敗) - ユーザー: ${userId} ======\\n`);
       // 最終的なエラーメッセージを返す
       return "申し訳ありませんが、応答の生成中にエラーが発生しました。プライマリおよびバックアップのAIモデルの両方で問題が発生した可能性があります。しばらくしてからもう一度お試しください。";
-    }}
+    }
   }
 
 // サーバー起動設定
