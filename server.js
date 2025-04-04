@@ -390,8 +390,8 @@ const intentRoutes = require('./routes/api/intent');
 app.use('/api/intent', intentRoutes);
 
 // webhookエンドポイント用の特別な設定
-const rawBodyParser = express.raw({
-  type: "application/json", verify: (req, res, buf) => {
+const rawBodyParser = express.json({
+  verify: (req, res, buf) => {
     req.rawBody = buf;
   }
 });
@@ -2762,7 +2762,7 @@ async function handleText(event) {
         }
         
         // replyMessageが空でないことを確認
-        if (!replyMessage) {
+    if (!replyMessage) {
           console.error('警告: 音声選択のreplyMessageが空です。デフォルトメッセージを使用します。');
           replyMessage = "音声設定を選択してください。";
         }
@@ -2781,8 +2781,8 @@ async function handleText(event) {
         // ユーザー設定を反映した音声応答生成
         const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
         audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
-      }
-    } else {
+            }
+          } else {
       // 通常のメッセージ処理
       replyMessage = await processMessage(userId, text);
       
@@ -2800,8 +2800,8 @@ async function handleText(event) {
     // 利用制限チェック（音声応答生成後）
     if (audioResponse && audioResponse.limitExceeded) {
       // 制限に達している場合はテキストのみを返信し、制限メッセージを追加
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
+        await client.replyMessage(event.replyToken, {
+            type: 'text',
         text: replyMessage + '\n\n' + audioResponse.limitMessage
       });
       return;
@@ -2809,8 +2809,8 @@ async function handleText(event) {
     
     if (!audioResponse || !audioResponse.buffer) {
       // 音声生成に失敗した場合はテキストのみ返信
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
         text: replyMessage
       });
       return;
@@ -2926,13 +2926,13 @@ async function handleText(event) {
 }
 
 // サーバー起動設定
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Listening on port ${PORT}`);
-  console.log(`Visit: http://localhost:${PORT} (if local)\n`);
-});
-
-/**
+// const PORT = process.env.PORT || 3000;
+// app.listen(PORT, () => {
+//   console.log(`Listening on port ${PORT}`);
+//   console.log(`Visit: http://localhost:${PORT} (if local)\n`);
+// });
+// 
+// /**
  * ユーザー入力の検証と無害化
  * @param {string} input - ユーザーからの入力メッセージ
  * @returns {string} - 検証済みの入力メッセージ
@@ -3496,9 +3496,9 @@ async function handleVisionExplanation(event, explanationText) {
 async function handleAudio(event) {
   try {
     console.log(`音声メッセージを受信しました: ユーザーID = ${event.source.userId}`);
-
+  
     // 音声メッセージ利用の制限チェック
-    const userId = event.source.userId;
+  const userId = event.source.userId;
     const audioLimitCheck = insightsService.trackAudioRequest(userId);
     
     if (!audioLimitCheck.allowed) {
@@ -3509,48 +3509,48 @@ async function handleAudio(event) {
       });
       return;
     }
-
+    
     const messageId = event.message.id;
     
     try {
       console.log(`音声メッセージ受信: ${messageId} (${userId})`);
       
       // 音声データをLINEプラットフォームから取得
-      const audioStream = await client.getMessageContent(messageId);
-      
-      // バッファに変換
-      const audioChunks = [];
-      for await (const chunk of audioStream) {
-        audioChunks.push(chunk);
-      }
-      const audioBuffer = Buffer.concat(audioChunks);
-      
+    const audioStream = await client.getMessageContent(messageId);
+    
+    // バッファに変換
+    const audioChunks = [];
+    for await (const chunk of audioStream) {
+      audioChunks.push(chunk);
+    }
+    const audioBuffer = Buffer.concat(audioChunks);
+    
       // 音声をテキストに変換（特性データも一緒に取得）
-      const transcriptionResult = await audioHandler.transcribeAudio(audioBuffer, userId, { language: 'ja' });
-      
+    const transcriptionResult = await audioHandler.transcribeAudio(audioBuffer, userId, { language: 'ja' });
+    
       // 利用制限チェック
-      if (transcriptionResult.limitExceeded) {
+    if (transcriptionResult.limitExceeded) {
         // 利用制限に達している場合
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: transcriptionResult.limitMessage || '音声機能の利用制限に達しています。'
-        });
-        return;
-      }
-      
-      const transcribedText = transcriptionResult.text;
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: transcriptionResult.limitMessage || '音声機能の利用制限に達しています。'
+      });
+      return;
+    }
+    
+    const transcribedText = transcriptionResult.text;
       const characteristics = transcriptionResult.characteristics || {};
       const limitInfo = transcriptionResult.limitInfo || {};
-      
-      if (!transcribedText) {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
+    
+    if (!transcribedText) {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
           text: '申し訳ありません、音声を認識できませんでした。もう一度お試しいただくか、テキストでお送りください。'
-        });
-        return;
-      }
-      
-      console.log(`音声テキスト変換結果: "${transcribedText}"`);
+      });
+      return;
+    }
+    
+    console.log(`音声テキスト変換結果: "${transcribedText}"`);
       console.log('音声特性:', JSON.stringify(characteristics, null, 2).substring(0, 200) + '...');
       
       // 利用状況情報をログ出力
@@ -3560,26 +3560,26 @@ async function handleAudio(event) {
       
       // 音声設定変更リクエストの検出と処理
       let voiceChangeRequestDetected = characteristics.isVoiceChangeRequest;
-      let replyMessage;
+    let replyMessage;
       let audioResponse;
-      
+    
       if (voiceChangeRequestDetected) {
         // 音声設定変更リクエストを解析
-        const parseResult = await audioHandler.parseVoiceChangeRequest(transcribedText, userId);
+      const parseResult = await audioHandler.parseVoiceChangeRequest(transcribedText, userId);
         
         // LINE Voice Message準拠フラグを設定（統計用）
         const isLineCompliant = parseResult.lineCompliant || false;
-        
-        if (parseResult.isVoiceChangeRequest && parseResult.confidence > 0.7) {
-          // 明確な設定変更リクエストがあった場合
-          if (parseResult.voiceChanged || parseResult.speedChanged) {
-            // 設定が変更された場合、変更内容を返信
-            const currentSettings = parseResult.currentSettings;
-            const voiceInfo = audioHandler.availableVoices[currentSettings.voice] || { label: currentSettings.voice };
-            
-            replyMessage = `音声設定を更新しました：\n`;
-            replyMessage += `・声のタイプ: ${voiceInfo.label}\n`;
-            replyMessage += `・話速: ${currentSettings.speed === 0.8 ? 'ゆっくり' : currentSettings.speed === 1.2 ? '速い' : '普通'}\n\n`;
+      
+      if (parseResult.isVoiceChangeRequest && parseResult.confidence > 0.7) {
+        // 明確な設定変更リクエストがあった場合
+        if (parseResult.voiceChanged || parseResult.speedChanged) {
+          // 設定が変更された場合、変更内容を返信
+          const currentSettings = parseResult.currentSettings;
+          const voiceInfo = audioHandler.availableVoices[currentSettings.voice] || { label: currentSettings.voice };
+          
+          replyMessage = `音声設定を更新しました：\n`;
+          replyMessage += `・声のタイプ: ${voiceInfo.label}\n`;
+          replyMessage += `・話速: ${currentSettings.speed === 0.8 ? 'ゆっくり' : currentSettings.speed === 1.2 ? '速い' : '普通'}\n\n`;
             replyMessage += `新しい設定で応答します。いかがでしょうか？`;
             
             // LINE統計記録
@@ -3595,10 +3595,10 @@ async function handleAudio(event) {
             
             // 新しい設定で音声応答
             audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
-          } else {
-            // 変更できなかった場合、音声設定選択メニューを返信
-            replyMessage = `音声設定の変更リクエストを受け付けました。\n\n`;
-            replyMessage += audioHandler.generateVoiceSelectionMessage();
+        } else {
+          // 変更できなかった場合、音声設定選択メニューを返信
+          replyMessage = `音声設定の変更リクエストを受け付けました。\n\n`;
+          replyMessage += audioHandler.generateVoiceSelectionMessage();
             
             // LINE統計記録
             if (isLineCompliant) {
@@ -3615,8 +3615,8 @@ async function handleAudio(event) {
             audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
           }
         } else if (transcribedText.includes("音声") || transcribedText.includes("声")) {
-          // 詳細が不明確な音声関連の問い合わせに対して選択肢を提示
-          replyMessage = audioHandler.generateVoiceSelectionMessage();
+        // 詳細が不明確な音声関連の問い合わせに対して選択肢を提示
+        replyMessage = audioHandler.generateVoiceSelectionMessage();
           
           // LINE統計記録
           if (isLineCompliant) {
@@ -3641,8 +3641,8 @@ async function handleAudio(event) {
           }
           
           audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
-        }
-      } else {
+          }
+        } else {
         // 通常のメッセージ処理
         replyMessage = await processMessage(userId, transcribedText);
         
@@ -3650,10 +3650,10 @@ async function handleAudio(event) {
         if (!replyMessage) {
           console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
           replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
-        }
-        
-        // ユーザー設定を反映した音声応答生成
-        const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
+    }
+    
+    // ユーザー設定を反映した音声応答生成
+    const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
         audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
       }
       
@@ -3669,13 +3669,13 @@ async function handleAudio(event) {
       
       if (!audioResponse || !audioResponse.buffer) {
         // 音声生成に失敗した場合はテキストのみ返信
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
           text: replyMessage
-        });
-        return;
-      }
-      
+      });
+      return;
+    }
+    
       // 正しいURLを構築（audioResponse.filePathがnullの場合に対応）
       let audioUrl = '';
       let audioFileExists = false;
@@ -3687,7 +3687,7 @@ async function handleAudio(event) {
             audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
             audioFileExists = true;
           } else {
-            console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
+      console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
             throw new Error('音声ファイルが見つかりません');
           }
         } else {
@@ -3696,39 +3696,39 @@ async function handleAudio(event) {
       } catch (error) {
         console.error('音声URL生成エラー:', error.message);
         // 音声なしでテキストのみ返信
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
           text: replyMessage
-        });
-        return;
-      }
-      
+      });
+      return;
+    }
+    
       // テキストと音声の両方を返信（ファイルが存在する場合のみ）
       if (audioFileExists) {
         try {
-          await client.replyMessage(event.replyToken, [
-            {
+      await client.replyMessage(event.replyToken, [
+        {
               type: 'text',
               text: replyMessage
-            },
-            {
+        },
+        {
               type: 'audio',
               originalContentUrl: audioUrl,
               duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
-            }
-          ]).catch(error => {
+        }
+      ]).catch(error => {
             console.error('LINE返信エラー:', error.message);
             // 音声メッセージ送信に失敗した場合、テキストのみで再試行
-            if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
+        if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
               console.log('音声メッセージ送信失敗、テキストのみで再試行します');
-              return client.replyMessage(event.replyToken, {
-                type: 'text',
+          return client.replyMessage(event.replyToken, {
+            type: 'text',
                 text: replyMessage
               }).catch(retryError => {
                 console.error('テキストのみの再試行も失敗:', retryError.message);
-              });
-            }
           });
+        }
+      });
         } catch (replyError) {
           console.error('メッセージ送信エラー:', replyError);
           // エラー時はテキストのみでの送信を試みる
@@ -3741,10 +3741,10 @@ async function handleAudio(event) {
             console.error('テキストのみの送信も失敗:', textError);
           }
         }
-      } else {
+    } else {
         // テキストのみ返信
         try {
-          await client.replyMessage(event.replyToken, {
+      await client.replyMessage(event.replyToken, {
             type: 'text',
             text: replyMessage
           }).catch(error => {
@@ -3764,21 +3764,21 @@ async function handleAudio(event) {
           text: usageMessage
         }).catch(error => {
           console.error('使用状況メッセージ送信エラー:', error.message);
-        });
-      }
-      
-      // 統計データ更新
-      updateUserStats(userId, 'audio_messages', 1);
-      updateUserStats(userId, 'audio_responses', 1);
-      
-    } catch (error) {
+      });
+    }
+    
+    // 統計データ更新
+    updateUserStats(userId, 'audio_messages', 1);
+    updateUserStats(userId, 'audio_responses', 1);
+    
+  } catch (error) {
       console.error('音声メッセージ処理エラー:', error);
-      
-      try {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: '申し訳ありません、音声処理中にエラーが発生しました。もう一度お試しいただくか、テキストでメッセージをお送りください。'
-        });
+    
+    try {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '申し訳ありません、音声処理中にエラーが発生しました。もう一度お試しいただくか、テキストでメッセージをお送りください。'
+      });
       } catch (replyError) {
         console.error('エラー応答送信エラー:', replyError);
       }
@@ -3848,4 +3848,17 @@ function updateUserStats(userId, statType, increment = 1) {
   }
 }
 
+// Export the Express app
 module.exports = app;
+
+// Only start the server if this file is executed directly (not required/imported)
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log();
+    console.log();
+  });
+}
+// Export the Express app
+module.exports = app;
+
