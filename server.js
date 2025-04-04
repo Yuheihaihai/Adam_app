@@ -3141,6 +3141,9 @@ async function handleAudio(event) {
       ffmpeg(rawAudioPath)
         .outputFormat('mp3')
         .audioCodec('libmp3lame')
+        .audioChannels(1)       // モノラルに変換
+        .audioFrequency(16000)  // 16kHzサンプルレート (Whisperに最適)
+        .outputOptions(['-b:a 128k']) // ビットレート設定
         .on('end', () => {
           console.log(`音声ファイルをMP3形式に変換しました: ${convertedAudioPath}`);
           resolve();
@@ -3153,15 +3156,18 @@ async function handleAudio(event) {
     });
     
     try {
+      // 重要：ここで直接ファイルパスを渡す - バッファではなく
       // 音声をWhisperで文字起こし
-      const transcriptionResult = await audioHandler.transcribeAudio(convertedAudioPath, userId);
+      const transcriptionResult = await audioHandler.transcribeAudio(convertedAudioPath, userId, { language: 'ja' });
       
       // 結果がオブジェクトの場合はtext属性を取得、文字列の場合はそのまま使用
       if (transcriptionResult && typeof transcriptionResult === 'object') {
         transcription = transcriptionResult.text || '';
+        console.log(`文字起こし結果オブジェクト: ${JSON.stringify(transcriptionResult)}`);
       } else if (typeof transcriptionResult === 'string') {
         transcription = transcriptionResult;
       } else {
+        console.error(`無効な文字起こし結果: ${transcriptionResult}`);
         throw new Error('Transcription result is not valid');
       }
       
