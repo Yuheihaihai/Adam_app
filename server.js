@@ -2319,7 +2319,7 @@ async function processMessage(userId, message) {
   }
   
   // メッセージのサニタイズ
-  const sanitizedMessage = sanitizeMessage(message);
+  const sanitizedMessage = sanitizeUserInput(message);
   
   try {
     console.log(`メッセージ処理開始: "${sanitizedMessage.substring(0, 50)}${sanitizedMessage.length > 50 ? '...' : ''}"`);
@@ -2686,11 +2686,11 @@ async function handleText(event) {
       }
       
       // テキスト応答を送信
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
         text: responseText
-      });
-      return;
+        });
+        return;
     }
     
     // 特別コマンドの処理
