@@ -2336,6 +2336,23 @@ const TIMEOUT_PER_ATTEMPT = 25000; // 25 seconds per attempt
  * @return {string} AI応答
  */
 async function processMessage(userId, message) {
+  // Define validateUserId function that was missing
+  function validateUserId(id) {
+    if (!id || typeof id !== 'string') {
+      console.error('不正なユーザーID形式:', id);
+      return null;
+    }
+    
+    // Line UserIDの形式チェック (UUIDv4形式)
+    const LINE_USERID_PATTERN = /^U[a-f0-9]{32}$/i;
+    if (!LINE_USERID_PATTERN.test(id)) {
+      console.error('Line UserIDの形式が不正です:', id);
+      return null;
+    }
+    
+    return id;
+  }
+
   // ユーザーIDのバリデーション
   const validatedUserId = validateUserId(userId);
   if (!validatedUserId) {
@@ -2732,11 +2749,11 @@ async function handleText(event) {
       }
       
       // テキスト応答を送信
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
         text: responseText
-      });
-      return;
+        });
+        return;
     }
     
     // 特別コマンドの処理
@@ -2807,7 +2824,7 @@ async function handleText(event) {
           }
           
           // replyMessageが空でないことを確認
-          if (!replyMessage) {
+    if (!replyMessage) {
             console.error('警告: 音声設定選択のreplyMessageが空です。デフォルトメッセージを使用します。');
             replyMessage = "音声設定の変更リクエストを受け付けました。設定を選択してください。";
           }
@@ -2844,12 +2861,12 @@ async function handleText(event) {
         if (isAudioMessage) {
           // 入力が音声の場合は音声で応答
           let audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
-        } else {
+            } else {
           // テキスト入力にはテキスト応答
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: replyMessage
-          });
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+          text: replyMessage
+        });
           return;
         }
       } else {
@@ -2867,17 +2884,17 @@ async function handleText(event) {
           // ユーザー設定を反映した音声応答生成
           const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
           audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
-        } else {
+    } else {
           // テキスト入力にはテキスト応答
           await client.replyMessage(event.replyToken, {
             type: 'text',
             text: replyMessage
           });
           // テキスト処理の場合はここで終了
-          return;
-        }
+      return;
+    }
       }
-    } else {
+        } else {
       // 通常のメッセージ処理
       replyMessage = await processMessage(userId, text);
       
@@ -2892,15 +2909,15 @@ async function handleText(event) {
         // ユーザー設定を反映した音声応答生成
         const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
         audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
-      } else {
+    } else {
         // テキスト入力にはテキスト応答
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
           text: replyMessage
-        });
+      });
         // テキスト処理の場合はここで終了
-        return;
-      }
+      return;
+    }
     }
     
     // ここから先は音声応答の処理のみ
@@ -2922,7 +2939,7 @@ async function handleText(event) {
         text: replyMessage
       });
       return;
-    }
+    } 
     
     // 正しいURLを構築（audioResponse.filePathがnullの場合に対応）
     let audioUrl = '';
@@ -2934,11 +2951,11 @@ async function handleText(event) {
           const fileBaseName = path.basename(audioResponse.filePath);
           audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
           audioFileExists = true;
-        } else {
+          } else {
           console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
           throw new Error('音声ファイルが見つかりません');
-        }
-      } else {
+          }
+        } else {
         throw new Error('音声ファイルパスが見つかりません');
       }
     } catch (error) {
@@ -2954,29 +2971,29 @@ async function handleText(event) {
     // テキストと音声の両方を返信（ファイルが存在する場合のみ）
     if (audioFileExists) {
       try {
-        await client.replyMessage(event.replyToken, [
-          {
+      await client.replyMessage(event.replyToken, [
+        {
             type: 'text',
             text: replyMessage
-          },
-          {
+        },
+        {
             type: 'audio',
             originalContentUrl: audioUrl,
             duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
-          }
-        ]).catch(error => {
+        }
+      ]).catch(error => {
           console.error('LINE返信エラー:', error.message);
           // 音声メッセージ送信に失敗した場合、テキストのみで再試行
-          if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
+        if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
             console.log('音声メッセージ送信失敗、テキストのみで再試行します');
-            return client.replyMessage(event.replyToken, {
-              type: 'text',
+          return client.replyMessage(event.replyToken, {
+            type: 'text',
               text: replyMessage
             }).catch(retryError => {
               console.error('テキストのみの再試行も失敗:', retryError.message);
-            });
-          }
-        });
+          });
+        }
+      });
       } catch (replyError) {
         console.error('メッセージ送信エラー:', replyError);
         // エラー時はテキストのみでの送信を試みる
@@ -2992,8 +3009,8 @@ async function handleText(event) {
     } else {
       // テキストのみ返信
       try {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
+      await client.replyMessage(event.replyToken, {
+            type: 'text',
           text: replyMessage
         }).catch(error => {
           console.error('テキスト送信エラー:', error.message);
@@ -3017,8 +3034,8 @@ async function handleText(event) {
     
     // 統計データ更新（音声応答の場合のみ）
     if (isAudioMessage) {
-      updateUserStats(userId, 'audio_messages', 1);
-      updateUserStats(userId, 'audio_responses', 1);
+    updateUserStats(userId, 'audio_messages', 1);
+    updateUserStats(userId, 'audio_responses', 1);
     }
     
   } catch (error) {
