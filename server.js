@@ -136,7 +136,7 @@ const userPreferences = {
         '役立つ', '参考になる', 'グッド'
       ],
       negative: [
-        '要らない', 'いらない', '不要', '邪魔', '見たくない', '表示しないで', '非表示', '消して', '表示するな', '出すな', 'オススメ要らないです', 'おすすめ要らないです', 'お勧め要らないです', 'サービス要らない', 'サービスいらない', 'サービス不要', 'サービス邪魔', 'お勧め要らない', 'お勧めいらない', 'お勧め不要', 'お勧め邪魔', 'おすすめ要らない', 'おすすめいらない', 'おすすめ不要', 'おすすめ邪魔', 'オススメ要らない', 'オススメいらない', 'オススメ不要', 'オススメ邪魔', '推奨要らない', '推奨いらない', '推奨不要', '推奨邪魔', 'サービスは結構です', 'お勧めは結構です', 'おすすめは結槢です', 'オススメは結槢です', 'サービス要りません', 'お勧め要りません', 'おすすめ要りません', 'オススメ要りません', 'もういい', 'もういらない', 'もう十分', 'もう結槢', 'やめて', '止めて', '停止', 'やめてください', '止めてください', '停止してください', 'うざい', 'うるさい', 'しつこい', 'ノイズ', '迷惑', 'もう表示しないで', 'もう出さないで', 'もう見せないで', '要らないです', 'いらないです', '不要です', '邪魔です', 'サービス表示オフ', 'お勧め表示オフ', 'おすすめ表示オフ', 'オススメ表示オフ'
+        '要らない', 'いらない', '不要', '邪魔', '見たくない', '表示しないで', '非表示', '消して', '表示するな', '出すな', 'オススメ要らないです', 'おすすめ要らないです', 'お勧め要らないです', 'サービス要らない', 'サービスいらない', 'サービス不要', 'サービス邪魔', 'お勧め要らない', 'お勧めいらない', 'お勧め不要', 'お勧め邪魔', 'おすすめ要らない', 'おすすめいらない', 'おすすめ不要', 'おすすめ邪魔', 'オススメ要らない', 'オススメいらない', 'オススメ不要', 'オススメ邪魔', '推奨要らない', '推奨いらない', '推奨不要', '推奨邪魔', 'サービスは結槢です', 'お勧めは結槢です', 'おすすめは結槢です', 'オススメは結槢です', 'サービス要りません', 'お勧め要りません', 'おすすめ要りません', 'オススメ要りません', 'もういい', 'もういらない', 'もう十分', 'もう結槢', 'やめて', '止めて', '停止', 'やめてください', '止めてください', '停止してください', 'うざい', 'うるさい', 'しつこい', 'ノイズ', '迷惑', 'もう表示しないで', 'もう出さないで', 'もう見せないで', '要らないです', 'いらないです', '不要です', '邪魔です', 'サービス表示オフ', 'お勧め表示オフ', 'おすすめ表示オフ', 'オススメ表示オフ'
       ]
     };
     
@@ -464,7 +464,7 @@ app.get('/test-feedback', (req, res) => {
       'おすすめ要らない', 'おすすめいらない', 'おすすめ不要', 'おすすめ邪魔', 
       'オススメ要らない', 'オススメいらない', 'オススメ不要', 'オススメ邪魔', 
       '推奨要らない', '推奨いらない', '推奨不要', '推奨邪魔',
-      'サービスは結構です', 'お勧めは結槢です', 'おすすめは結槢です', 'オススメは結槢です',
+      'サービスは結槢です', 'お勧めは結槢です', 'おすすめは結槢です', 'オススメは結槢です',
       'サービス要りません', 'お勧め要りません', 'おすすめ要りません', 'オススメ要りません',
       'もういい', 'もういらない', 'もう十分', 'もう結槢',
       'やめて', '止めて', '停止', 'やめてください', '止めてください', '停止してください',
@@ -2304,29 +2304,23 @@ ${additionalPromptData.jobTrends.analysis}`;
 const MAX_RETRIES = 3;
 const TIMEOUT_PER_ATTEMPT = 25000; // 25 seconds per attempt
 
-async function processMessage(userId, messageText) {
-  // ユーザーIDの検証
+/**
+ * ユーザーメッセージを処理し、AIの応答を生成する
+ * @param {string} userId - ユーザーID
+ * @param {string} message - ユーザーメッセージ
+ * @return {string} AI応答
+ */
+async function processMessage(userId, message) {
+  // ユーザーIDのバリデーション
   const validatedUserId = validateUserId(userId);
   if (!validatedUserId) {
-    console.error('不正なユーザーIDでのメッセージ処理をスキップします');
-    return null;
+    console.error(`Invalid userId: ${userId}`);
+    return '申し訳ありませんが、ユーザー情報が正しくありません。もう一度お試しください。';
   }
   
-  // メッセージテキストの検証と無害化
-  const sanitizedMessage = sanitizeUserInput(messageText);
-  if (!sanitizedMessage) {
-    console.warn('空のメッセージをスキップします');
-    return '申し訳ありませんが、メッセージを受け取れませんでした。もう一度お試しください。';
-  }
+  // メッセージのサニタイズ
+  const sanitizedMessage = sanitizeMessage(message);
   
-  // 洞察機能用のトラッキング
-  insightsService.trackTextRequest(validatedUserId, sanitizedMessage);
-  
-  // 既存の処理を続行
-  if (sanitizedMessage.includes('思い出して') || sanitizedMessage.includes('記憶')) {
-    return handleChatRecallWithRetries(validatedUserId, sanitizedMessage);
-  }
-
   try {
     console.log(`メッセージ処理開始: "${sanitizedMessage.substring(0, 50)}${sanitizedMessage.length > 50 ? '...' : ''}"`);
     
@@ -2338,9 +2332,15 @@ async function processMessage(userId, messageText) {
     
     // 管理者コマンドのチェック
     const adminCommand = checkAdminCommand(sanitizedMessage);
-    if (adminCommand) {
+    if (adminCommand.isCommand) {
       console.log('管理者コマンドを検出しました');
-      return adminCommand;
+      
+      // コマンド処理結果を返す
+      if (adminCommand.type === 'quota_removal') {
+        return `コマンド実行: ${adminCommand.target}の総量規制を解除しました。`;
+      }
+      
+      return `管理者コマンド ${adminCommand.type} を実行しました。`;
     }
     
     // モードと履歴制限を決定
@@ -2674,15 +2674,23 @@ async function handleText(event) {
     if (commandCheck.isCommand) {
       console.log(`管理コマンド検出: type=${commandCheck.type}, target=${commandCheck.target}`);
       
+      // 明示的にテキスト形式の応答を作成
+      let responseText = '';
+      
       if (commandCheck.type === 'quota_removal' && commandCheck.target === '音声メッセージ') {
         console.log('音声メッセージの総量規制解除コマンドを実行します');
         const result = await insightsService.notifyVoiceMessageUsers(client);
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: `音声メッセージの総量規制を解除し、${result.notifiedUsers}人のユーザーに通知しました。（対象ユーザー総数: ${result.totalUsers}人）`
-        });
-        return;
+        responseText = `音声メッセージの総量規制を解除し、${result.notifiedUsers}人のユーザーに通知しました。（対象ユーザー総数: ${result.totalUsers}人）`;
+      } else {
+        responseText = `コマンド ${commandCheck.type} を処理しました。`;
       }
+      
+      // テキスト応答を送信
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: responseText
+      });
+      return;
     }
     
     // 特別コマンドの処理

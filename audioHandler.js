@@ -593,8 +593,16 @@ class AudioHandler {
     } else if (typeof text !== 'string') {
       console.error(`音声応答生成エラー: 不正なテキスト形式です。type=${typeof text}, value=${JSON.stringify(text).substring(0, 100)}`);
       
+      // 管理コマンド結果オブジェクトの特別処理
+      if (text.isCommand === false) {
+        // コマンドではないがオブジェクトとして返された場合
+        text = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。";
+      }
       // オブジェクトからテキストを抽出する試み
-      if (text.response) {
+      else if (text.isCommand === true && text.type) {
+        text = `管理コマンド「${text.type}」が実行されました。`;
+      }
+      else if (text.response) {
         text = text.response;
       } else if (text.text) {
         text = text.text;
@@ -773,8 +781,16 @@ class AudioHandler {
     } else if (typeof text !== 'string') {
       console.error(`OpenAI TTS音声合成エラー: 不正なテキスト形式です。type=${typeof text}, value=${JSON.stringify(text).substring(0, 100)}`);
       
+      // 管理コマンド結果オブジェクトの特別処理
+      if (text.isCommand === false) {
+        // コマンドではないがオブジェクトとして返された場合
+        text = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。";
+      }
       // オブジェクトからテキストを抽出する試み
-      if (text.response) {
+      else if (text.isCommand === true && text.type) {
+        text = `管理コマンド「${text.type}」が実行されました。`;
+      }
+      else if (text.response) {
         text = text.response;
       } else if (text.text) {
         text = text.text;
