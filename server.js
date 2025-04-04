@@ -2360,8 +2360,10 @@ async function processMessage(userId, message) {
     // resultが文字列かオブジェクトかを確認
     let responseText = result;
     if (typeof result === 'object') {
-      // オブジェクトの場合は.textまたは.contentプロパティを探す
-      if (result.text) {
+      // オブジェクトの場合は.response、.text、または.contentプロパティを探す
+      if (result.response) {
+        responseText = result.response;
+      } else if (result.text) {
         responseText = result.text;
       } else if (result.content) {
         responseText = result.content;
