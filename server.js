@@ -2356,13 +2356,29 @@ async function processMessage(userId, message) {
     
     // AIを使用して応答を生成
     const result = await processWithAI(systemPrompt, sanitizedMessage, historyData, mode, validatedUserId);
-    console.log(`AI応答生成完了: "${result.substring(0, 50)}${result.length > 50 ? '...' : ''}"`);
+    
+    // resultが文字列かオブジェクトかを確認
+    let responseText = result;
+    if (typeof result === 'object') {
+      // オブジェクトの場合は.textまたは.contentプロパティを探す
+      if (result.text) {
+        responseText = result.text;
+      } else if (result.content) {
+        responseText = result.content;
+      } else {
+        // どちらも見つからない場合はJSONに変換して返す
+        responseText = '申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。';
+        console.error('Warning: processWithAI returned an object without text or content property');
+      }
+    }
+    
+    console.log(`AI応答生成完了: "${responseText.substring(0, 50)}${responseText.length > 50 ? '...' : ''}"`);
     
     // 会話履歴を保存
     await storeInteraction(validatedUserId, 'user', sanitizedMessage);
-    await storeInteraction(validatedUserId, 'assistant', result);
+    await storeInteraction(validatedUserId, 'assistant', responseText);
     
-    return result;
+    return responseText;
   } catch (error) {
     console.error(`メッセージ処理エラー: ${error.message}`);
     console.error(error.stack);
