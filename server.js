@@ -459,6 +459,14 @@ const rawBodyParser = express.raw({
   limit: '1mb'
 });
 
+// webhookエンドポイント用の特別な設定
+const bodyParser = require('body-parser');
+const lineBotParser = bodyParser.json({
+  verify: function(req, res, buf, encoding) {
+    req.rawBody = buf;
+  }
+});
+
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET,
@@ -466,7 +474,44 @@ const config = {
 const client = new line.Client(config);
 
 // webhookエンドポイントの定義
-app.post('/webhook', rawBodyParser, line.middleware(config), (req, res) => {
+// webhookエンドポイントの定義 - カスタムミドルウェアで署名検証を行う
+app.post('/webhook', lineBotParser, (req, res) => {
+  // 署名の検証
+  const signature = req.get('X-Line-Signature');
+  if (!signature) {
+    console.warn('Missing X-Line-Signature header');
+    return res.status(200).json({ message: 'Missing signature header, but returning 200 OK' });
+  }
+
+  // @line/bot-sdkから署名検証メソッドをインポート
+  const { validateSignature } = require('@line/bot-sdk');
+  
+  // 署名の検証を実行
+  try {
+    const isValid = validateSignature(req.rawBody.toString(), config.channelSecret, signature);
+    if (!isValid) {
+      console.warn('Invalid LINE signature');
+      return res.status(200).json({ message: 'Invalid signature, but returning 200 OK' });
+    }
+  } catch (error) {
+    console.error('Error validating signature:', error);
+    return res.status(200).json({ message: 'Error validating signature, but returning 200 OK' });
+  }
+  
+  console.log('Webhook was called! Events:', JSON.stringify(req.body, null, 2));
+  
+  // BodyをJSONとしてパース（rawBodyParserでバッファとして受け取り、ここでJSONに変換）
+  if (req.body instanceof Buffer) {
+    try {
+      req.body = JSON.parse(req.body.toString());
+    } catch (error) {
+      console.error('Error parsing webhook body as JSON:', error);
+      return res.status(200).json({
+        message: 'Invalid JSON format, but still returning 200 OK as per LINE Platform requirements'
+      });
+    }
+  }
+  
   console.log('Webhook was called! Events:', JSON.stringify(req.body, null, 2));
   
   // リクエストにeventsがない場合のエラー処理を追加
@@ -570,7 +615,7 @@ const serviceRecommender = new ServiceRecommender(airtableBase); // baseをairta
 require('./loadEnhancements')(serviceRecommender);
 
 const SYSTEM_PROMPT_GENERAL = `
-あなたは「Adam」という優しいプロのAIカウンセラーです。20年以上のベテランです。
+あなたは「Adam」という優しいアシスタントです。
 
 【役割】
 ASDやADHDなど発達障害の方へのサポートが主目的です。
@@ -581,9 +626,10 @@ Xの共有方法を尋ねられた場合は、「もしAdamのことが好きな
 
 【出力形式】
 ・日本語で回答してください。
+・200文字以内で回答してください。
 ・必要に応じて（ユーザーの他者受容特性に合わせて）客観的なアドバイス（ユーザー自身の思考に相対する指摘事項も含む）を建設的かつ謙虚な表現で提供してください。
 ・会話履歴を参照して一貫した対話を行ってください。
-・人間の専門家への相談を推奨してください。
+・専門家への相談を推奨してください。
 ・「AIとして思い出せない、または「記憶する機能を持っていない」は禁止、ここにある履歴があなたの記憶です。
 ・ユーザーのメッセージ内容をしっかりと理解し、その内容の前提を踏まえる。
 ・ユーザーからの抽象的で複数の解釈の余地のある場合は、わかりやすく理由とともに質問をして具体化する。
@@ -795,6 +841,782 @@ const SYSTEM_PROMPT_CONSULTANT = `あなたは優秀な「Adam」という非常
 [継続確認]
 この話題について追加の質問やお悩みがありましたら、お気軽にお申し付けください。`;
 
+const messageRateLimit = new Map();
+
+// グローバル変数: 各ユーザーの保留中の画像説明情報を管理するためのMap
+const pendingImageExplanations = new Map();
+
+// Add a new map to track users who just received image generation
+const recentImageGenerationUsers = new Map();
+
+// Add a tracking variable to prevent double responses
+const imageGenerationInProgress = new Map();
+
+function checkRateLimit(userId) {
+  const now = Date.now();
+  const cooldown = 1000;
+  const lastRequest = messageRateLimit.get(userId) || 0;
+  
+  if (now - lastRequest < cooldown) {
+    return false;
+  }
+  
+  messageRateLimit.set(userId, now);
+  return true;
+}
+
+const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職診断', '適職', '適職を教えてください', '適職教えて', '適職診断お願い'];
+
+/**
+ * 掘り下げモードのリクエストかどうかを判断する
+ * @param {string} text - ユーザーメッセージ
+ * @return {boolean} 掘り下げモードリクエストかどうか
+ */
+function isDeepExplorationRequest(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 掘り下げモードの特定のフレーズ - 他のテキストと混ざっていても検出
+  const deepExplorationPhrases = [
+    'もっと深く考えを掘り下げて例を示しながらさらに分かり易く言葉で教えてください。抽象的言葉禁止。',
+    'もっと深く考えを掘り下げて例を示しながらさらに分かり易く(見やすく)教えてください。抽象的言葉禁止。',
+    'もっと深く考えを掘り下げて'
+  ];
+  
+  return deepExplorationPhrases.some(phrase => text.includes(phrase));
+}
+
+/**
+ * 直接的な画像生成リクエストかどうかを判断する
+ * @param {string} text - チェックするテキスト
+ * @return {boolean} - 直接的な画像生成リクエストの場合はtrue
+ */
+function isDirectImageGenerationRequest(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 画像生成リクエストの検出パターン
+  const imageGenerationRequests = [
+    '画像を生成', '画像を作成', '画像を作って', 'イメージを生成', 'イメージを作成', 'イメージを作って',
+    '図を生成', '図を作成', '図を作って', '図解して', '図解を作成', '図解を生成',
+    'ビジュアル化して', '視覚化して', '絵を描いて', '絵を生成', '絵を作成',
+    '画像で説明', 'イメージで説明', '図で説明', '視覚的に説明',
+    '画像にして', 'イラストを作成', 'イラストを生成', 'イラストを描いて',
+    // 追加パターン - 「〇〇を生成して」形式
+    '生成して', '作成して', '描いて', '表示して', '見せて'
+  ];
+  
+  // 明示的に画像と関連するキーワードのチェック
+  const imageRelatedTerms = ['画像', '絵', 'イラスト', '写真', '図', 'ビジュアル', 'イメージ'];
+  
+  // 「〇〇の顔」「〇〇の姿」などのパターンを追加
+  const subjectPatterns = ['の顔', 'の姿', 'の絵', 'の画像', 'の写真'];
+  
+  // リクエストパターンの検出
+  const hasRequestPattern = imageGenerationRequests.some(phrase => text.includes(phrase));
+  
+  // 「〇〇の顔」などのパターンと「生成」「作成」などのキーワードを同時に含むケースを検出
+  const hasSubjectAndGeneration = 
+    subjectPatterns.some(pattern => text.includes(pattern)) && 
+    ['生成', '作成', '描いて', '表示'].some(action => text.includes(action));
+  
+  return hasRequestPattern || hasSubjectAndGeneration;
+}
+
+/**
+ * 混乱またはヘルプリクエストの検出
+ * @param {string} text - ユーザーメッセージ
+ * @return {boolean} 混乱リクエストかどうか
+ */
+function isConfusionRequest(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 掘り下げモードリクエストは除外する
+  if (isDeepExplorationRequest(text)) {
+    return false;
+  }
+  
+  // 直接的な画像生成リクエストの場合は含めない
+  if (isDirectImageGenerationRequest(text) || isDirectImageAnalysisRequest(text)) {
+    return false;
+  }
+  
+  // 一般的な混乱表現の検出
+  return containsConfusionTerms(text);
+}
+
+/**
+ * 管理コマンドかどうかをチェック
+ * @param {string} text - ユーザーメッセージ
+ * @return {object} コマンド情報 {isCommand, type, param}
+ */
+function checkAdminCommand(text) {
+  if (!text || typeof text !== 'string') return { isCommand: false };
+  
+  // 総量規制解除コマンド
+  const quotaRemovalMatch = text.match(/^総量規制解除:(.+)$/);
+  if (quotaRemovalMatch) {
+    const targetFeature = quotaRemovalMatch[1].trim();
+    return { 
+      isCommand: true, 
+      type: 'quota_removal', 
+      target: targetFeature 
+    };
+  }
+  
+  return { isCommand: false };
+}
+
+/**
+ * モードと履歴取得制限を決定
+ * @param {string} userMessage - ユーザーメッセージ
+ * @return {object} モードと制限 {mode, limit}
+ */
+     // --- ここから line 876 から始まる既存の関数と置き換え ---
+    /**
+     * Determines the conversation mode and history limit based on user message embedding similarity.
+     * Fetches embeddings for user message and mode representative phrases on each call.
+     *
+     * @param {string} userMessage - The user's message.
+     * @returns {Promise<object>} - An object containing the determined mode and history limit {mode, limit}.
+     */
+    // server.js line 941 (ここから置き換え開始)
+async function determineModeAndLimit(userMessage, getEmbFunc) { // 第2引数 getEmbFunc を追加
+  console.log(`🔄 [Mode Determination] Starting Embedding-based analysis for: \"${userMessage.substring(0, 50)}...\"`);
+
+  // モードと代表フレーズの定義 (ここは元のまま)
+  const modePhrases = {
+    career: [
+      "仕事の適性", "キャリアプラン", "向いている職業", "転職の相談", "自己分析 仕事"
+    ],
+    memoryTest: [
+      "以前話した内容", "覚えているか確認", "記憶力のテスト", "記録の呼び出し", "思い出してほしい"
+    ],
+    characteristics: [
+      "私の性格について", "自分自身の分析", "長所と短所", "自己理解を深める", "どのような人間か"
+    ],
+    humanRelationship: [
+      "対人関係の悩み", "コミュニケーション方法", "家族や友人とのこと", "人付き合いのアドバイス", "職場の人間関係"
+    ],
+    'deep-exploration': [
+      "もっと詳しく教えて", "深く掘り下げたい", "なぜそうなるのか", "背景を知りたい", "さらに探求する"
+    ],
+    share: [
+      "Adamは素晴らしい", "友達にも勧めたい", "このサービスをシェアしたい", "他の人にも教えたい", "とても役に立ったので共有したい"
+    ]
+  };
+  const modeLimits = {
+    career: 200, memoryTest: 50, characteristics: 200, humanRelationship: 200,
+    'deep-exploration': 30, share: 10, general: 30
+  };
+  const similarityThreshold = 0.75;
+  let bestMatch = { mode: 'general', score: 0 };
+
+  try {
+    // getEmbFunc が渡されているかチェック
+    if (typeof getEmbFunc !== 'function') {
+        console.error("❌ [Mode Determination] Error: getEmbedding function was not provided correctly.");
+        return { mode: 'general', limit: modeLimits.general }; // エラー時はフォールバック
+    }
+
+    // 2. ユーザーメッセージの Embedding を取得 (引数で渡された関数を使用)
+    const userEmbedding = await getEmbFunc(userMessage); // await getEmbedding(userMessage) から変更
+    if (!userEmbedding) {
+      console.warn("⚠️ [Mode Determination] Failed to get embedding for user message via provided function. Falling back to general mode.");
+      return { mode: 'general', limit: modeLimits.general };
+    }
+
+    // 3. 各モードの代表フレーズとの類似度を計算
+    for (const mode in modePhrases) {
+      let maxSimilarityForMode = 0;
+      console.log(`  Comparing with mode: ${mode}`);
+      for (const phrase of modePhrases[mode]) {
+        const phraseEmbedding = await getEmbFunc(phrase); // await getEmbedding(phrase) から変更
+        if (phraseEmbedding) {
+          const similarity = cosineSimilarity(userEmbedding, phraseEmbedding);
+          console.log(`    Phrase: \"${phrase}\", Similarity: ${similarity.toFixed(4)}`);
+          if (similarity > maxSimilarityForMode) {
+            maxSimilarityForMode = similarity;
+          }
+        } else {
+           console.warn(`    ⚠️ Failed to get embedding for phrase: \"${phrase}\" in mode ${mode}`);
+        }
+      }
+      console.log(`  Mode ${mode} - Max Similarity: ${maxSimilarityForMode.toFixed(4)}`);
+      if (maxSimilarityForMode > bestMatch.score) {
+        bestMatch = { mode: mode, score: maxSimilarityForMode };
+      }
+    }
+
+    // 4. モード決定
+    console.log(`🏆 [Mode Determination] Best match: ${bestMatch.mode} with score ${bestMatch.score.toFixed(4)}`);
+       // このブロックを挿入 (server.js の 1012行目から始まる位置に)
+       const newThreshold = 0.5; // 新しい閾値を設定
+
+       if (bestMatch.score >= newThreshold) {
+         // 最高スコアが新しい閾値以上の場合、そのモードを採用
+         console.log(`✅ [Mode Determination] Best score ${bestMatch.score.toFixed(4)} meets the new threshold (${newThreshold}). Mode set to: ${bestMatch.mode}`);
+         return { mode: bestMatch.mode, limit: modeLimits[bestMatch.mode] || modeLimits.general };
+       } else {
+         // 最高スコアが閾値未満の場合は general モード
+         console.log(`ℹ️ [Mode Determination] Best score ${bestMatch.score.toFixed(4)} is below the new threshold (${newThreshold}). Defaulting to general mode.`);
+         return { mode: 'general', limit: modeLimits.general };
+       }
+
+  } catch (error) {
+    // error オブジェクトの内容を詳しくログ出力
+    console.error("❌ [Mode Determination] Error during embedding-based mode determination:", error.message, error.stack);
+    return { mode: 'general', limit: modeLimits.general }; // エラー時は general にフォールバック
+  }
+}
+// (ここまでが置き換え後のコード)
+
+function getSystemPromptForMode(mode) {
+  switch (mode) {
+    case 'characteristics':
+      return SYSTEM_PROMPT_CHARACTERISTICS;
+    case 'career':
+      return SYSTEM_PROMPT_CAREER;
+    case 'memoryRecall':
+      return SYSTEM_PROMPT_MEMORY_RECALL;
+    case 'memoryTest':
+      return `あなたは会話履歴を最大限に活用する能力を持つAIアシスタントです。
+
+以下の指示に従ってください：
+1. ユーザーが「前のメッセージを覚えている？」「記憶力はどう？」などの質問をした場合、必ず直近の会話内容を具体的に参照してください
+2. 「覚えていません」「履歴がありません」などのネガティブな表現は絶対に使わないでください
+3. 代わりに、実際の会話履歴から具体的な内容を引用して、記憶していることを示してください
+4. 例えば「前回は〇〇についてお話しましたね」「以前△△とおっしゃっていましたが」などの表現を使ってください
+5. 会話履歴の内容について簡潔に要約し、ユーザーとの継続的な対話を示してください
+6. 可能な限り具体的な話題や内容を引用し、「前回お話した」ではなく「〇〇についてお話した」など、詳細を含めてください
+7. 会話の日時や順序も意識して、「最近」「先ほど」「昨日」など時間的な文脈も示すと良いでしょう
+
+重要: 自分の記憶力をアピールするのではなく、実際の会話内容を参照することで信頼関係を築いてください。過去の会話から3つ以上の具体的な詳細を引用すると効果的です。`;
+    case 'humanRelationship':
+      return SYSTEM_PROMPT_HUMAN_RELATIONSHIP;
+    case 'consultant':
+      return SYSTEM_PROMPT_CONSULTANT;
+    case 'deep-exploration':
+      return `あなたは親切で役立つAIアシスタントです。
+ユーザーが深い考察と具体例を求めています。抽象的な表現を避け、以下のガイドラインに従ってください：
+
+1. 概念や理論を詳細に掘り下げて説明する
+2. 複数の具体例を用いて説明する（可能であれば3つ以上）
+3. 日常生活に関連付けた実践的な例を含める
+4. 抽象的な言葉や曖昧な表現を避け、明確で具体的な言葉を使う
+5. 必要に応じて、ステップバイステップの説明を提供する
+6. 専門用語を使う場合は、必ずわかりやすく解説する
+
+回答は体系的に構成し、ユーザーが実際に応用できる情報を提供してください。`;
+    default:
+      return SYSTEM_PROMPT_GENERAL;
+  }
+}
+
+async function storeInteraction(userId, role, content) {
+  try {
+    // 内容がオブジェクトの場合は文字列に変換
+    let contentToStore = content;
+    if (content && typeof content === 'object') {
+      if (content.response) {
+        // response プロパティがある場合はそれを使用
+        contentToStore = content.response;
+      } else if (content.text) {
+        // text プロパティがある場合はそれを使用
+        contentToStore = content.text;
+      } else {
+        // それ以外の場合は JSON 文字列に変換
+        contentToStore = JSON.stringify(content);
+      }
+    }
+    
+    console.log(
+      `Storing interaction => userId: ${userId}, role: ${role}, content: ${contentToStore}`
+    );
+    
+    // 一意のメッセージIDを生成
+    const messageId = Date.now().toString();
+    
+    // ConversationHistoryテーブルに保存
+    if (airtableBase) {
+      try {
+        await airtableBase('ConversationHistory').create([
+          {
+            fields: {
+              UserID: userId,
+              Role: role,
+              Content: contentToStore,
+              Timestamp: new Date().toISOString(),
+              Mode: 'general', // デフォルトのモードを追加
+              MessageType: 'text', // デフォルトのメッセージタイプを追加
+            },
+          },
+        ]);
+        
+        console.log(`会話履歴の保存成功 => ユーザー: ${userId}, タイプ: ${role}, 長さ: ${contentToStore.length}文字`);
+        return true;
+      } catch (airtableErr) {
+        console.error('Error storing to ConversationHistory:', airtableErr);
+        console.error(`ConversationHistory保存エラー => ユーザー: ${userId}`);
+        console.error(`エラータイプ: ${airtableErr.name || 'Unknown'}`);
+        console.error(`エラーメッセージ: ${airtableErr.message || 'No message'}`);
+        
+        // ConversationHistoryに保存できない場合は、元のINTERACTIONS_TABLEにフォールバック
+        if (airtableBase) {
+          await airtableBase(INTERACTIONS_TABLE).create([
+            {
+              fields: {
+                UserID: userId,
+                Role: role,
+                Content: contentToStore,
+                Timestamp: new Date().toISOString(),
+                // フォールバックテーブルには追加のフィールドは含めない（エラーの原因になる可能性あり）
+              },
+            },
+          ]);
+          console.log(`会話履歴のフォールバック保存成功 => INTERACTIONS_TABLEに保存`);
+          return true;
+        } else {
+          console.error('Airtable接続が設定されていないため、フォールバック保存もできませんでした');
+          return false;
+        }
+      }
+    } else {
+      console.warn('Airtable接続が初期化されていないため、会話履歴を保存できません');
+      return false;
+    }
+  } catch (err) {
+    console.error('Error storing interaction:', err);
+    // 詳細なエラー情報をログに出力（会話保存の失敗原因特定のため）
+    console.error(`会話保存エラーの詳細 => ユーザー: ${userId}`); 
+    console.error(`エラータイプ: ${err.name || 'Unknown'}`);
+    console.error(`エラーメッセージ: ${err.message || 'No message'}`);
+    return false;
+  }
+}
+
+async function fetchUserHistory(userId, limit) {
+  try {
+    console.log(`\n📚 ==== 会話履歴取得プロセス開始 - ユーザー: ${userId} ====`);
+    console.log(`📚 リクエスト内容: ${limit}件の会話履歴を取得します`);
+    
+    // API認証情報の検証（デバッグ用）
+    console.log(`📚 [接続検証] Airtable認証情報 => API_KEY存在: ${!!process.env.AIRTABLE_API_KEY}, BASE_ID存在: ${!!process.env.AIRTABLE_BASE_ID}`);
+    console.log(`📚 [接続検証] airtableBase初期化状態: ${airtableBase ? '成功' : '未初期化'}`);
+    
+    // 履歴分析用のメタデータオブジェクトを初期化
+    const historyMetadata = {
+      totalRecords: 0,
+      recordsByType: {},
+      hasCareerRelatedContent: false,
+      insufficientReason: null
+    };
+    
+    if (!airtableBase) {
+      console.error('📚 ❌ Airtable接続が初期化されていないため、履歴を取得できません');
+      historyMetadata.insufficientReason = 'airtable_not_initialized';
+      return { history: [], metadata: historyMetadata };
+    }
+    
+    // ConversationHistoryテーブルからの取得を試みる
+    try {
+      console.log(`📚 🔍 ConversationHistory テーブルからユーザー ${userId} の履歴を取得中...`);
+          
+      // すべてのフィールドを確実に取得するためのカラム指定
+      const columns = ['UserID', 'Role', 'Content', 'Timestamp', 'Mode', 'MessageType'];
+      
+      // filterByFormulaとsortを設定
+      console.log(`📚 📊 クエリ: UserID="${userId}" で最大${limit * 2}件を時間降順で取得`);
+          const conversationRecords = await airtableBase('ConversationHistory')
+            .select({
+              filterByFormula: `{UserID} = "${userId}"`,
+          sort: [{ field: 'Timestamp', direction: 'desc' }], // 降順に変更
+          fields: columns,  // 明示的にフィールドを指定
+              maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
+            })
+            .all();
+            
+          if (conversationRecords && conversationRecords.length > 0) {
+        console.log(`📚 ✅ 取得成功: ConversationHistoryテーブルから${conversationRecords.length}件のレコードを取得しました`);
+        
+        // 取得したデータを変換
+        const history = [];
+        
+        // 降順で取得したレコードを逆順（昇順）に処理
+        const recordsInAscOrder = [...conversationRecords].reverse();
+        console.log(`📚 🔄 レコードを時系列順（古い順）に並べ替えました`);
+        
+        console.log(`📚 📝 レコード処理開始 (${recordsInAscOrder.length}件)`);
+        for (const record of recordsInAscOrder) {
+          try {
+            // デバッグを追加
+            if (history.length === 0) {
+              console.log(`\n📚 📋 レコード構造サンプル =====`);
+              console.log(`📚 📌 レコードID: ${record.id}`);
+              console.log(`📚 📌 フィールド: ${JSON.stringify(record.fields)}`);
+              console.log(`📚 📋 レコード構造サンプル終了 =====\n`);
+            }
+            
+            // フィールドから直接データを取得（最も一般的な方法）
+            const role = record.fields.Role || '';
+            const content = record.fields.Content || '';
+            const timestamp = record.fields.Timestamp || '';
+            
+            // データのチェック
+            if (!content || content.trim() === '') {
+              console.log(`📚 ⚠️ 警告: レコード ${record.id} のContent (${content}) が空です。スキップします。`);
+              continue;
+            }
+            
+            // 正規化して追加
+            const normalizedRole = role.toLowerCase() === 'assistant' ? 'assistant' : 'user';
+            history.push({
+              role: normalizedRole,
+              content: content,
+              timestamp: timestamp
+            });
+            
+            // 進行状況ログ（10件ごと）
+            if (history.length % 10 === 0) {
+              console.log(`📚 🔢 ${history.length}件のメッセージを処理しました...`);
+            }
+            
+          } catch (recordErr) {
+            console.error(`📚 ❌ レコード処理エラー: ${recordErr.message}`);
+          }
+        }
+        
+        console.log(`📚 ✓ レコード処理完了 (${history.length}件のメッセージを正常に処理)`);
+            
+            // 履歴の内容を分析
+        historyMetadata.totalRecords += history.length;
+            analyzeHistoryContent(history, historyMetadata);
+            
+        // 最新のlimit件を取得
+            if (history.length > limit) {
+          console.log(`📚 ✂️ 履歴が多すぎるため、最新の${limit}件に制限します (${history.length}件→${limit}件)`);
+              return { history: history.slice(-limit), metadata: historyMetadata };
+            }
+        
+        console.log(`📚 ✅ 履歴取得完了: ${history.length}件のメッセージを返します`);
+        console.log(`📚 ==== 会話履歴取得プロセス終了 - ユーザー: ${userId} ====\n`);
+            return { history, metadata: historyMetadata };
+      } else {
+        console.log(`📚 ⚠️ ConversationHistoryテーブルにユーザー${userId}のレコードが見つかりませんでした`);
+          }
+        } catch (tableErr) {
+      console.error(`📚 ❌ ConversationHistoryテーブルエラー: ${tableErr.message}. UserAnalysisテーブルにフォールバックします。`);
+        }
+        
+    // ConversationHistoryが使えないかデータがない場合は旧テーブルからの取得を試みる
+    console.log(`📚 🔍 UserAnalysisテーブルからの履歴取得を試みます...`);
+        try {
+      const records = await airtableBase('UserAnalysis')
+            .select({
+          filterByFormula: `{UserID} = "${userId}"`,
+          maxRecords: 100
+            })
+            .all();
+            
+      if (records && records.length > 0) {
+        console.log(`📚 ✅ UserAnalysisテーブルから${records.length}件のレコードを取得しました`);
+        
+        // まず会話履歴として明示的に保存されたものを探す
+        const conversationRecord = records.find(r => r.get('Mode') === 'conversation');
+        if (conversationRecord) {
+          console.log(`📚 🔍 会話履歴レコードを発見しました (Mode='conversation')`);
+          try {
+            const analysisData = conversationRecord.get('AnalysisData');
+            if (analysisData) {
+              console.log(`📚 📦 AnalysisDataフィールドが存在します (サイズ: ${analysisData.length}文字)`);
+              let data;
+              try {
+                data = JSON.parse(analysisData);
+                if (data && data.conversation && Array.isArray(data.conversation)) {
+                  const history = data.conversation;
+                  console.log(`📚 ✅ 会話履歴の解析に成功: ${history.length}件のメッセージを取得`);
+                  
+                  // 履歴の内容を分析
+                  historyMetadata.totalRecords += history.length;
+                  analyzeHistoryContent(history, historyMetadata);
+                  
+                  // 最新のlimit件を取得
+                  if (history.length > limit) {
+                    console.log(`📚 ✂️ 履歴が多すぎるため、最新の${limit}件に制限します (${history.length}件→${limit}件)`);
+                    return { history: history.slice(-limit), metadata: historyMetadata };
+                  }
+                  
+                  console.log(`📚 ✅ 履歴取得完了: ${history.length}件のメッセージを返します`);
+                  console.log(`📚 ==== 会話履歴取得プロセス終了 - ユーザー: ${userId} ====\n`);
+                  return { history, metadata: historyMetadata };
+                } else {
+                  console.log(`📚 ⚠️ 無効なデータ形式: conversation配列が見つかりませんでした`);
+                }
+              } catch (jsonErr) {
+                console.error(`📚 ❌ JSON解析エラー: ${jsonErr.message}`);
+              }
+            } else {
+              console.log(`📚 ⚠️ AnalysisDataフィールドが空または存在しません`);
+            }
+          } catch (getErr) {
+            console.error(`📚 ❌ AnalysisData取得エラー: ${getErr.message}`);
+          }
+        } else {
+          console.log(`📚 ⚠️ 会話履歴レコード(Mode='conversation')が見つかりませんでした`);
+        }
+        
+        // 履歴レコードが見つからない場合は、テキストフィールドから最小限の情報を抽出
+        console.log(`📚 🔍 個別のメッセージレコードから履歴を再構築します...`);
+        const history = [];
+        
+        for (const record of records) {
+          try {
+            const userMessage = record.get('UserMessage');
+            const aiResponse = record.get('AIResponse');
+            
+            if (userMessage && userMessage.trim() !== '') {
+              history.push({
+                role: 'user',
+                content: userMessage
+              });
+            }
+            
+            if (aiResponse && aiResponse.trim() !== '') {
+              history.push({
+                role: 'assistant',
+                content: aiResponse
+              });
+            }
+          } catch (recordErr) {
+            // エラーは無視して次のレコードを処理
+          }
+        }
+    
+        console.log(`📚 ✅ メッセージの再構築完了: ${history.length}件のメッセージを抽出しました`);
+    
+    // 履歴の内容を分析
+        historyMetadata.totalRecords += history.length;
+    analyzeHistoryContent(history, historyMetadata);
+    
+        // 時間順に並べ替え (最も古いものから新しいものへ)
+        history.sort((a, b) => {
+          const timestampA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const timestampB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return timestampA - timestampB;
+        });
+        
+        // 最新のlimit件を取得
+        if (history.length > limit) {
+          console.log(`📚 ✂️ 履歴が多すぎるため、最新の${limit}件に制限します (${history.length}件→${limit}件)`);
+          return { history: history.slice(-limit), metadata: historyMetadata };
+        }
+        
+        console.log(`📚 ✅ 履歴取得完了: ${history.length}件のメッセージを返します`);
+        console.log(`📚 ==== 会話履歴取得プロセス終了 - ユーザー: ${userId} ====\n`);
+    return { history, metadata: historyMetadata };
+      } else {
+        console.log(`📚 ⚠️ UserAnalysisテーブルにもレコードが見つかりませんでした`);
+      }
+    } catch (tableErr) {
+      console.error(`📚 ❌ UserAnalysisテーブルエラー: ${tableErr.message}`);
+    }
+    
+    // どちらのテーブルからも取得できなかった場合は空配列を返す
+    console.log(`📚 ⚠️ どのテーブルからも履歴を取得できませんでした`);
+    console.log(`📚 ==== 会話履歴取得プロセス終了 - ユーザー: ${userId} ====\n`);
+    return { history: [], metadata: historyMetadata };
+  } catch (err) {
+    console.error(`📚 ❌ 履歴取得中の致命的エラー: ${err.message}`);
+    console.log(`📚 ==== 会話履歴取得プロセス終了(エラー) - ユーザー: ${userId} ====\n`);
+    return { history: [], metadata: { totalRecords: 0, insufficientReason: 'error' } };
+  }
+}
+
+// 履歴の内容を分析する関数
+function analyzeHistoryContent(history, metadata) {
+  console.log(`\n📊 ======= 履歴内容分析デバッグ =======`);
+  console.log(`📊 → 分析対象メッセージ数: ${history.length}件`);
+  
+  // 記録タイプのカウンターを初期化
+  metadata.recordsByType = metadata.recordsByType || {};
+  
+  // キャリア関連のキーワード
+  const careerKeywords = ['仕事', 'キャリア', '職業', '転職', '就職', '働き方', '業界', '適職'];
+  console.log(`📊 → キャリア関連キーワード: ${careerKeywords.join(', ')}`);
+  
+  // カウンター初期化
+  let careerContentCount = 0;
+  let userMessageCount = 0;
+  
+  // 各メッセージを分析
+  console.log(`📊 → メッセージ分析開始...`);
+  history.forEach((msg, index) => {
+    if (msg.role === 'user') {
+      userMessageCount++;
+      const content = msg.content.toLowerCase();
+      
+      // 詳細ログ（最初の5件だけ表示）
+      if (index < 5) {
+        console.log(`📊 → [メッセージ ${index+1}] ${content.substring(0, 40)}...`);
+      } else if (index === 5) {
+        console.log(`📊 → ... (残り ${history.length - 5} 件のメッセージは省略します)`);
+      }
+      
+      // キャリア関連の内容かチェック
+      if (careerKeywords.some(keyword => content.includes(keyword))) {
+        metadata.recordsByType.career = (metadata.recordsByType.career || 0) + 1;
+        metadata.hasCareerRelatedContent = true;
+        careerContentCount++;
+        
+        // キャリアキーワードがマッチした場合のみ詳細ログ
+        if (index >= 5) { // すでに省略されたメッセージの場合だけ表示
+          console.log(`📊 → [重要 ${index+1}] キャリア関連: ${content.substring(0, 40)}...`);
+        }
+      }
+    }
+  });
+  
+  // 分析結果ログ
+  console.log(`\n📊 === 分析サマリー ===`);
+  console.log(`📊 → 総メッセージ数: ${history.length}件`);
+  console.log(`📊 → ユーザーメッセージ: ${userMessageCount}件`);
+  console.log(`📊 → キャリア関連: ${careerContentCount}件 (${Math.round(careerContentCount/Math.max(userMessageCount,1)*100)}%)`);
+  
+  // メッセージの時間範囲分析（タイムスタンプがある場合）
+  try {
+    const timestamps = history
+      .filter(msg => msg.timestamp)
+      .map(msg => new Date(msg.timestamp).getTime());
+    
+    if (timestamps.length > 0) {
+      const oldestTime = new Date(Math.min(...timestamps));
+      const newestTime = new Date(Math.max(...timestamps));
+      const durationDays = Math.round((newestTime - oldestTime) / (24 * 60 * 60 * 1000));
+      
+      console.log(`📊 → 会話期間: ${durationDays}日間 (${oldestTime.toLocaleDateString('ja-JP')} 〜 ${newestTime.toLocaleDateString('ja-JP')})`);
+    }
+  } catch (timeErr) {
+    console.log(`📊 → 会話期間: タイムスタンプ分析でエラー (${timeErr.message})`);
+  }
+  
+  // メタデータの設定
+  if (history.length < 3) {
+    metadata.insufficientReason = 'few_records';
+    console.log(`📊 → 結論: 履歴が少ない (${history.length}件)`);
+  } else {
+    console.log(`📊 → 結論: 分析に十分な履歴あり (${history.length}件)`);
+  }
+  
+  console.log(`📊 ======= 履歴内容分析デバッグ終了 =======\n`);
+}
+
+function applyAdditionalInstructions(basePrompt, mode, historyData, userMessage) {
+  let finalPrompt = basePrompt;
+  
+  // historyDataから履歴とメタデータを取得
+  const history = historyData.history || [];
+  const metadata = historyData.metadata || {};
+
+  // Add character limit instruction (add this at the very beginning)
+  finalPrompt = `
+※重要: すべての返答は必ず500文字以内に収めてください。
+
+${finalPrompt}`;
+
+  // Add summarization instruction
+  finalPrompt += `
+※ユーザーが長文を送信した場合、それが明示的な要求がなくても、以下のように対応してください：
+1. まず内容を簡潔に要約する（「要約すると：」などの前置きは不要）
+2. その後で、具体的なアドバイスや質問をする
+3. 特に200文字以上の投稿は必ず要約してから返答する
+`;
+
+  // 履歴メタデータに基づいて説明を追加
+  if ((mode === 'characteristics' || mode === 'career') && metadata && metadata.insufficientReason) {
+    // 履歴が少ない場合
+    if (metadata.insufficientReason === 'few_records') {
+      finalPrompt += `
+※より正確な分析をするために、ユーザーから追加情報を引き出してください。オープンエンドな質問をして、ユーザーの特性や状況をより深く理解するよう努めてください。ただし、「過去の会話記録が少ない」「履歴が不足している」などの否定的な表現は絶対に使わないでください。
+
+[質問例]
+• 現在の職種や経験について
+• 興味のある分野や得意なこと
+• 働く上で大切にしたい価値観
+• 具体的なキャリアの悩みや課題
+`;
+    } 
+    // 主に翻訳依頼の場合
+    else if (metadata.insufficientReason === 'mostly_translation') {
+      finalPrompt += `
+※より正確な分析をするために、ユーザーから追加情報を引き出してください。オープンエンドな質問をして、ユーザーの特性や状況をより深く理解するよう努めてください。ただし、「過去の会話記録が少ない」「翻訳依頼が多い」などの否定的な表現は絶対に使わないでください。
+
+[質問例]
+• 現在の職種や経験について
+• 興味のある分野や得意なこと
+• 働く上で大切にしたい価値観
+• 具体的なキャリアの悩みや課題
+`;
+    }
+  } 
+  // 従来の条件（履歴が少ない場合）
+  else if ((mode === 'characteristics' || mode === 'career') && history.length < 3) {
+    finalPrompt += `
+※ユーザーの履歴が少ないです。まずは本人に追加の状況説明や詳細を尋ね、やりとりを増やして理解を深めてください。
+
+[質問例]
+• 現在の職種や経験について
+• 興味のある分野や得意なこと
+• 働く上で大切にしたい価値観
+• 具体的なキャリアの悩みや課題
+`;
+  }
+
+  // Add Perplexity data handling instruction for career mode
+  if (mode === 'career') {
+    finalPrompt += `
+## Perplexityから取得した最新の市場データの活用方法
+
+Perplexityから取得した最新の市場データや特性分析が含まれる場合、以下の方法で活用してください：
+
+1. 市場データを分析に適切に組み込む
+2. 「現在の市場動向では～」という形で最新情報に言及する
+3. データに基づいた、ユーザーの特性を考慮した具体的な提案をする
+4. ユーザーの特性と市場データの関連性を説明する
+5. 求人情報があれば、それを適切に紹介する
+
+これらの情報は別途「# 最新の市場データ」と「# ユーザー特性の追加分析」として提供されます。
+`;
+  }
+
+  finalPrompt += `
+※ユーザーの文章からコミュニケーション能力や理解度を推定し、返答の難易度や言葉遣いを自然に調整してください。
+AIが「IQを計測」とは明示せず、自然に簡易化または高度化します。
+`;
+
+  if (/\b(child|friend|someone|others|children|son|daughter)\b/.test(userMessage)) {
+    finalPrompt += `
+※ユーザーが自分以外の第三者の分析を依頼している可能性があります。誰の特徴か曖昧なら、会話の中で丁寧に確認してください。
+`;
+  }
+
+  finalPrompt += `
+※重度の発達障害の相談や重要な進路選択の場合、「専門家にも相談ください」と定期的に伝えてください。
+`;
+
+  finalPrompt += `
+Please understand if user wants to end a conversation or not by context. Especially when user's sentiment is strong (positive or negative), do not suspend the conversation at your own.
+ユーザーの障害があまりにも重い場合、状況認識や表情・仕草等の理解が難しいと思われます。その場合、ユーザーに「Adamに直接、長文でいいので全部書いて」とアドバイスし、ユーザーが書き終わったら、Adamが状況を分析し対応策を具体的に指示してください。
+(1) 毎回の会話でAIが相手の状況理解の障害の重さを可能性レベルで判断し、仮説を立てる。 
+(2) 重い可能性が高いと判断したら、ユーザーへの返信時に(1)の仮説を自然かつ尊重的な言い回しで確認（過去の指摘経験など）。 
+(3) ユーザーが仮説を認めたら「整理しようとせず思いつくまま長文で全部書いて」と依頼。 
+(4) 書かれた内容をAIが分析し、必要な支援策や提案を具体的に行う。ただし医療的な診断は行わない。
+`;
+
+  return finalPrompt;
+}
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
 // callPrimaryModel関数を元のシンプルな実装に戻す
 async function callPrimaryModel(gptOptions) {
   try {
@@ -957,7 +1779,7 @@ Adamがユーザーに送る文章をあなたが分析し、現実的である�
 　　　内容が実行可能で現実的であるかを確認し、必要に応じて現実的な表現に修正してください。
 	2. 出力の要件:
 　　　• 修正後の内容のみを出力してください。修正点や理由は記述しないでください。
-　　　• ラベルや修正を示唆する表現は含まなないでください。
+　　　• ラベルや修正を示唆する表現は含まないでください。
 　　　• 元の文章の口調や共感的なトーンを維持してください。
 	3. 整合性・一貫性の確認:
 　　　最新のメッセージ内容、過去の会話履歴および過去のAIの返答との間に矛盾がないか確認してください。
@@ -1011,9 +1833,9 @@ ${pastAiReturns}
 
   const messages = [{ role: 'user', content: baseCriticPrompt }];
   const criticOptions = {
-    model: 'gpt-4o-mini',
+    model: 'o3-mini-2025-01-31',
     messages,
-    temperature: 0.8,
+    temperature: 1,
   };
 
   try {
@@ -1307,7 +2129,7 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     const hasStrongCareerPattern = strongCareerPatterns.some(pattern => pattern.test(userMessage));
     
     // 高度なキャリアリクエスト検出ロジックを使用
-    const isJobAnalysisRequest = await isJobRequestSemantic(userMessage);
+    const isJobAnalysisRequest = isJobRequest(userMessage);
       
     // キャリア関連のクエリの場合、モードを'career'に設定
     if ((isCareerQuery || hasStrongCareerPattern || isJobAnalysisRequest) && mode !== 'career') {
@@ -3049,444 +3871,6 @@ async function handleAudio(event) {
         const daysUntilNextMonth = Math.ceil((nextMonth - now) / (1000 * 60 * 60 * 24));
         
         limitMessage += `\n\n制限は${daysUntilNextMonth}日後（翌月1日）にリセットされます。`;
-      }
-      
-      // 限界到達メッセージを送信して終了（これ以上の処理は行わない）
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: limitMessage
-      });
-      return;
-    }
-    
-    // ここから先は制限内のユーザーのみ実行される
-    
-    // 音声ファイルのダウンロード
-    const audioStream = await client.getMessageContent(messageId);
-    
-    // バッファに変換
-    const audioChunks = [];
-    for await (const chunk of audioStream) {
-      audioChunks.push(chunk);
-    }
-    const audioBuffer = Buffer.concat(audioChunks);
-    
-    console.log('音声テキスト変換と特性分析開始');
-    
-    // 音声テキスト変換（Whisper API or Azure）
-    const transcriptionResult = await audioHandler.transcribeAudio(audioBuffer, userId, { language: 'ja' });
-    
-    // 利用制限チェック（音声テキスト変換後）
-    if (transcriptionResult.limitExceeded) {
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: transcriptionResult.limitMessage || '音声機能の利用制限に達しています。'
-      });
-      return;
-    }
-    
-    const transcribedText = transcriptionResult.text;
-    
-    // テキストが取得できなかった場合
-    if (!transcribedText) {
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: "申し訳ありません、音声からテキストを認識できませんでした。もう一度お試しいただくか、テキストでメッセージをお送りください。"
-      });
-      return;
-    }
-    
-    // 音声テキスト変換結果をログ出力
-    console.log(`音声テキスト変換結果: "${transcribedText}"`);
-    
-    // 利用制限の状況をより詳細にログ出力
-    const dailyRemaining = limitInfo.dailyLimit - limitInfo.dailyCount;
-    console.log(`音声会話利用状況 (${userId}): 本日=${limitInfo.dailyCount}/${limitInfo.dailyLimit} (残り${dailyRemaining}回), 全体=${limitInfo.globalCount}/${limitInfo.globalLimit} (${Math.round((limitInfo.globalCount / limitInfo.globalLimit) * 100)}%)`);
-    
-    // 音声コマンド（設定変更など）かどうかチェック
-    const isVoiceCommand = await audioHandler.detectVoiceChangeRequest(transcribedText, userId);
-    
-    let replyMessage;
-    
-    if (isVoiceCommand) {
-      // 音声コマンド処理
-      const parseResult = await audioHandler.parseVoiceChangeRequest(transcribedText, userId);
-      
-      if (parseResult.isVoiceChangeRequest && parseResult.confidence > 0.7) {
-        // 明確な設定変更リクエストがあった場合
-        if (parseResult.voiceChanged || parseResult.speedChanged) {
-          // 設定が変更された場合、変更内容を返信
-          const currentSettings = parseResult.currentSettings;
-          const voiceInfo = audioHandler.availableVoices[currentSettings.voice] || { label: currentSettings.voice };
-          
-          replyMessage = `音声設定を更新しました：\n`;
-          replyMessage += `・声のタイプ: ${voiceInfo.label}\n`;
-          replyMessage += `・話速: ${currentSettings.speed === 0.8 ? 'ゆっくり' : currentSettings.speed === 1.2 ? '速い' : '普通'}\n\n`;
-          replyMessage += `次回の音声応答から新しい設定が適用されます。`;
-        } else {
-          // 変更できなかった場合、音声設定選択メニューを返信
-          replyMessage = `音声設定の変更リクエストを受け付けました。\n\n`;
-          replyMessage += audioHandler.generateVoiceSelectionMessage();
-        }
-      } else {
-        // 詳細が不明確な音声関連の問い合わせに対して選択肢を提示
-        replyMessage = audioHandler.generateVoiceSelectionMessage();
-      }
-      
-      // 音声コマンドの場合はテキストで返信
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: replyMessage
-      });
-      return;
-    } 
-    
-    // 通常のメッセージ処理
-    let processedResult;
-    const sanitizedText = sanitizeUserInput(transcribedText);
-      
-    // メッセージからモードを検出
-    const { mode, limit } = determineModeAndLimit(sanitizedText);
-    console.log(`モード検出: "${sanitizedText.substring(0, 30)}..." => モード: ${mode}, 履歴制限: ${limit}件`);
-      
-    // 履歴の取得
-    console.log(`会話履歴取得プロセス開始 - ユーザー: ${userId}`);
-    const historyData = await fetchUserHistory(userId, limit) || [];
-    const history = Array.isArray(historyData) ? historyData : (historyData.history || []);
-    console.log(`会話履歴取得完了: ${history.length}件`);
-      
-    // AIへの送信前に、過去の関連メッセージをセマンティック検索で取得
-    let contextMessages = [];
-    if (semanticSearch && typeof semanticSearch.findSimilarMessages === 'function') {
-      try {
-        const similarMessages = await semanticSearch.findSimilarMessages(userId, sanitizedText);
-        if (similarMessages && similarMessages.length > 0) {
-          contextMessages = similarMessages.map(msg => ({
-            role: 'context',
-            content: msg.content
-          }));
-        }
-      } catch (searchErr) {
-        console.error('セマンティック検索エラー:', searchErr);
-      }
-    }
-      
-    // 特性分析モードの場合の特別処理
-    if (mode === 'characteristics') {
-      console.log('特性分析モードを開始します');
-      try {
-        const characteristicsResult = await enhancedCharacteristics.analyzeCharacteristics(userId, sanitizedText);
-        
-        // 特性分析結果を文字列型に統一
-        if (typeof characteristicsResult === 'string') {
-          replyMessage = characteristicsResult;
-        } else if (characteristicsResult && typeof characteristicsResult === 'object') {
-          if (characteristicsResult.analysis) {
-            replyMessage = characteristicsResult.analysis;
-          } else if (characteristicsResult.response) {
-            replyMessage = characteristicsResult.response;
-          } else if (characteristicsResult.text) {
-            replyMessage = characteristicsResult.text;
-          } else {
-            // オブジェクトを文字列に変換
-            replyMessage = JSON.stringify(characteristicsResult);
-          }
-        } else {
-          replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。もう一度お試しください。';
-        }
-      } catch (err) {
-        console.error('特性分析処理エラー:', err);
-        replyMessage = '申し訳ありません、特性分析中にエラーが発生しました。';
-      }
-    }
-    // 適職診断モードの場合の特別処理
-    else if (mode === 'career') {
-      console.log('適職診断モードを開始します');
-      // キャリア分析専用の関数を呼び出し
-      try {
-        replyMessage = await generateCareerAnalysis(history, sanitizedText);
-      } catch (err) {
-        console.error('キャリア分析エラー:', err);
-        replyMessage = '申し訳ありません、キャリア分析中にエラーが発生しました。';
-      }
-    }
-    // 通常の会話応答の生成
-    else {
-      try {
-        replyMessage = await generateAIResponse(sanitizedText, history, contextMessages, userId, mode);
-      } catch (err) {
-        console.error('AI応答生成エラー:', err);
-        replyMessage = '申し訳ありません、応答生成中にエラーが発生しました。';
-      }
-    }
-      
-    // 会話履歴を更新
-    if (!sessions[userId]) sessions[userId] = { history: [] };
-    sessions[userId].history.push({ role: "user", content: sanitizedText });
-    sessions[userId].history.push({ role: "assistant", content: replyMessage });
-      
-    // 会話履歴が長すぎる場合は削除
-    if (sessions[userId].history.length > 20) {
-      sessions[userId].history = sessions[userId].history.slice(-20);
-    }
-      
-    // 会話内容を保存
-    try {
-      await storeInteraction(userId, 'user', sanitizedText);
-      await storeInteraction(userId, 'assistant', replyMessage);
-    } catch (storageErr) {
-      console.error('会話保存エラー:', storageErr);
-    }
-    
-    // ユーザー設定を反映した音声応答生成
-    const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
-    const audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
-    
-    // 処理結果に利用状況メッセージを追加（直近回数情報）
-    const usageLimitMessage = audioHandler.generateUsageLimitMessage(limitInfo);
-    
-    // 音声が生成できなかった場合はテキストで返信
-    if (!audioResponse || !audioResponse.buffer || !audioResponse.filePath) {
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: replyMessage + '\n\n' + usageLimitMessage
-      });
-      return;
-    }
-    
-    // 音声ファイルが存在するか確認
-    if (!fs.existsSync(audioResponse.filePath)) {
-      console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: replyMessage + '\n\n' + usageLimitMessage
-      });
-      return;
-    }
-    
-    // 音声URLを構築
-    const fileBaseName = path.basename(audioResponse.filePath);
-    const audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
-    
-    // 残り回数が1回以下の場合は音声と一緒に利用状況メッセージも送信（Flex Message）
-    // dailyRemainingは3916行目で既に宣言済みのため再宣言しない
-    if (dailyRemaining <= 1) {
-      // 音声メッセージと利用制限テキストを一緒に送信
-      await client.replyMessage(event.replyToken, [
-        {
-          type: 'audio',
-          originalContentUrl: audioUrl,
-          duration: 60000 // 適当な値
-        },
-        {
-          type: 'text',
-          text: usageLimitMessage
-        }
-      ]).catch(error => {
-        console.error('複合メッセージ送信エラー:', error.message);
-        // 音声メッセージ送信に失敗した場合、テキストで再試行
-        if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
-          console.log('音声メッセージ送信失敗、テキストで再試行します');
-          return client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: replyMessage + '\n\n' + usageLimitMessage
-          });
-        }
-      });
-    } else {
-      // 通常通り音声のみを返信
-      await client.replyMessage(event.replyToken, {
-        type: 'audio',
-        originalContentUrl: audioUrl,
-        duration: 60000 // 適当な値
-      }).catch(error => {
-        console.error('音声送信エラー:', error.message);
-        // 音声メッセージ送信に失敗した場合、テキストで再試行
-        if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
-          console.log('音声メッセージ送信失敗、テキストで再試行します');
-          return client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: replyMessage + '\n\n' + usageLimitMessage
-          });
-        }
-      });
-    }
-    
-    // 統計データ更新
-    updateUserStats(userId, 'audio_messages', 1);
-    updateUserStats(userId, 'audio_responses', 1);
-    
-  } catch (error) {
-    console.error('音声会話処理エラー:', error);
-    
-    try {
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '申し訳ありません、音声処理中にエラーが発生しました。もう一度お試しいただくか、テキストでメッセージをお送りください。'
-      });
-    } catch (replyError) {
-      console.error('エラー応答送信エラー:', replyError);
-    }
-  }
-}
-
-/**
- * ユーザー統計情報を更新する関数
- * @param {string} userId - ユーザーID
- * @param {string} statType - 統計タイプ（例: 'audio_messages', 'text_messages'）
- * @param {number} increment - 増加量（デフォルト: 1）
- */
-function updateUserStats(userId, statType, increment = 1) {
-  try {
-    // 有効なユーザーIDか確認
-    if (!userId || typeof userId !== 'string') {
-      console.error('updateUserStats: 無効なユーザーID', userId);
-      return;
-    }
-
-    // 統計タイプに基づいて適切なinsightsServiceメソッドを呼び出す
-    switch(statType) {
-      case 'text_messages':
-        // テキストメッセージの場合は内容が必要なので、ダミーテキストを使用
-        insightsService.trackTextRequest(userId, "メッセージ統計のみ更新");
-        break;
-      case 'audio_messages':
-      case 'audio_responses':
-        // 音声メッセージはtrackAudioRequestで記録
-        insightsService.trackAudioRequest(userId);
-        break;
-      case 'line_compliant_voice_requests':
-        // LINE準拠の音声リクエストも同様に記録
-        insightsService.trackAudioRequest(userId);
-        break;
-      case 'image_requests':
-        // 画像リクエストの場合
-        insightsService.trackImageRequest(userId, "画像生成統計のみ更新");
-        break;
-      default:
-        console.warn(`updateUserStats: 未知の統計タイプ "${statType}"`);
-    }
-    
-    console.log(`ユーザー統計更新: ${userId}, タイプ: ${statType}, 増加: ${increment}`);
-  } catch (error) {
-    console.error('ユーザー統計更新エラー:', error);
-  }
-}
-
-// 特殊コマンドのチェック
-function containsSpecialCommand(text) {
-  // 深い分析モードを検出
-  const deepAnalysisPattern = /もっと深く考えを掘り下げて例を示しながらさらに分かり易く(\(見やすく\))?教えてください。抽象的言葉禁止。/;
-  const hasDeepAnalysis = deepAnalysisPattern.test(text);
-  
-  // より詳細なパターン検出を追加
-  const hasAskForDetail = text.includes('詳しく教えて') || 
-                          text.includes('詳細を教えて') || 
-                          text.includes('もっと詳しく');
-  
-  // 過去の記録を思い出すコマンドを検出
-  const hasRecallHistory = text.includes('過去の記録') && 
-                          (text.includes('全て思い出して') || text.includes('思い出してください'));
-                          
-  // 検索コマンドを検出
-  const searchPattern = /「(.+?)」(について)?(を)?検索して(ください)?/;
-  const searchMatch = text.match(searchPattern);
-  const hasSearchCommand = searchMatch !== null;
-  const searchQuery = hasSearchCommand ? searchMatch[1] : null;
-  
-  // Web検索コマンドの別パターン
-  const altSearchPattern = /「(.+?)」(について)?(の)?情報を(ネットで|Web上?で|インターネットで)?調べて(ください)?/;
-  const altSearchMatch = text.match(altSearchPattern);
-  const hasAltSearchCommand = altSearchMatch !== null;
-  const altSearchQuery = hasAltSearchCommand ? altSearchMatch[1] : null;
-  
-  // Claudeモードを検出
-  const claudePattern = /(Claude|クロード)(モード|で|に)(.*)/;
-  const claudeMatch = text.match(claudePattern);
-  const hasClaudeRequest = claudeMatch !== null;
-  const claudeQuery = hasClaudeRequest ? claudeMatch[3]?.trim() : null;
-  
-  return {
-    hasDeepAnalysis,
-    hasAskForDetail,
-    hasRecallHistory,
-    hasSearchCommand,
-    hasClaudeRequest,
-    claudeQuery,
-    searchQuery: searchQuery || altSearchQuery
-  };
-}
-
-/**
- * 適職・キャリア分析リクエストを検出する関数
- * パターンマッチングと意味解析を組み合わせて高精度で検出
- * @param {string} text - ユーザーメッセージ
- * @returns {boolean} - 適職リクエストかどうか
- */
-function isJobRequest(text) {
-  // 1. 直接的なキーワード検出 - 最も高速で確実
-  const directKeywords = [
-    '適職', '診断', 'キャリア', '向いてる', '向いている', 
-    '私に合う', '私に合った', 'キャリアパス'
-  ];
-  
-  if (directKeywords.some(keyword => text.includes(keyword))) {
-    console.log(`👔 [キャリア検出] 直接キーワード一致: "${text}"`);
-    return true;
-  }
-  
-  // 2. 強力なパターンマッチング - より複雑なパターンを検出
-  const careerPatterns = [
-    /私の?(?:適職|向いている職業|仕事)/,
-    /(?:仕事|職業|キャリア)(?:について|を)(?:教えて|分析して|診断して)/,
-    /私に(?:合う|向いている)(?:仕事|職業|キャリア)/,
-    /(?:記録|履歴|会話).*(?:思い出して|分析して).*(?:適職|仕事|職業)/,
-    /職場.*(?:社風|人間関係)/
-  ];
-  
-  if (careerPatterns.some(pattern => pattern.test(text))) {
-    console.log(`👔 [キャリア検出] パターン一致: "${text}"`);
-    return true;
-  }
-  
-  // 3. コンテキスト分析 - キャリア関連のコンテキストを検出
-  const jobContext1 = text.includes('仕事') && (
-    text.includes('探し') || 
-    text.includes('教えて') || 
-    text.includes('どんな') || 
-    text.includes('アドバイス')
-  );
-  
-  const jobContext2 = text.includes('職場') && (
-    text.includes('環境') || 
-    text.includes('人間関係') || 
-    text.includes('社風')
-  );
-  
-  if (jobContext1 || jobContext2) {
-    console.log(`👔 [キャリア検出] コンテキスト一致: "${text}"`);
-    return true;
-  }
-  
-  // 上記すべての検出に失敗した場合は、より詳細な文脈解析が必要
-  console.log(`👔 [キャリア検出] 不一致: "${text}"`);
-  return false;
-}
-
-// メッセージのモードを判定する関数
-
-/**
- * Semantic job request detection using OpenAI
- * Uses AI to determine if a message is requesting job/career recommendations
- * @param {string} text - The user message
- * @returns {Promise<boolean>} - Whether the message is a career-related request
- */
-async function isJobRequestSemantic(text) {
-  // Skip semantic analysis for obvious cases
-  if (text.includes("適職") || text.includes("キャリア診断") || text.includes("向いてる仕事") || 
-      (text.includes("思い出して") && (text.includes("適職") || text.includes("仕事") || text.includes("キャリア"))) ||
-      /記録.*(思い出|教え|診断).*(適職|仕事|職業|キャリア)/.test(text)) {
-    console.log('👔 キャリア検出: 明示的なキーワードを検出: ' + text.substring(0, 30));
 require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
@@ -3943,9 +4327,10 @@ const intentRoutes = require('./routes/api/intent');
 app.use('/api/intent', intentRoutes);
 
 // webhookエンドポイント用の特別な設定
-const rawBodyParser = express.raw({
-  type: 'application/json',
-  limit: '1mb'
+const rawBodyParser = express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
 });
 
 const config = {
@@ -3955,39 +4340,39 @@ const config = {
 const client = new line.Client(config);
 
 // webhookエンドポイントの定義
-app.post('/webhook', rawBodyParser, line.middleware(config), (req, res) => {
-  console.log('Webhook was called! Events:', JSON.stringify(req.body, null, 2));
-  
-  // リクエストにeventsがない場合のエラー処理を追加
-  if (!req.body || !req.body.events || !Array.isArray(req.body.events)) {
-    console.warn('Invalid webhook request format:', req.body);
-    // 常に200 OKを返す（LINEプラットフォームの要件）
-    return res.status(200).json({
-      message: 'Invalid webhook data received, but still returning 200 OK as per LINE Platform requirements'
-    });
-  }
-  
-  // 重要な変更: すぐに200 OKを返して、Herokuのタイムアウトを防ぐ
-  res.status(200).json({
-    message: 'Webhook received, processing in background'
-  });
-  
-  // 処理をバックグラウンドで継続（レスポンス後に処理を続行）
-  (async () => {
-    try {
-      // 各イベントを非同期で処理
-      const results = await Promise.all(req.body.events.map(event => {
-    // handleEventが例外をスローする可能性があるため、Promise.resolveでラップする
-    return Promise.resolve().then(() => handleEvent(event))
-      .catch(err => {
-        console.error(`Error handling event: ${JSON.stringify(event)}`, err);
-        return null; // エラーを飲み込んで処理を続行
-      });
-      }));
-      
-      console.log(`Webhook processing completed for ${results.filter(r => r !== null).length} events`);
-    } catch (err) {
-      console.error('Webhook background processing error:', err);
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE: app.post('/webhook', rawBodyParser, line.middleware(config), (req, res) => {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   console.log('Webhook was called! Events:', JSON.stringify(req.body, null, 2));
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   // リクエストにeventsがない場合のエラー処理を追加
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   if (!req.body || !req.body.events || !Array.isArray(req.body.events)) {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     console.warn('Invalid webhook request format:', req.body);
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     // 常に200 OKを返す（LINEプラットフォームの要件）
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     return res.status(200).json({
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       message: 'Invalid webhook data received, but still returning 200 OK as per LINE Platform requirements'
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     });
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   }
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   // 重要な変更: すぐに200 OKを返して、Herokuのタイムアウトを防ぐ
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   res.status(200).json({
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     message: 'Webhook received, processing in background'
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   });
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   // 処理をバックグラウンドで継続（レスポンス後に処理を続行）
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:   (async () => {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     try {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       // 各イベントを非同期で処理
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       const results = await Promise.all(req.body.events.map(event => {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     // handleEventが例外をスローする可能性があるため、Promise.resolveでラップする
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     return Promise.resolve().then(() => handleEvent(event))
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       .catch(err => {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:         console.error(`Error handling event: ${JSON.stringify(event)}`, err);
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:         return null; // エラーを飲み込んで処理を続行
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       });
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       }));
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       console.log(`Webhook processing completed for ${results.filter(r => r !== null).length} events`);
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:     } catch (err) {
+// COMMENTED OUT DUPLICATE WEBHOOK ROUTE:       console.error('Webhook background processing error:', err);
     }
   })();
 });
@@ -4059,7 +4444,7 @@ const serviceRecommender = new ServiceRecommender(airtableBase); // baseをairta
 require('./loadEnhancements')(serviceRecommender);
 
 const SYSTEM_PROMPT_GENERAL = `
-あなたは「Adam」という優しいプロのAIカウンセラーです。20年以上のベテランです。
+あなたは「Adam」という優しいアシスタントです。
 
 【役割】
 ASDやADHDなど発達障害の方へのサポートが主目的です。
@@ -4070,9 +4455,10 @@ Xの共有方法を尋ねられた場合は、「もしAdamのことが好きな
 
 【出力形式】
 ・日本語で回答してください。
+・200文字以内で回答してください。
 ・必要に応じて（ユーザーの他者受容特性に合わせて）客観的なアドバイス（ユーザー自身の思考に相対する指摘事項も含む）を建設的かつ謙虚な表現で提供してください。
 ・会話履歴を参照して一貫した対話を行ってください。
-・人間の専門家への相談を推奨してください。
+・専門家への相談を推奨してください。
 ・「AIとして思い出せない、または「記憶する機能を持っていない」は禁止、ここにある履歴があなたの記憶です。
 ・ユーザーのメッセージ内容をしっかりと理解し、その内容の前提を踏まえる。
 ・ユーザーからの抽象的で複数の解釈の余地のある場合は、わかりやすく理由とともに質問をして具体化する。
@@ -4341,6 +4727,8 @@ function isDirectImageGenerationRequest(text) {
     '画像を生成', '画像を作成', '画像を作って', 'イメージを生成', 'イメージを作成', 'イメージを作って',
     '図を生成', '図を作成', '図を作って', '図解して', '図解を作成', '図解を生成',
     'ビジュアル化して', '視覚化して', '絵を描いて', '絵を生成', '絵を作成',
+    '画像で説明', 'イメージで説明', '図で説明', '視覚的に説明',
+    '画像にして', 'イラストを作成', 'イラストを生成', 'イラストを描いて',
     // 追加パターン - 「〇〇を生成して」形式
     '生成して', '作成して', '描いて', '表示して', '見せて'
   ];
@@ -4552,86 +4940,72 @@ function getSystemPromptForMode(mode) {
   }
 }
 
-async function storeInteraction(userId, role, content) {
-  try {
-    // 内容がオブジェクトの場合は文字列に変換
-    let contentToStore = content;
-    if (content && typeof content === 'object') {
-      if (content.response) {
-        // response プロパティがある場合はそれを使用
-        contentToStore = content.response;
-      } else if (content.text) {
-        // text プロパティがある場合はそれを使用
-        contentToStore = content.text;
-      } else {
-        // それ以外の場合は JSON 文字列に変換
-        contentToStore = JSON.stringify(content);
-      }
-    }
-    
-    console.log(
-      `Storing interaction => userId: ${userId}, role: ${role}, content: ${contentToStore}`
-    );
-    
-    // 一意のメッセージIDを生成
-    const messageId = Date.now().toString();
-    
-    // ConversationHistoryテーブルに保存
-    if (airtableBase) {
-      try {
-        await airtableBase('ConversationHistory').create([
-          {
-            fields: {
-              UserID: userId,
-              Role: role,
-              Content: contentToStore,
-              Timestamp: new Date().toISOString(),
-              Mode: 'general', // デフォルトのモードを追加
-              MessageType: 'text', // デフォルトのメッセージタイプを追加
-            },
-          },
-        ]);
-        
-        console.log(`会話履歴の保存成功 => ユーザー: ${userId}, タイプ: ${role}, 長さ: ${contentToStore.length}文字`);
-        return true;
-      } catch (airtableErr) {
-        console.error('Error storing to ConversationHistory:', airtableErr);
-        console.error(`ConversationHistory保存エラー => ユーザー: ${userId}`);
-        console.error(`エラータイプ: ${airtableErr.name || 'Unknown'}`);
-        console.error(`エラーメッセージ: ${airtableErr.message || 'No message'}`);
-        
-        // ConversationHistoryに保存できない場合は、元のINTERACTIONS_TABLEにフォールバック
-        if (airtableBase) {
-          await airtableBase(INTERACTIONS_TABLE).create([
-            {
-              fields: {
-                UserID: userId,
-                Role: role,
-                Content: contentToStore,
-                Timestamp: new Date().toISOString(),
-                // フォールバックテーブルには追加のフィールドは含めない（エラーの原因になる可能性あり）
-              },
-            },
-          ]);
-          console.log(`会話履歴のフォールバック保存成功 => INTERACTIONS_TABLEに保存`);
-          return true;
-        } else {
-          console.error('Airtable接続が設定されていないため、フォールバック保存もできませんでした');
-          return false;
+async function storeInteraction(userId, role, content, options = {}) {
+  // contentがオブジェクトの場合、安全に文字列化（例: AIからの応答オブジェクトなど）
+  const contentString = typeof content === 'object' ? JSON.stringify(content, null, 2) : content;
+  const timestamp = new Date().toISOString();
+  const { mode = 'general', analysisResult = null, analysisSource = 'unknown' } = options; // オプションからモードと分析結果を取得
+
+  // 分析結果の概要ログ用
+  const analysisResultSummary = analysisResult ? `有り (Keys: ${Object.keys(analysisResult).join(', ')})` : '無し';
+
+  console.log(`[Log] DB保存処理開始: UserID=${userId}, Role=${role}, Mode=${mode}`); // Log修正: 関数開始の意図を明確化
+  console.log(`[Log] DB保存データ概要: 分析ソース=${analysisSource}, 分析結果=${analysisResultSummary}`); // Log追加: 保存するデータの概要
+
+  // 1. Airtableへの保存 (プライマリ)
+  if (airtableBase) {
+    try {
+      const recordsToCreate = [{
+        fields: {
+          'UserID': userId,
+          'Timestamp': timestamp,
+          'Role': role,
+          'Content': contentString,
+          'Mode': mode,
+          'AnalysisResult': analysisResult ? JSON.stringify(analysisResult, null, 2) : null,
+          'AnalysisSource': analysisSource
         }
-      }
-    } else {
-      console.warn('Airtable接続が初期化されていないため、会話履歴を保存できません');
-      return false;
+      }];
+      // console.log('Airtableへのレコード作成データ(詳細):', JSON.stringify(recordsToCreate, null, 2)); // 必要ならコメント解除
+      console.log(`[Log] Airtable API呼び出し実行: UserID=${userId}, Role=${role}, Table=ConversationHistory`); // Log追加: API呼び出し直前
+      await airtableBase('ConversationHistory').create(recordsToCreate);
+      console.log(`[Log] Airtableへの保存成功: UserID=${userId}, Role=${role}`);
+    } catch (error) {
+      console.error(`[Log] Airtable保存エラー(UserID: ${userId}):`, error.message || error);
+      // ... (エラー詳細ログ) ...
     }
-  } catch (err) {
-    console.error('Error storing interaction:', err);
-    // 詳細なエラー情報をログに出力（会話保存の失敗原因特定のため）
-    console.error(`会話保存エラーの詳細 => ユーザー: ${userId}`); 
-    console.error(`エラータイプ: ${err.name || 'Unknown'}`);
-    console.error(`エラーメッセージ: ${err.message || 'No message'}`);
-    return false;
+  } else {
+    console.warn('[Log] Airtable設定なし、保存スキップ'); // Log修正: スキップ理由を明確化
   }
+
+  // 2. PostgreSQLへの保存 (セカンダリ/バックアップ)
+  if (pool) {
+    try {
+      // ここでpoolを使用する - 適切に定義済みであることを確認
+      const analysisResultJson = analysisResult ? JSON.stringify(analysisResult) : null;
+      const query = `
+        INSERT INTO conversation_history (user_id, timestamp, role, content, mode, analysis_result, analysis_source)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `;
+      const values = [
+        userId,
+        timestamp,
+        role,
+        contentString,
+        mode,
+        analysisResultJson,
+        analysisSource
+      ];
+      console.log(`[Log] PostgreSQL クエリ実行: UserID=${userId}, Role=${role}, Table=conversation_history`);
+      await pool.query(query, values);
+      console.log(`[Log] PostgreSQLへの保存成功: UserID=${userId}, Role=${role}`);
+    } catch (error) {
+      console.error(`[Log] PostgreSQL保存エラー(UserID: ${userId}):`, error.message || error);
+    }
+  } else {
+     console.warn('[Log] PostgreSQL設定なし、保存スキップ');
+  }
+  console.log(`[Log] DB保存処理終了: UserID=${userId}, Role=${role}`); // Log追加: 関数終了
 }
 
 async function fetchUserHistory(userId, limit) {
@@ -5274,9 +5648,9 @@ ${pastAiReturns}
 
   const messages = [{ role: 'user', content: baseCriticPrompt }];
   const criticOptions = {
-    model: 'gpt-4o-mini',
+    model: 'o3-mini-2025-01-31',
     messages,
-    temperature: 0.8,
+    temperature: 1,
   };
 
   try {
@@ -5570,7 +5944,7 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     const hasStrongCareerPattern = strongCareerPatterns.some(pattern => pattern.test(userMessage));
     
     // 高度なキャリアリクエスト検出ロジックを使用
-    const isJobAnalysisRequest = await isJobRequestSemantic(userMessage);
+    const isJobAnalysisRequest = isJobRequest(userMessage);
       
     // キャリア関連のクエリの場合、モードを'career'に設定
     if ((isCareerQuery || hasStrongCareerPattern || isJobAnalysisRequest) && mode !== 'career') {
@@ -5967,151 +6341,37 @@ const HISTORY_CACHE_TTL = 60 * 60 * 1000; // 1時間のキャッシュ有効期�
  * @returns {Promise<Object>} - 解析結果
  */
 async function fetchAndAnalyzeHistory(userId) {
-  const startTime = Date.now();
-  console.log(`📚 Fetching chat history for user ${userId}`);
-  console.log(`\n======= 特性分析デバッグログ: 履歴取得開始 =======`);
-  console.log(`→ ユーザーID: ${userId}`);
-  
+  console.log(`[Log] ユーザー(${userId})の履歴取得と分析を開始します`); // Log追加: 関数開始
+  let history = [];
+  let analysisResult = null;
+  let source = 'unknown'; // 分析ソースを追跡
+
   try {
-    // キャッシュチェック
-    const cacheKey = `history_${userId}`;
-    const cachedResult = historyAnalysisCache.get(cacheKey);
-    const now = Date.now();
-    
-    if (cachedResult && (now - cachedResult.timestamp < HISTORY_CACHE_TTL)) {
-      console.log(`→ キャッシュヒット: 最終更新から ${Math.floor((now - cachedResult.timestamp) / 1000 / 60)} 分経過`);
-      console.log(`======= 特性分析デバッグログ: キャッシュから読み込み完了 =======\n`);
-      return cachedResult.data;
+    // ... (履歴取得処理) ...
+
+    if (history.length > 0) {
+      // ★★★ 特性分析を実行 ★★★
+      console.log(`[Log] ユーザー(${userId})の特性分析 enhancedCharacteristics.analyzeUserCharacteristics を呼び出します...`); // Log追加: 分析呼び出し前
+      const analysisData = await enhancedCharacteristics.analyzeUserCharacteristics(userId, { history });
+      analysisResult = analysisData.structuredData; // 分析結果本体
+      source = analysisData.source; // 分析ソース (cache, gemini, openai_fallback)
+      console.log(`[Log] ユーザー(${userId})の特性分析完了 (ソース: ${source}, 結果有無: ${!!analysisResult})`); // Log追加: 分析完了後
+
+      // --- ここからが重要 ---
+      // ★★★ 分析結果をデータベースに保存する処理は、この関数内には見当たらない ★★★
+      // --- ここまで ---
+
+    } else {
+      console.log(`[Log] ユーザー(${userId})の履歴が見つからないため、分析をスキップします`); // Log追加: スキップ時
     }
-    
-    console.log(`→ キャッシュなし: 履歴データを取得します`);
-    
-    // PostgreSQLから最大200件のメッセージを取得
-    const pgHistory = await fetchUserHistory(userId, 200) || [];  // 未定義の場合は空配列を使用
-    console.log(`📝 Found ${pgHistory.length} records from PostgreSQL in ${Date.now() - startTime}ms`);
-    
-    // Airtableからも追加でデータを取得（可能な場合）
-    let airtableHistory = [];
-    try {
-      if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
-        const airtable = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY });
-        const base = airtable.base(process.env.AIRTABLE_BASE_ID);
-        
-        // Airtableからの取得を試みる（200件に増加）
-        const records = await base('ConversationHistory')
-          .select({
-            filterByFormula: `{UserID} = '${userId}'`,
-            sort: [{ field: 'Timestamp', direction: 'desc' }],
-            maxRecords: 200
-          })
-          .all();
-        
-        airtableHistory = records.map(record => ({
-          role: record.get('Role') || 'user',
-          content: record.get('Content') || '',
-          timestamp: record.get('Timestamp') || new Date().toISOString()
-        }));
-        
-        console.log(`📝 Found additional ${airtableHistory.length} records from Airtable`);
-      }
-    } catch (airtableError) {
-      console.error(`⚠️ Error fetching from Airtable: ${airtableError.message}`);
-      // Airtableからの取得に失敗しても処理を続行
-    }
-    
-    // 両方のソースからのデータを結合
-    const combinedHistory = pgHistory.length > 0 ? [...pgHistory] : [];
-    
-    // 重複を避けるために、既にPGに存在しないAirtableのデータのみを追加
-    const pgContentSet = pgHistory.length > 0 ? new Set(pgHistory.map(msg => `${msg.role}:${msg.content}`)) : new Set();
-    
-    for (const airtableMsg of airtableHistory) {
-      const key = `${airtableMsg.role}:${airtableMsg.content}`;
-      if (!pgContentSet.has(key)) {
-        combinedHistory.push(airtableMsg);
-      }
-    }
-    
-    // タイムスタンプでソート（新しい順）
-    combinedHistory.sort((a, b) => {
-      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-      return timeB - timeA;
-    });
-    
-    console.log(`📊 Total combined records for analysis: ${combinedHistory.length}`);
-    
-    // 結合したデータを使用して分析を実行
-    let response = "";
-    try {
-      response = await generateHistoryResponse(combinedHistory);
-      
-      // レスポンスがオブジェクトかどうかをチェック
-      let responseText = response;
-      if (response && typeof response === 'object' && response.text) {
-        responseText = response.text;
-      }
-      
-      // 安全に文字列として扱えるようにする
-      const textToLog = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
-    
-    console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
-      console.log(`→ 特性分析レスポンス生成完了: ${textToLog.substring(0, 50)}...`);
-    console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
-      
-      const result = {
-      type: 'text',
-        text: responseText
-      };
-      
-      // 結果をキャッシュに保存
-      historyAnalysisCache.set(cacheKey, {
-        timestamp: now,
-        data: result
-      });
-      
-      return result;
-    } catch (analysisError) {
-      console.error(`❌ Error in generateHistoryResponse: ${analysisError.message}`);
-      console.error(`→ Analysis error stack: ${analysisError.stack}`);
-      
-      // データが少なくてもユーザーフレンドリーな分析結果を返す
-      let defaultAnalysis = "";
-      
-      if (combinedHistory.length > 0) {
-        // 少なくとも何かデータがある場合
-        defaultAnalysis = "会話履歴から、あなたは明確で具体的な質問をする傾向があり、詳細な情報を求める探究心をお持ちのようです。好奇心が強く、物事を深く理解したいという姿勢が見られます。ぜひ会話を続けながら、もっとあなたの関心や考え方について教えてください。さらに詳しい分析ができるようになります。";
-      } else {
-        // データが全くない場合
-        defaultAnalysis = "会話を始めたばかりですね。これから会話を重ねることで、あなたの考え方や関心事について理解を深めていきたいと思います。何か具体的な話題や質問があれば、お気軽にお聞かせください。";
-      }
-      
-      console.log(`→ Returning default analysis due to error`);
-      console.log(`======= 特性分析デバッグログ: エラー発生後のフォールバック分析完了 =======\n`);
-      
-      const result = {
-        type: 'text',
-        text: defaultAnalysis
-      };
-      
-      // エラーでも一定期間キャッシュに保存（頻繁なエラーを避けるため）
-      historyAnalysisCache.set(cacheKey, {
-        timestamp: now,
-        data: result
-      });
-      
-      return result;
-    }
+
   } catch (error) {
-    console.error(`❌ Error in fetchAndAnalyzeHistory: ${error.message}`);
-    console.error(`→ スタックトレース: ${error.stack}`);
-    
-    // エラーが発生した場合でも、ユーザーフレンドリーなメッセージを返す
-    return {
-      type: 'text',
-      text: "これまでの会話から、あなたは詳細な情報を求める傾向があり、物事を深く理解したいという姿勢が見られます。明確なコミュニケーションを大切にされているようですね。さらに会話を続けることで、より詳しい特性分析ができるようになります。"
-    };
+    console.error(`[Log] ユーザー(${userId})の履歴取得または分析中にエラー:`, error); // Log追加: エラー時
+    // エラー時も処理を継続するため、空の履歴とnullの分析結果を返す
   }
+
+  console.log(`[Log] fetchAndAnalyzeHistory 完了: UserID=${userId}, 分析ソース=${source}, 結果有無=${!!analysisResult}`); // Log追加: 関数終了
+  return { history, analysisResult, analysisSource: source };
 }
 
 async function handleEvent(event) {
@@ -6376,8 +6636,8 @@ async function handleText(event) {
     // ステップ2: 音声設定以外の通常メッセージ処理
     if (!replyMessage) {
       const sanitizedText = sanitizeUserInput(text);
-      
-      // メッセージからモードを検出
+    
+    // メッセージからモードを検出
       const { mode, limit } = determineModeAndLimit(sanitizedText);
       console.log(`モード検出: "${sanitizedText.substring(0, 30)}..." => モード: ${mode}, 履歴制限: ${limit}件`);
       
@@ -7970,7 +8230,7 @@ Adamでは以下のようなASD(自閉症スペクトラム障害)に関する�
       // 最終的なエラーメッセージを返す
       return "申し訳ありませんが、応答の生成中にエラーが発生しました。プライマリおよびバックアップのAIモデルの両方で問題が発生した可能性があります。しばらくしてからもう一度お試しください。";
     }}
-  }
+}
 
 // サーバー起動設定
 
@@ -8169,5 +8429,4 @@ async function generateCareerAnalysis(history, currentMessage) {
 
 より詳しい情報をお聞かせいただければ、あなたに合った具体的な職業を提案できます。`;
   }
-}
 }
