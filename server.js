@@ -783,16 +783,34 @@ function isDeepExplorationRequest(text) {
 function isDirectImageGenerationRequest(text) {
   if (!text || typeof text !== 'string') return false;
   
-  // 画像生成リクエストの検出パターン
-  const imageGenerationRequests = [
-    '画像を生成', '画像を作成', '画像を作って', 'イメージを生成', 'イメージを作成', 'イメージを作って',
-    '図を生成', '図を作成', '図を作って', '図解して', '図解を作成', '図解を生成',
-    'ビジュアル化して', '視覚化して', '絵を描いて', '絵を生成', '絵を作成',
-    '画像で説明', 'イメージで説明', '図で説明', '視覚的に説明',
-    '画像にして', 'イラストを作成', 'イラストを生成', 'イラストを描いて'
+  // 直接的な画像生成リクエストのパターン
+  const patterns = [
+    /画像を?(作|つく|生成|描|書)/i,
+    /(イラスト|絵|写真)(を|の)?(作|つく|生成|描|書)/i,
+    /(generate|create|make|draw).*?(image|picture|photo|illustration)/i,
+    /(image|picture|photo|illustration).*(generate|create|make|draw)/i
   ];
   
-  return imageGenerationRequests.some(phrase => text.includes(phrase));
+  return patterns.some(pattern => pattern.test(text));
+}
+
+/**
+ * ユーザーメッセージが画像分析リクエストかどうかを判断する
+ * @param {string} text - ユーザーメッセージ
+ * @return {boolean} 画像分析リクエストかどうか
+ */
+function isDirectImageAnalysisRequest(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 直接的な画像分析リクエストのパターン
+  const patterns = [
+    /画像を?(分析|解析|理解|説明)/i,
+    /(イラスト|絵|写真)(を|の)?(分析|解析|理解|説明)/i,
+    /(analyze|explain|describe|understand).*?(image|picture|photo)/i,
+    /(image|picture|photo).*(analyze|explain|describe|understand)/i
+  ];
+  
+  return patterns.some(pattern => pattern.test(text));
 }
 
 /**
@@ -837,6 +855,27 @@ function checkAdminCommand(text) {
   }
   
   return { isCommand: false };
+}
+
+/**
+ * 混乱や理解困難を示す表現を含むかどうかをチェックする
+ * @param {string} text - チェックするテキスト
+ * @return {boolean} - 混乱表現を含む場合はtrue
+ */
+function containsConfusionTerms(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 一般的な混乱表現
+  const confusionTerms = [
+    'わからない', '分からない', '理解できない', '意味がわからない', '意味が分からない',
+    'どういう意味', 'どういうこと', 'よくわからない', 'よく分からない',
+    '何が言いたい', 'なにが言いたい', '何を言ってる', 'なにを言ってる',
+    'もう少し', 'もっと', '簡単に', 'かみ砕いて', 'シンプルに', '例を挙げて',
+    '違う方法で', '別の言い方', '言い換えると', '言い換えれば', '詳しく',
+    '混乱', '複雑', '難解', 'むずかしい'
+  ];
+  
+  return confusionTerms.some(term => text.includes(term));
 }
 
 /**
