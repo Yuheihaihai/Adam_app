@@ -8,6 +8,9 @@ try {
 // メインの .env ファイルをロード（ml-enhance/.env の値があれば上書きしない）
 require('dotenv').config({ override: false }); 
 
+// Make sure .env doesn't override Heroku's PORT
+delete process.env.PORT;
+
 const db = require('./db');
 const app = require('./server'); // expressアプリケーションオブジェクトをインポート
 
