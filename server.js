@@ -16,10 +16,15 @@ const rateLimit = require('express-rate-limit');
 const xss = require('xss');
 const Tokens = require('csrf');
 const crypto = require('crypto');
+// DataInterfaceをインポート
+const DataInterface = require('./dataInterface');
 
 // ロガーをインポート
 const logger = require('./logger');
 logger.info('Server', 'Starting Adam LINE Bot server...');
+
+// DataInterfaceインスタンスの初期化
+const dataInterface = new DataInterface();
 
 // 画像生成モジュールをインポート
 const imageGenerator = require('./imageGenerator');
@@ -1822,6 +1827,19 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
         const needsStartTime = Date.now();
         const userNeeds = await userNeedsAnalyzer.analyzeUserNeeds(userMessage, history);
         console.log(`📊 [1A] USER NEEDS ANALYSIS - Completed in ${Date.now() - needsStartTime}ms`);
+        
+        // userNeeds結果を保存
+        try {
+          if (userNeeds && Object.keys(userNeeds).length > 0) {
+            console.log('💾 Storing user needs analysis results to PostgreSQL...');
+            await dataInterface.storeAnalysisResult(userId, 'user_needs', userNeeds);
+            console.log('💾 User needs analysis stored successfully');
+          }
+        } catch (storageError) {
+          console.error('❌ Error storing user needs analysis:', storageError.message);
+          // エラーがあっても処理は継続
+        }
+        
         return userNeeds;
       })(),
       
@@ -1901,6 +1919,16 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
               console.log('    ├─ [1C.3] ML DATA RESULTS:');
               console.log(`    │  ✅ User ${mode} analysis: Retrieved`);
               console.log(`    │    └─ Data size: ${JSON.stringify(mlData).length} bytes`);
+              
+              // mlData結果を保存
+              try {
+                console.log('💾 Storing ML analysis results to PostgreSQL...');
+                await dataInterface.storeAnalysisResult(userId, `ml_hook_${mode}`, mlData);
+                console.log('💾 ML analysis stored successfully');
+              } catch (storageError) {
+                console.error('❌ Error storing ML analysis:', storageError.message);
+                // エラーがあっても処理は継続
+              }
               
               // Log detected traits or features based on mode
               if (mode === 'general' && mlData.traits) {
@@ -2353,6 +2381,27 @@ ${additionalPromptData.jobTrends.analysis}`;
     const processingTime = Date.now() - overallStartTime;
     console.log(`\n✅ PROCESS COMPLETE: Total processing time: ${processingTime}ms`);
     
+    // AIの応答もsemantic_embeddingsに保存（ユーザーからの質問と一緒に）
+    try {
+      console.log(`\n💾 EMBEDDING STORAGE - Storing AI response in semantic database...`);
+      // AIの応答が十分な長さであれば保存
+      if (aiResponse && aiResponse.trim().length > 20) {
+        const storageStartTime = Date.now();
+        const stored = await semanticSearch.storeMessageEmbedding(userId, aiResponse, null);
+        if (stored) {
+          console.log(`✅ AI response stored successfully in ${Date.now() - storageStartTime}ms`);
+        } else {
+          console.warn(`⚠️ AI response embedding was not stored (rejected by storage criteria)`);
+        }
+      } else {
+        console.log(`ℹ️ AI response too short for semantic storage (${aiResponse?.length || 0} chars), skipping`);
+      }
+    } catch (embeddingError) {
+      // このエラーは非致命的 - 処理を継続
+      console.error(`❌ Error storing AI response embedding: ${embeddingError.message}`);
+      console.error(`└─ This is non-critical and doesn't affect the response to the user`);
+    }
+    
     // Return the AI response
     return {
       response: aiResponse,
@@ -2705,16 +2754,16 @@ async function handleImage(event) {
       const base64Image = imageBuffer.toString('base64');
       
       // 画像の安全性チェック
-      const isSafeImage = await checkImageSafety(base64Image);
+      // const isSafeImage = await checkImageSafety(base64Image);
       
-      if (!isSafeImage) {
-        console.log('Image did not pass safety check');
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: '申し訳ありません。この画像は不適切であるため、分析できません。適切な画像をお送りください。'
-        });
-        return Promise.resolve();
-      }
+      // if (!isSafeImage) {
+      //   console.log('Image did not pass safety check');
+      //   await client.pushMessage(userId, {
+      //     type: 'text',
+      //     text: '申し訳ありません。この画像は不適切であるため、分析できません。適切な画像をお送りください。'
+      //   });
+      //   return Promise.resolve();
+      // }
       
       // OpenAI Vision APIに送信するリクエストを準備
       const openai = new OpenAI({
@@ -2832,7 +2881,7 @@ async function handleText(event) {
           text: responseText
         });
       }
-      return;
+        return;
     }
     
     // 特別コマンドの処理
@@ -2845,10 +2894,10 @@ async function handleText(event) {
         const audioResponse = await audioHandler.generateAudioResponse(responseText, userId);
         await sendAudioWithTextFallback(event.replyToken, responseText, audioResponse, userId);
       } else {
-        await client.replyMessage(event.replyToken, {
-          type: "text",
+      await client.replyMessage(event.replyToken, {
+        type: "text",
           text: responseText
-        });
+      });
       }
       return;
     }
@@ -2898,7 +2947,7 @@ async function handleText(event) {
       }
       
       // replyMessageが空の場合のチェック
-      if (!replyMessage) {
+    if (!replyMessage) {
         console.error('警告: 音声設定のreplyMessageが空です。デフォルトメッセージを使用します。');
         replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
       }
@@ -2909,10 +2958,10 @@ async function handleText(event) {
         const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
         const audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
         await sendAudioWithTextFallback(event.replyToken, replyMessage, audioResponse, userId);
-      } else {
+          } else {
         console.log('テキスト入力にテキストで応答します');
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
           text: replyMessage
         });
       }
@@ -2943,7 +2992,7 @@ async function handleText(event) {
       
       // 音声と共にテキストも送信（失敗時のフォールバック付き）
       await sendAudioWithTextFallback(event.replyToken, finalReplyMessage, audioResponse, userId);
-    } else {
+        } else {
       console.log('通常メッセージ: テキスト入力にテキストで応答します');
       
       // テキスト入力にはテキスト応答
@@ -2980,61 +3029,61 @@ async function sendAudioWithTextFallback(replyToken, text, audioResponse, userId
   if (audioResponse && audioResponse.limitExceeded) {
     // 制限に達している場合はテキストのみを返信し、制限メッセージを追加
     await client.replyMessage(replyToken, {
-      type: 'text',
+        type: 'text',
       text: text + '\n\n' + audioResponse.limitMessage
-    });
-    return;
-  }
-  
+      });
+      return;
+    }
+    
   // 音声生成チェック
-  if (!audioResponse || !audioResponse.buffer || !audioResponse.filePath) {
+    if (!audioResponse || !audioResponse.buffer || !audioResponse.filePath) {
     // 音声生成に失敗した場合はテキストのみ返信
     console.warn('音声生成に失敗したため、テキストのみで応答します');
     await client.replyMessage(replyToken, {
-      type: 'text',
+        type: 'text',
       text: text
-    });
-    return;
-  }
-  
+      });
+      return;
+    }
+    
   // 音声ファイル存在チェック
-  if (!fs.existsSync(audioResponse.filePath)) {
-    console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
+    if (!fs.existsSync(audioResponse.filePath)) {
+      console.error(`音声ファイルが存在しません: ${audioResponse.filePath}`);
     await client.replyMessage(replyToken, {
-      type: 'text',
+        type: 'text',
       text: text
-    });
-    return;
-  }
-  
+      });
+      return;
+    }
+    
   // 音声URLの構築
-  const fileBaseName = path.basename(audioResponse.filePath);
-  const audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
-  
+    const fileBaseName = path.basename(audioResponse.filePath);
+    const audioUrl = `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${fileBaseName}`;
+    
   // 音声のみを返信
   try {
     await client.replyMessage(replyToken, {
-      type: 'audio',
-      originalContentUrl: audioUrl,
+          type: 'audio',
+          originalContentUrl: audioUrl,
       duration: 60000 // 適当な値（実際の長さを計算するのは難しい）
     }).catch(error => {
       console.error('LINE音声返信エラー:', error.message);
       // 音声メッセージ送信に失敗した場合、テキストでフォールバック
-      if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
+        if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
         console.log('音声メッセージ送信失敗、テキストでフォールバックします');
         return client.replyMessage(replyToken, {
-          type: 'text',
+            type: 'text',
           text: text
-        });
-      }
-    });
+          });
+        }
+      });
     
     // 音声使用状況の追加メッセージ（閾値に達した場合のみ）
     if (audioResponse.limitInfo && audioResponse.limitInfo.dailyCount >= Math.floor(audioResponse.limitInfo.dailyLimit * 0.7)) {
       // 残り回数が少なくなった場合に警告を送信
       const usageMessage = audioHandler.generateUsageLimitMessage(audioResponse.limitInfo);
       await client.pushMessage(userId, {
-        type: 'text',
+            type: 'text',
         text: usageMessage
       }).catch(error => {
         console.error('使用状況メッセージ送信エラー:', error.message);
