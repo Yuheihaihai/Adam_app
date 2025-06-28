@@ -1,5 +1,31 @@
 # Change Log
 
+## 2025-06-28: SQL構文エラーの修正とML機能の完全復旧
+
+### 機械学習機能のSQL構文エラー修正
+
+#### Changes Made:
+1. **PostgreSQLプレースホルダー形式への修正**:
+   - `dataInterface.js`のSQL文をMySQLスタイル（`?`）からPostgreSQLスタイル（`$1, $2, $3`）に変更
+   - 影響を受けた関数:
+     - `getUserHistory()`: `SELECT ... WHERE user_id = $1 ... LIMIT $2`
+     - `storeUserMessage()`: `INSERT ... VALUES ($1, $2, $3)`
+     - `storeAnalysisResult()`: `INSERT ... VALUES ($1, $2, $3)`
+     - `getLatestAnalysisResult()`: `SELECT ... WHERE user_id = $1 AND result_type = $2`
+
+2. **修正により復旧した機能**:
+   - ML分析結果の永続化
+   - ユーザーニーズ分析の保存
+   - 分析履歴の蓄積
+   - 長期的なユーザー行動パターンの学習
+
+#### Reason for Change:
+PostgreSQLデータベースを使用しているにもかかわらず、MySQLスタイルのプレースホルダー（`?`）を使用していたため、SQL構文エラーが発生していました。これにより、ML分析結果がデータベースに保存されず、機械学習機能が部分的にしか動作していませんでした。
+
+#### Impact:
+- **修正前**: ML分析は実行されるが、結果が保存されないため学習効果が限定的
+- **修正後**: ML分析結果が正常に保存され、ユーザー特性の学習と蓄積が可能に
+
 ## 2025-06-28: プロジェクト構造の整理とGNN機能の最終削除完了
 
 ### プロジェクト構造の発見と重複ディレクトリの整理
