@@ -23,7 +23,7 @@ class DataInterface {
       
       // データベースからユーザーのメッセージ履歴を取得
       const messages = await this.dbConnection.query(
-        'SELECT id, user_id, content, role, timestamp FROM user_messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?',
+        'SELECT id, user_id, content, role, timestamp FROM user_messages WHERE user_id = $1 ORDER BY timestamp DESC LIMIT $2',
         [userId, limit]
       );
       
@@ -43,7 +43,7 @@ class DataInterface {
   async storeUserMessage(userId, content, role) {
     try {
       const result = await this.dbConnection.query(
-        'INSERT INTO user_messages (user_id, content, role) VALUES (?, ?, ?)',
+        'INSERT INTO user_messages (user_id, content, role) VALUES ($1, $2, $3)',
         [userId, content, role]
       );
       
@@ -65,7 +65,7 @@ class DataInterface {
       const jsonData = typeof data === 'string' ? data : JSON.stringify(data);
       
       const result = await this.dbConnection.query(
-        'INSERT INTO analysis_results (user_id, result_type, data) VALUES (?, ?, ?)',
+        'INSERT INTO analysis_results (user_id, result_type, data) VALUES ($1, $2, $3)',
         [userId, resultType, jsonData]
       );
       
@@ -79,7 +79,7 @@ class DataInterface {
   async getLatestAnalysisResult(userId, resultType) {
     try {
       const results = await this.dbConnection.query(
-        'SELECT data FROM analysis_results WHERE user_id = ? AND result_type = ? ORDER BY timestamp DESC LIMIT 1',
+        'SELECT data FROM analysis_results WHERE user_id = $1 AND result_type = $2 ORDER BY timestamp DESC LIMIT 1',
         [userId, resultType]
       );
       
