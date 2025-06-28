@@ -298,21 +298,26 @@ class LocalML {
     // 意図分析は単純化してスキップ
     console.log('    ├─ 意図分析をスキップ');
     
-    // 感情分析
+    // 会話全体のテキストを結合
+    const allMessages = history.map(msg => msg.message).join(' ') + ' ' + currentMessage;
+    
+    // AI埋め込みベースの感情分析
     try {
-      analysis.sentiment = 'neutral'; // 単純化
-      console.log('    ├─ 感情分析: neutral');
+      analysis.sentiment = await this._analyzeEmotionalSentiment(currentMessage, allMessages);
+      console.log(`    ├─ 感情分析: ${analysis.sentiment}`);
     } catch (error) {
       console.error('Error in sentiment analysis:', error);
       analysis.sentiment = 'neutral';
     }
     
-    // トピック抽出も単純化
-    analysis.topics = [];
-    console.log('    ├─ トピック抽出をスキップ');
-    
-    // 会話全体のテキストを結合
-    const allMessages = history.map(msg => msg.message).join(' ') + ' ' + currentMessage;
+    // トピック抽出も埋め込みベースに
+    try {
+      analysis.topics = await this._analyzeTopics(allMessages);
+      console.log(`    ├─ トピック抽出: ${analysis.topics.length}件`);
+    } catch (error) {
+      console.error('Error in topic extraction:', error);
+      analysis.topics = [];
+    }
     
     // サポートニーズの分析（非同期）
     try {
@@ -330,6 +335,132 @@ class LocalML {
     }
     
     return analysis;
+  }
+
+  /**
+   * AI埋め込みベースの感情分析
+   * @param {string} currentMessage - 現在のメッセージ
+   * @param {string} allMessages - 会話履歴全体
+   * @returns {Promise<string>} - 検出された感情
+   */
+  async _analyzeEmotionalSentiment(currentMessage, allMessages) {
+    // 埋め込みサービスのインスタンスが存在しない場合は作成
+    if (!this.embeddingService) {
+      this.embeddingService = new EmbeddingService();
+      await this.embeddingService.initialize();
+    }
+    
+    // 感情カテゴリと代表的な例文のマッピング
+    const emotionExamples = {
+      positive: "嬉しい、楽しい、幸せ、良かった、素晴らしい、ありがとう、最高、元気、希望、前向き",
+      negative: "悲しい、辛い、苦しい、最悪、嫌だ、困った、不安、心配、怖い、つらい",
+      angry: "怒り、イライラ、腹立つ、ムカつく、許せない、頭にくる、憤り、不満",
+      anxious: "不安、心配、緊張、怖い、ドキドキ、落ち着かない、そわそわ、気になる",
+      neutral: "普通、まあまあ、どちらでもない、特に、なんとも、そうですね、了解、わかりました"
+    };
+    
+    // 閾値の設定（感情分析はより敏感に）
+    const SIMILARITY_THRESHOLD = 0.55;
+    
+    try {
+      // 現在のメッセージを重視（70%）、履歴全体も考慮（30%）
+      const textToAnalyze = currentMessage + ' ' + allMessages.substring(0, 500);
+      
+      let maxSimilarity = 0;
+      let detectedEmotion = 'neutral';
+      
+      // 各感情カテゴリの類似度をチェック
+      for (const [emotion, examples] of Object.entries(emotionExamples)) {
+        try {
+          const similarity = await this.embeddingService.getTextSimilarity(textToAnalyze, examples);
+          
+          console.log(`      emotion ${emotion} similarity: ${similarity.toFixed(3)}`);
+          
+          if (similarity > maxSimilarity && similarity > SIMILARITY_THRESHOLD) {
+            maxSimilarity = similarity;
+            detectedEmotion = emotion;
+          }
+        } catch (error) {
+          console.error(`Error detecting ${emotion} emotion:`, error.message);
+        }
+      }
+      
+      // 複数の感情が検出された場合の優先順位
+      // negative/anxious > angry > positive > neutral
+      if (detectedEmotion === 'neutral' && maxSimilarity < SIMILARITY_THRESHOLD) {
+        // フォールバック: 簡単なキーワードチェック
+        if (/😊|😄|🎉|良い|嬉しい|楽しい/.test(currentMessage)) {
+          detectedEmotion = 'positive';
+        } else if (/😢|😭|😰|辛い|悲しい|不安/.test(currentMessage)) {
+          detectedEmotion = 'negative';
+        } else if (/😡|💢|怒|イライラ/.test(currentMessage)) {
+          detectedEmotion = 'angry';
+        }
+      }
+      
+      return detectedEmotion;
+      
+    } catch (error) {
+      console.error('Error in emotional sentiment analysis:', error);
+      // エラー時のフォールバック
+      return this._analyzeEmotionalSentimentFallback(currentMessage);
+    }
+  }
+
+  /**
+   * 感情分析のフォールバック（正規表現ベース）
+   * @private
+   */
+  _analyzeEmotionalSentimentFallback(text) {
+    if (/嬉しい|楽しい|良い|素晴らしい|😊|😄|🎉/.test(text)) {
+      return 'positive';
+    } else if (/悲しい|辛い|苦しい|最悪|😢|😭|😰/.test(text)) {
+      return 'negative';
+    } else if (/怒り|イライラ|腹立つ|😡|💢/.test(text)) {
+      return 'angry';
+    } else if (/不安|心配|怖い|緊張/.test(text)) {
+      return 'anxious';
+    }
+    return 'neutral';
+  }
+
+  /**
+   * AI埋め込みベースのトピック分析
+   * @param {string} text - 分析対象テキスト
+   * @returns {Promise<Array>} - 検出されたトピック
+   */
+  async _analyzeTopics(text) {
+    if (!this.embeddingService) {
+      this.embeddingService = new EmbeddingService();
+      await this.embeddingService.initialize();
+    }
+    
+    const topicExamples = {
+      work: "仕事、職場、上司、同僚、業務、会社、キャリア、転職、就職",
+      relationship: "恋愛、友達、家族、人間関係、パートナー、結婚、別れ、デート",
+      health: "健康、病気、薬、症状、治療、診断、体調、メンタル、精神",
+      daily_life: "生活、日常、食事、睡眠、趣味、買い物、家事、掃除",
+      study: "勉強、学校、試験、受験、資格、学習、授業、宿題",
+      money: "お金、給料、貯金、節約、投資、ローン、支払い、収入"
+    };
+    
+    const TOPIC_THRESHOLD = 0.6;
+    const detectedTopics = [];
+    
+    try {
+      for (const [topic, examples] of Object.entries(topicExamples)) {
+        const similarity = await this.embeddingService.getTextSimilarity(text, examples);
+        
+        if (similarity > TOPIC_THRESHOLD) {
+          detectedTopics.push(topic);
+          console.log(`      topic ${topic} detected: ${similarity.toFixed(3)}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error in topic analysis:', error);
+    }
+    
+    return detectedTopics;
   }
 
   /**
@@ -871,36 +1002,66 @@ class LocalML {
    * 一般会話モード用のプロンプト生成
    */
   _generateGeneralPrompt(analysis) {
-    let prompt = `## コミュニケーション特性\n`;
+    let prompt = `## 感情状態とトピック\n`;
     
-    if (analysis.traits && analysis.traits.communication_style) {
-      prompt += `- コミュニケーションスタイル: ${this._translateTrait(analysis.traits.communication_style)}\n`;
+    // 新しいAI感情分析の結果を反映
+    if (analysis.sentiment) {
+      const sentimentTranslations = {
+        positive: 'ポジティブ（喜び・楽しさ）',
+        negative: 'ネガティブ（悲しみ・苦しみ）',
+        angry: '怒り・イライラ',
+        anxious: '不安・心配',
+        neutral: '中立的・落ち着いている'
+      };
+      prompt += `- 現在の感情状態: ${sentimentTranslations[analysis.sentiment] || analysis.sentiment}\n`;
     }
     
-    if (analysis.traits && analysis.traits.formality_level) {
-      prompt += `- フォーマリティレベル: ${this._translateFormality(analysis.traits.formality_level)}\n`;
+    // トピック分析の結果を反映
+    if (analysis.topics && analysis.topics.length > 0) {
+      const topicTranslations = {
+        work: '仕事・職場',
+        relationship: '人間関係・恋愛',
+        health: '健康・医療',
+        daily_life: '日常生活',
+        study: '学習・勉強',
+        money: '金銭・経済'
+      };
+      const translatedTopics = analysis.topics.map(topic => topicTranslations[topic] || topic);
+      prompt += `- 会話のトピック: ${translatedTopics.join(', ')}\n`;
     }
     
-    if (analysis.traits && analysis.traits.emotional_tone) {
-      prompt += `- 感情トーン: ${this._translateEmotion(analysis.traits.emotional_tone)}\n`;
-    }
+    prompt += `\n## サポートニーズ\n`;
     
-    prompt += `\n## 興味・関心\n`;
-    
-    if (analysis.topics && analysis.topics.primary_interests) {
-      prompt += `- 主な関心: ${analysis.topics.primary_interests.map(topic => this._translateTopic(topic)).join(', ')}\n`;
-    }
-    
-    prompt += `\n## 応答の好み\n`;
-    
-    if (analysis.response_preferences) {
-      if (analysis.response_preferences.length) {
-        prompt += `- 好む応答の長さ: ${this._translateLength(analysis.response_preferences.length)}\n`;
-      }
+    if (analysis.support_needs) {
+      const needs = [];
+      if (analysis.support_needs.listening) needs.push('傾聴と共感');
+      if (analysis.support_needs.advice) needs.push('具体的なアドバイス');
+      if (analysis.support_needs.information) needs.push('情報提供');
+      if (analysis.support_needs.encouragement) needs.push('励ましと動機づけ');
       
-      if (analysis.response_preferences.tone) {
-        prompt += `- 好むトーン: ${this._translateTone(analysis.response_preferences.tone)}\n`;
+      if (needs.length > 0) {
+        prompt += `- 求めているサポート: ${needs.join(', ')}\n`;
+      } else {
+        prompt += `- 求めているサポート: 特になし（一般的な会話）\n`;
       }
+    }
+    
+    // 感情に応じた応答ガイドライン
+    prompt += `\n## 応答ガイドライン\n`;
+    
+    if (analysis.sentiment === 'positive') {
+      prompt += `- ユーザーのポジティブな感情に共感し、その気持ちを維持・増幅させる応答を心がける\n`;
+    } else if (analysis.sentiment === 'negative' || analysis.sentiment === 'anxious') {
+      prompt += `- ユーザーの不安や悲しみに寄り添い、安心感を与える温かい応答を心がける\n`;
+    } else if (analysis.sentiment === 'angry') {
+      prompt += `- ユーザーの怒りを受け止め、冷静で理解ある対応を心がける\n`;
+    } else {
+      prompt += `- バランスの取れた、親しみやすい応答を心がける\n`;
+    }
+    
+    // トピックに応じた専門性
+    if (analysis.topics && analysis.topics.length > 0) {
+      prompt += `- ${analysis.topics.join('、')}に関する適切な知識と理解を示す\n`;
     }
     
     return prompt;
