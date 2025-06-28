@@ -344,8 +344,12 @@ class LocalML {
    * @returns {Promise<string>} - 検出された感情
    */
   async _analyzeEmotionalSentiment(currentMessage, allMessages) {
+    console.log('      ├─ AI感情分析を開始...');
+    console.log(`      ├─ 分析対象メッセージ: "${currentMessage.substring(0, 50)}..."`);
+    
     // 埋め込みサービスのインスタンスが存在しない場合は作成
     if (!this.embeddingService) {
+      const EmbeddingService = require('./embeddingService');
       this.embeddingService = new EmbeddingService();
       await this.embeddingService.initialize();
     }
@@ -430,7 +434,10 @@ class LocalML {
    * @returns {Promise<Array>} - 検出されたトピック
    */
   async _analyzeTopics(text) {
+    console.log('      ├─ AIトピック分析を開始...');
+    
     if (!this.embeddingService) {
+      const EmbeddingService = require('./embeddingService');
       this.embeddingService = new EmbeddingService();
       await this.embeddingService.initialize();
     }
@@ -744,6 +751,26 @@ class LocalML {
   }
 
   /**
+   * 詳細度の好みを分析
+   * @param {string} text - 分析対象テキスト
+   * @returns {string} - 詳細度レベル
+   */
+  _analyzeDetailPreference(text) {
+    // 詳細な説明を求めるパターン
+    if (/詳しく|詳細|具体的に|もっと教えて|細かく|全部|すべて/gi.test(text)) {
+      return 'very_detailed';
+    }
+    
+    // 簡潔な説明を求めるパターン
+    if (/簡単に|要約|ざっくり|簡潔|短く|要点だけ/gi.test(text)) {
+      return 'concise';
+    }
+    
+    // デフォルトは適度な詳細さ
+    return 'moderate';
+  }
+
+  /**
    * サポートニーズを分析
    * @param {string} text - 分析対象テキスト
    * @returns {Promise<Object>} - 検出されたニーズ
@@ -958,12 +985,34 @@ class LocalML {
     
     // オブジェクトを最大2階層まで出力
     Object.entries(analysis).forEach(([category, items]) => {
+      // itemsが文字列やプリミティブ値の場合は直接表示
+      if (typeof items !== 'object' || items === null) {
+        console.log(`    │  ├─ ${category}: ${items}`);
+        return;
+      }
+      
       console.log(`    │  ├─ ${category}:`);
       
+      // itemsが配列の場合
+      if (Array.isArray(items)) {
+        console.log(`    │  │  └─ [${items.join(', ')}]`);
+        return;
+      }
+      
+      // itemsがオブジェクトの場合
       Object.entries(items).forEach(([key, value]) => {
-        const displayValue = Array.isArray(value) 
-          ? value.join(', ') 
-          : (typeof value === 'object' ? '[複合データ]' : value);
+        let displayValue;
+        
+        if (value === null || value === undefined) {
+          displayValue = String(value);
+        } else if (Array.isArray(value)) {
+          displayValue = value.length > 0 ? value.join(', ') : '[]';
+        } else if (typeof value === 'object') {
+          displayValue = '[複合データ]';
+        } else {
+          displayValue = String(value);
+        }
+        
         console.log(`    │  │  ├─ ${key}: ${displayValue}`);
       });
     });
