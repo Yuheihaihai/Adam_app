@@ -15,7 +15,7 @@
     "developmental disabilities",
     "chatbot"
   ],
-  "author": "",
+  "author": "Yuhei",
   "license": "UNLICENSED",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.17.0",
