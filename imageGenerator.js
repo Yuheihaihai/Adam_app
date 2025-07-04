@@ -101,7 +101,9 @@ class ImageGenerator {
       const textPreview = explanationText.substring(0, 30) + (explanationText.length > 30 ? '...' : '');
       await storeInteraction(userId, 'assistant', `[生成画像参照] URL:${imageUrl.substring(0, 20)}... - ${textPreview}`);
       
-      // 一時ファイルを削除 (送信後)
+      // 一時ファイルを削除 (送信後) - LINEが画像を取得する前に削除されないようコメントアウト
+      // TODO: 定期的なクリーンアップタスクで古い画像を削除する
+      /*
       try {
         if (fs.existsSync(tempFilePath)) {
           fs.unlinkSync(tempFilePath);
@@ -110,6 +112,9 @@ class ImageGenerator {
       } catch (unlinkError) {
         console.error(`[DALL-E] Error deleting temporary image file: ${unlinkError.message}`);
       }
+      */
+      
+      console.log(`[DALL-E] Image file kept at: ${tempFilePath} for LINE to fetch`);
       
       return true;
     } catch (error) {
