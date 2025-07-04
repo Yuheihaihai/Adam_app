@@ -30,29 +30,33 @@ class EmotionAnalysisModel {
   
   async initialize() {
     try {
-      // モデルディレクトリの確認と作成
-      await this._ensureModelDir();
+      console.log('Initializing emotion analysis model...');
       
-      // モデルが存在するかチェック
+      // 既存のモデルファイルをチェック
       const modelExists = fs.existsSync(path.join(this.modelPath, 'model.json'));
       
       if (modelExists) {
-        // 既存のモデルを読み込む
-        this.model = await tf.loadLayersModel(`file://${path.join(this.modelPath, 'model.json')}`);
-        // 語彙ファイルを読み込む
-        this.vocabulary = JSON.parse(fs.readFileSync(path.join(this.modelPath, 'vocabulary.json'), 'utf8'));
-        this.modelLoaded = true;
-        console.log('Emotion analysis model loaded successfully');
-      } else {
-        // サンプルモデルを作成
-        await this._createSampleModel();
-        this.modelLoaded = true;
-        console.log('Sample emotion analysis model created successfully');
+        try {
+          // 既存のモデルを読み込む試行
+          const modelLoadPath = `file://${path.join(this.modelPath, 'model.json').replace(/\s+/g, '%20')}`;
+          this.model = await tf.loadLayersModel(modelLoadPath);
+          this.vocabulary = JSON.parse(fs.readFileSync(path.join(this.modelPath, 'vocabulary.json'), 'utf8'));
+          this.modelLoaded = true;
+          console.log('Existing emotion analysis model loaded successfully');
+          return true;
+        } catch (loadError) {
+          console.warn('Failed to load existing model, creating new one:', loadError.message);
+        }
       }
+      
+      // 新しいモデルを作成（メモリ内のみ）
+      await this._createInMemoryModel();
+      this.modelLoaded = true;
+      console.log('In-memory emotion analysis model created successfully');
       
       return true;
     } catch (error) {
-      console.error('Failed to load emotion analysis model:', error);
+      console.error('Failed to initialize emotion analysis model:', error);
       return false;
     }
   }
@@ -124,8 +128,8 @@ class EmotionAnalysisModel {
     }
   }
   
-  // サンプル感情分析モデルの作成
-  async _createSampleModel() {
+  // メモリ内感情分析モデルの作成
+  async _createInMemoryModel() {
     // サンプル語彙の作成
     const sampleVocabulary = {};
     const words = ['嬉しい', '悲しい', '怒り', '不安', '驚き', '混乱', '普通', 
@@ -174,18 +178,37 @@ class EmotionAnalysisModel {
       metrics: ['accuracy']
     });
     
-    // モデルの保存
-    await model.save(`file://${this.modelPath}`);
-    
-    // 語彙の保存
-    fs.writeFileSync(
-      path.join(this.modelPath, 'vocabulary.json'),
-      JSON.stringify(sampleVocabulary),
-      'utf8'
-    );
-    
+    // メモリ内でのみ保持（ファイルに保存しない）
     this.model = model;
     this.vocabulary = sampleVocabulary;
+    
+    console.log('Model created in memory with vocabulary size:', vocabSize);
+  }
+  
+  // サンプル感情分析モデルの作成（ファイル保存版）
+  async _createSampleModel() {
+    // モデルディレクトリの確認と作成
+    await this._ensureModelDir();
+    
+    // メモリ内モデルを作成
+    await this._createInMemoryModel();
+    
+    try {
+      // モデルの保存を試行 - ディレクトリ名にスペースが含まれる場合の対応
+      const modelSavePath = `file://${this.modelPath.replace(/\s+/g, '%20')}`;
+      await this.model.save(modelSavePath);
+      
+      // 語彙の保存
+      fs.writeFileSync(
+        path.join(this.modelPath, 'vocabulary.json'),
+        JSON.stringify(this.vocabulary),
+        'utf8'
+      );
+      
+      console.log('Model saved to disk successfully');
+    } catch (saveError) {
+      console.warn('Failed to save model to disk, using memory-only model:', saveError.message);
+    }
   }
 }
 

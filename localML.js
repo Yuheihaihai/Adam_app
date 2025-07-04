@@ -9,28 +9,39 @@ const EmbeddingService = require('./embeddingService');
 
 class LocalML {
   constructor() {
-    this.trainingData = {
-      // モード別の特徴パターンデータ
-      general: this._initializeGeneralPatterns(),
-      mental_health: this._initializeMentalHealthPatterns(),
-      analysis: this._initializeAnalysisPatterns(),
-    };
-    
-    // 各ユーザーの会話データ分析結果を保持
-    this.userAnalysis = {};
+    this.trainingData = {};
+    this.embeddingService = null;
+    this.emotionModel = null; // TensorFlow.js感情分析モデル
+    this._initializePatterns();
+  }
 
-    // Airtable設定
-    if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
-      this.base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
-        .base(process.env.AIRTABLE_BASE_ID);
+  /**
+   * 初期化メソッド
+   */
+  async initialize() {
+    try {
+      console.log('[LocalML] 初期化を開始...');
       
-      // サーバー起動時に過去の分析データを読み込む
-      this._loadAllUserAnalysis().catch(err => {
-        console.error('Error loading user analysis data:', err);
-      });
-    } else {
-      console.warn('Airtable credentials not found. User analysis persistence disabled.');
-      this.base = null;
+      // 感情分析モデルの初期化
+      const EmotionAnalysisModel = require('./emotionAnalysisModel');
+      this.emotionModel = new EmotionAnalysisModel();
+      await this.emotionModel.initialize();
+      console.log('[LocalML] 感情分析モデルの初期化完了');
+      
+      // 埋め込みサービスの初期化
+      const EmbeddingService = require('./embeddingService');
+      this.embeddingService = new EmbeddingService();
+      await this.embeddingService.initialize();
+      console.log('[LocalML] 埋め込みサービスの初期化完了');
+      
+      // 既存のユーザー分析データを読み込み
+      await this._loadAllUserAnalysis();
+      console.log('[LocalML] 初期化完了');
+      
+      return true;
+    } catch (error) {
+      console.error('[LocalML] 初期化エラー:', error);
+      return false;
     }
   }
 
@@ -338,15 +349,65 @@ class LocalML {
   }
 
   /**
-   * AI埋め込みベースの感情分析
+   * TensorFlow.js感情分析モデルによる感情分析
    * @param {string} currentMessage - 現在のメッセージ
    * @param {string} allMessages - 会話履歴全体
    * @returns {Promise<string>} - 検出された感情
    */
   async _analyzeEmotionalSentiment(currentMessage, allMessages) {
-    console.log('      ├─ AI感情分析を開始...');
+    console.log('      ├─ TensorFlow.js感情分析を開始...');
     console.log(`      ├─ 分析対象メッセージ: "${currentMessage.substring(0, 50)}..."`);
     
+    try {
+      // TensorFlow.js感情分析モデルを使用
+      if (this.emotionModel && this.emotionModel.modelLoaded) {
+        const analysisResult = await this.emotionModel.analyzeEmotion(currentMessage);
+        
+        console.log(`      ├─ TensorFlow.js感情分析結果: ${analysisResult.dominant} (強度: ${analysisResult.intensity.toFixed(3)})`);
+        
+        // 感情ラベルを英語に変換
+        const emotionMapping = {
+          '喜び': 'positive',
+          '悲しみ': 'negative',
+          '怒り': 'angry',
+          '不安': 'anxious',
+          '驚き': 'surprised',
+          '混乱': 'confused',
+          '中立': 'neutral',
+          'その他': 'neutral'
+        };
+        
+        const mappedEmotion = emotionMapping[analysisResult.dominant] || 'neutral';
+        
+        // 強度が低い場合は埋め込みベースの分析も併用
+        if (analysisResult.intensity < 0.6) {
+          console.log('      ├─ 強度が低いため、埋め込みベース分析を併用...');
+          const embeddingResult = await this._analyzeEmotionalSentimentWithEmbedding(currentMessage, allMessages);
+          
+          // 両方の結果を比較して最適な結果を選択
+          return this._combineEmotionResults(mappedEmotion, embeddingResult, analysisResult.intensity);
+        }
+        
+        return mappedEmotion;
+      } else {
+        console.log('      ├─ TensorFlow.jsモデルが利用できません。埋め込みベース分析を使用...');
+        return await this._analyzeEmotionalSentimentWithEmbedding(currentMessage, allMessages);
+      }
+      
+    } catch (error) {
+      console.error('Error in TensorFlow.js emotion analysis:', error);
+      // エラー時は埋め込みベースの分析にフォールバック
+      return await this._analyzeEmotionalSentimentWithEmbedding(currentMessage, allMessages);
+    }
+  }
+  
+  /**
+   * 埋め込みベースの感情分析（フォールバック用）
+   * @param {string} currentMessage - 現在のメッセージ
+   * @param {string} allMessages - 会話履歴全体
+   * @returns {Promise<string>} - 検出された感情
+   */
+  async _analyzeEmotionalSentimentWithEmbedding(currentMessage, allMessages) {
     // 埋め込みサービスのインスタンスが存在しない場合は作成
     if (!this.embeddingService) {
       const EmbeddingService = require('./embeddingService');
@@ -405,10 +466,32 @@ class LocalML {
       return detectedEmotion;
       
     } catch (error) {
-      console.error('Error in emotional sentiment analysis:', error);
+      console.error('Error in embedding-based emotional sentiment analysis:', error);
       // エラー時のフォールバック
       return this._analyzeEmotionalSentimentFallback(currentMessage);
     }
+  }
+  
+  /**
+   * 感情分析結果の組み合わせ
+   * @param {string} tfResult - TensorFlow.js結果
+   * @param {string} embeddingResult - 埋め込みベース結果
+   * @param {number} tfIntensity - TensorFlow.js強度
+   * @returns {string} - 最適な感情
+   */
+  _combineEmotionResults(tfResult, embeddingResult, tfIntensity) {
+    // 両方が同じ結果の場合はそのまま返す
+    if (tfResult === embeddingResult) {
+      return tfResult;
+    }
+    
+    // TensorFlow.jsの強度が0.4以上の場合は優先
+    if (tfIntensity >= 0.4) {
+      return tfResult;
+    }
+    
+    // それ以外は埋め込みベースの結果を優先
+    return embeddingResult;
   }
 
   /**
@@ -978,6 +1061,32 @@ class LocalML {
   }
 
   /**
+   * パターンデータの初期化
+   */
+  _initializePatterns() {
+    this.trainingData = {
+      // モード別の特徴パターンデータ
+      general: this._initializeGeneralPatterns(),
+      mental_health: this._initializeMentalHealthPatterns(),
+      analysis: this._initializeAnalysisPatterns(),
+    };
+    
+    // 各ユーザーの会話データ分析結果を保持
+    this.userAnalysis = {};
+    
+    // Airtable設定
+    if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
+      this.base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
+        .base(process.env.AIRTABLE_BASE_ID);
+      
+      console.log('[LocalML] Airtable設定完了');
+    } else {
+      console.warn('Airtable credentials not found. User analysis persistence disabled.');
+      this.base = null;
+    }
+  }
+
+  /**
    * 分析結果の概要をログに出力
    */
   _logAnalysisSummary(analysis, mode) {
@@ -1412,4 +1521,4 @@ class LocalML {
   }
 }
 
-module.exports = new LocalML(); 
+module.exports = LocalML; 

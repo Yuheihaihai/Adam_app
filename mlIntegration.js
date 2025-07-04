@@ -7,9 +7,17 @@
  * キャリアモードはPerplexity APIを、他のモードは新機械学習ベータを使用
  */
 
-const localML = require('./ml-enhance');
+const LocalML = require('./localML');
 const PerplexitySearch = require('./perplexitySearch');
 const logger = require('./logger');
+
+// LocalMLのインスタンスを作成・初期化
+const localML = new LocalML();
+localML.initialize().then(() => {
+  console.log('[MLIntegration] LocalML初期化完了');
+}).catch(error => {
+  console.error('[MLIntegration] LocalML初期化エラー:', error);
+});
 
 // Helper function for knowledge needs detection
 function needsKnowledge(userMessage) {
@@ -174,8 +182,8 @@ async function getMLData(userId, userMessage, mode) {
       
       try {
         // LocalMLからユーザー分析を取得
-        logger.debug('MLIntegration', 'Calling LocalML enhanceResponse method', { mode });
-        const analysis = await localML.enhanceResponse(userId, userMessage, mode);
+        logger.debug('MLIntegration', 'Calling LocalML analyzeUserMessage method', { mode });
+        const analysis = await localML.analyzeUserMessage(userMessage, [], null);
         
         logger.info('MLIntegration', 'LocalML data retrieved successfully', {
           hasAnalysis: !!analysis,
