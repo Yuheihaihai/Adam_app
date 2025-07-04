@@ -40,8 +40,8 @@ class EmotionAnalysisModel {
           // 既存のモデルを読み込む試行
           const modelLoadPath = `file://${path.join(this.modelPath, 'model.json').replace(/\s+/g, '%20')}`;
           this.model = await tf.loadLayersModel(modelLoadPath);
-          this.vocabulary = JSON.parse(fs.readFileSync(path.join(this.modelPath, 'vocabulary.json'), 'utf8'));
-          this.modelLoaded = true;
+        this.vocabulary = JSON.parse(fs.readFileSync(path.join(this.modelPath, 'vocabulary.json'), 'utf8'));
+        this.modelLoaded = true;
           console.log('Existing emotion analysis model loaded successfully');
           return true;
         } catch (loadError) {
@@ -51,7 +51,7 @@ class EmotionAnalysisModel {
       
       // 新しいモデルを作成（メモリ内のみ）
       await this._createInMemoryModel();
-      this.modelLoaded = true;
+        this.modelLoaded = true;
       console.log('In-memory emotion analysis model created successfully');
       
       return true;
@@ -197,14 +197,14 @@ class EmotionAnalysisModel {
       // モデルの保存を試行 - ディレクトリ名にスペースが含まれる場合の対応
       const modelSavePath = `file://${this.modelPath.replace(/\s+/g, '%20')}`;
       await this.model.save(modelSavePath);
-      
-      // 語彙の保存
-      fs.writeFileSync(
-        path.join(this.modelPath, 'vocabulary.json'),
+    
+    // 語彙の保存
+    fs.writeFileSync(
+      path.join(this.modelPath, 'vocabulary.json'),
         JSON.stringify(this.vocabulary),
-        'utf8'
-      );
-      
+      'utf8'
+    );
+    
       console.log('Model saved to disk successfully');
     } catch (saveError) {
       console.warn('Failed to save model to disk, using memory-only model:', saveError.message);

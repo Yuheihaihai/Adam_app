@@ -90,7 +90,9 @@ try {
 }
 
 // OpenAIクライアントの初期化
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = process.env.OPENAI_API_KEY ? 
+  new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : 
+  null;
 
 // Airtableクライアントの初期化
 const airtableBase = process.env.AIRTABLE_API_KEY ? 
@@ -537,6 +539,30 @@ async function generateUserTraits(userId, userMessage) {
 1行のユーザーメッセージから完全に特性を判断することは難しいため、最も確率が高い推測を行い、極端な値は避けてください。JSON形式でのみ回答してください。`;
 
     // OpenAI APIを使用して特性を生成
+    if (!openai) {
+      console.log('    ├─ OpenAI client not available, using default traits');
+      // OpenAIが利用できない場合はデフォルト値を返す
+      return {
+        traits: {
+          communication_style: 'neutral',
+          learning_style: 'balanced'
+        },
+        topics: {
+          primary_interests: [],
+          avoided_topics: []
+        },
+        response_preferences: {
+          length: 'medium',
+          detail: 'medium',
+          tone: 'neutral'
+        },
+        cognitive_style: {},
+        communication_style: {},
+        motivation_goals: {},
+        cognitive_abilities: {}
+      };
+    }
+    
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [

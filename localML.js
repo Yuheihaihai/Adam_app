@@ -21,7 +21,7 @@ class LocalML {
   async initialize() {
     try {
       console.log('[LocalML] 初期化を開始...');
-      
+    
       // 感情分析モデルの初期化
       const EmotionAnalysisModel = require('./emotionAnalysisModel');
       this.emotionModel = new EmotionAnalysisModel();
@@ -31,8 +31,12 @@ class LocalML {
       // 埋め込みサービスの初期化
       const EmbeddingService = require('./embeddingService');
       this.embeddingService = new EmbeddingService();
-      await this.embeddingService.initialize();
-      console.log('[LocalML] 埋め込みサービスの初期化完了');
+      const embeddingInitialized = await this.embeddingService.initialize();
+      if (embeddingInitialized) {
+        console.log('[LocalML] 埋め込みサービスの初期化完了');
+    } else {
+        console.warn('[LocalML] 埋め込みサービスの初期化に失敗しました。フォールバック機能を使用します。');
+      }
       
       // 既存のユーザー分析データを読み込み
       await this._loadAllUserAnalysis();
@@ -327,7 +331,7 @@ class LocalML {
       console.log(`    ├─ トピック抽出: ${analysis.topics.length}件`);
     } catch (error) {
       console.error('Error in topic extraction:', error);
-      analysis.topics = [];
+    analysis.topics = [];
     }
     
     // サポートニーズの分析（非同期）
@@ -1215,8 +1219,8 @@ class LocalML {
       prompt += `- ユーザーの怒りを受け止め、冷静で理解ある対応を心がける\n`;
     } else {
       prompt += `- バランスの取れた、親しみやすい応答を心がける\n`;
-    }
-    
+      }
+      
     // トピックに応じた専門性
     if (analysis.topics && analysis.topics.length > 0) {
       prompt += `- ${analysis.topics.join('、')}に関する適切な知識と理解を示す\n`;
