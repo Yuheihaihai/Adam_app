@@ -785,22 +785,66 @@ function isDeepExplorationRequest(text) {
 }
 
 /**
- * 直接的な画像生成リクエストかどうかを判断する
+ * 直接的な画像生成リクエストかどうかを判断する（LLMベース）
  * @param {string} text - チェックするテキスト
- * @return {boolean} - 直接的な画像生成リクエストの場合はtrue
+ * @return {Promise<boolean>} - 直接的な画像生成リクエストの場合はtrue
  */
-function isDirectImageGenerationRequest(text) {
+async function isDirectImageGenerationRequest(text) {
   if (!text || typeof text !== 'string') return false;
   
-  // 直接的な画像生成リクエストのパターン
-  const patterns = [
-    /画像を?(作|つく|生成|描|書)/i,
-    /(イラスト|絵|写真)(を|の)?(作|つく|生成|描|書)/i,
-    /(generate|create|make|draw).*?(image|picture|photo|illustration)/i,
-    /(image|picture|photo|illustration).*(generate|create|make|draw)/i
-  ];
+  // 短いメッセージの場合は従来のパターンマッチングを使用
+  if (text.length < 20) {
+    const patterns = [
+      /^画像を?(作|つく|生成|描|書)/i,
+      /^(イラスト|絵|写真)(を|の)?(作|つく|生成|描|書)/i,
+      /^(generate|create|make|draw).*?(image|picture|photo|illustration)/i,
+      /^(image|picture|photo|illustration).*(generate|create|make|draw)/i
+    ];
+    return patterns.some(pattern => pattern.test(text));
+  }
   
-  return patterns.some(pattern => pattern.test(text));
+  try {
+    const { OpenAI } = require('openai');
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `ユーザーのメッセージが「画像・イラスト・絵・写真の生成を直接的に求めているかどうか」を判定してください。
+
+判定基準：
+- 明確に画像生成を依頼している → YES
+- 過去の経験や能力について語っている → NO
+- 感情や悩みを表現している → NO
+- 説明や情報を求めている → NO
+
+回答は「YES」または「NO」のみで答えてください。`
+        },
+        {
+          role: "user",
+          content: text
+        }
+      ],
+      max_tokens: 10,
+      temperature: 0.1
+    });
+    
+    const result = response.choices[0]?.message?.content?.trim().toUpperCase();
+    return result === 'YES';
+    
+  } catch (error) {
+    console.error('画像生成リクエスト判定でエラーが発生しました:', error);
+    // エラー時のフォールバック: 非常に限定的なパターンのみ
+    const conservativePatterns = [
+      /^画像を?(作って|つくって|生成して)/i,
+      /^(イラスト|絵|写真)を?(作って|つくって|描いて)/i
+    ];
+    return conservativePatterns.some(pattern => pattern.test(text));
+  }
 }
 
 /**
@@ -878,9 +922,9 @@ async function summarizeUserMessage(text) {
 /**
  * 混乱またはヘルプリクエストの検出
  * @param {string} text - ユーザーメッセージ
- * @return {boolean} 混乱リクエストかどうか
+ * @return {Promise<boolean>} 混乱リクエストかどうか
  */
-function isConfusionRequest(text) {
+async function isConfusionRequest(text) {
   if (!text || typeof text !== 'string') return false;
   
   // 掘り下げモードリクエストは除外する
@@ -889,7 +933,7 @@ function isConfusionRequest(text) {
   }
   
   // 直接的な画像生成リクエストの場合は含めない
-  if (isDirectImageGenerationRequest(text) || isDirectImageAnalysisRequest(text)) {
+  if (await isDirectImageGenerationRequest(text) || isDirectImageAnalysisRequest(text)) {
     return false;
   }
   
@@ -2539,7 +2583,7 @@ async function processMessage(userId, message) {
     console.log(`メッセージ処理開始: "${sanitizedMessage.substring(0, 50)}${sanitizedMessage.length > 50 ? '...' : ''}"`);
     
     // 混乱状態のチェック
-    if (isConfusionRequest(sanitizedMessage)) {
+    if (await isConfusionRequest(sanitizedMessage)) {
       console.log('混乱状態の質問を検出しました');
       const summary = await summarizeUserMessage(sanitizedMessage);
       return `「${summary}」という認識であっていますか？`;
@@ -2939,7 +2983,7 @@ async function handleText(event) {
     }
     
     // 画像生成リクエストの検出と処理
-    if (isDirectImageGenerationRequest(text)) {
+    if (await isDirectImageGenerationRequest(text)) {
       console.log(`画像生成リクエスト検出: "${text}"`);
       
       try {
