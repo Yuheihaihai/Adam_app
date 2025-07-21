@@ -823,6 +823,35 @@ function isDirectImageAnalysisRequest(text) {
 }
 
 /**
+ * ユーザーメッセージを要約する
+ * @param {string} text - ユーザーメッセージ
+ * @return {string} 要約されたメッセージ
+ */
+function summarizeUserMessage(text) {
+  if (!text || typeof text !== 'string') return '';
+  
+  // メッセージを50文字程度に要約
+  let summary = text.trim();
+  
+  // 長いメッセージの場合は短縮
+  if (summary.length > 50) {
+    // 句読点で区切って最初の部分を取得
+    const sentences = summary.split(/[。！？\.\!\?]/);
+    if (sentences.length > 1 && sentences[0].length <= 50) {
+      summary = sentences[0];
+    } else {
+      // 50文字で切り詰め
+      summary = summary.substring(0, 47) + '...';
+    }
+  }
+  
+  // 不要な空白を削除
+  summary = summary.replace(/\s+/g, ' ').trim();
+  
+  return summary;
+}
+
+/**
  * 混乱またはヘルプリクエストの検出
  * @param {string} text - ユーザーメッセージ
  * @return {boolean} 混乱リクエストかどうか
@@ -2488,7 +2517,8 @@ async function processMessage(userId, message) {
     // 混乱状態のチェック
     if (isConfusionRequest(sanitizedMessage)) {
       console.log('混乱状態の質問を検出しました');
-      return '申し訳ありませんが、質問の意図が明確ではありません。もう少し詳しく教えていただけますか？';
+      const summary = summarizeUserMessage(sanitizedMessage);
+      return `「${summary}」という認識であっていますか？`;
     }
     
     // 管理者コマンドのチェック
