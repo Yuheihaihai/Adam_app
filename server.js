@@ -825,30 +825,54 @@ function isDirectImageAnalysisRequest(text) {
 /**
  * ユーザーメッセージを要約する
  * @param {string} text - ユーザーメッセージ
- * @return {string} 要約されたメッセージ
+ * @return {Promise<string>} 要約されたメッセージ
  */
-function summarizeUserMessage(text) {
+async function summarizeUserMessage(text) {
   if (!text || typeof text !== 'string') return '';
   
-  // メッセージを50文字程度に要約
-  let summary = text.trim();
-  
-  // 長いメッセージの場合は短縮
-  if (summary.length > 50) {
-    // 句読点で区切って最初の部分を取得
-    const sentences = summary.split(/[。！？\.\!\?]/);
-    if (sentences.length > 1 && sentences[0].length <= 50) {
-      summary = sentences[0];
-    } else {
-      // 50文字で切り詰め
-      summary = summary.substring(0, 47) + '...';
-    }
+  // 短いメッセージはそのまま返す
+  if (text.length <= 30) {
+    return text.trim();
   }
   
-  // 不要な空白を削除
-  summary = summary.replace(/\s+/g, ' ').trim();
-  
-  return summary;
+  try {
+    const { OpenAI } = require('openai');
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini", // より軽量なモデルを使用
+      messages: [
+        {
+          role: "system",
+          content: "ユーザーのメッセージを20〜30文字程度で簡潔に要約してください。要点のみを抽出し、自然な日本語で表現してください。"
+        },
+        {
+          role: "user",
+          content: text
+        }
+      ],
+      max_tokens: 100,
+      temperature: 0.3
+    });
+    
+    const summary = response.choices[0]?.message?.content?.trim();
+    return summary || text.substring(0, 30) + '...';
+    
+  } catch (error) {
+    console.error('要約処理でエラーが発生しました:', error);
+    // エラー時のフォールバック処理
+    if (text.length > 30) {
+      const sentences = text.split(/[。！？\.\!\?]/);
+      if (sentences.length > 1 && sentences[0].length <= 30) {
+        return sentences[0];
+      } else {
+        return text.substring(0, 27) + '...';
+      }
+    }
+    return text.trim();
+  }
 }
 
 /**
@@ -2517,7 +2541,7 @@ async function processMessage(userId, message) {
     // 混乱状態のチェック
     if (isConfusionRequest(sanitizedMessage)) {
       console.log('混乱状態の質問を検出しました');
-      const summary = summarizeUserMessage(sanitizedMessage);
+      const summary = await summarizeUserMessage(sanitizedMessage);
       return `「${summary}」という認識であっていますか？`;
     }
     
