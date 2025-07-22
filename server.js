@@ -2880,11 +2880,9 @@ async function handleText(event) {
 }
 
 // サーバー起動設定
+// app.listen()はmain.jsで実行されるため、ここでは実行しない
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Listening on port ${PORT}`);
-  console.log(`Visit: http://localhost:${PORT} (if local)\n`);
-});
+console.log(`Server configured for port ${PORT}`);
 
 /**
  * ユーザー入力の検証と無害化
