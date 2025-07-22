@@ -33,6 +33,12 @@ class ServiceMatchingUtils {
       return []; // 空配列を返す
     }
     
+    // エンベディングサービスが利用できない場合は即座にフォールバック
+    if (!this.embeddingService || !this.embeddingService.initialized || !this.embeddingService.isEnabled) {
+      console.log('EmbeddingService not available, using fallback matching');
+      return this._fallbackMatching(userNeeds, services);
+    }
+    
     try {
       // キャッシュ確認
       const cacheKey = crypto.createHash('md5').update(JSON.stringify(userNeeds)).digest('hex');
@@ -46,6 +52,12 @@ class ServiceMatchingUtils {
       // ユーザーニーズの意図をエンベディング
       const userNeedsText = userNeeds.join('. ');
       const needsEmbedding = await this.embeddingService.getEmbeddingWithRateLimit(userNeedsText);
+      
+      // エンベディング結果を検証（ゼロベクトルチェック）
+      if (!needsEmbedding || (Array.isArray(needsEmbedding) && needsEmbedding.every(val => val === 0))) {
+        console.log('Got zero embedding, falling back to keyword matching');
+        return this._fallbackMatching(userNeeds, services);
+      }
       
       // サービス説明のエンベディングをバッチで取得
       const servicesWithScores = [];
@@ -186,28 +198,45 @@ class ServiceMatchingUtils {
     const results = [];
     const needsText = userNeeds.join(' ').toLowerCase();
     
+    // 就職関連キーワードの拡張
+    const jobKeywords = ['仕事', '就職', '転職', 'キャリア', '職業', '働く', '雇用', '求人'];
+    const hasJobKeywords = jobKeywords.some(keyword => needsText.includes(keyword));
+    
     for (const service of services) {
       let score = 0;
       
       // 名前、説明文、タグなどにマッチングキーワードがあるか検査
       const serviceText = `${service.name} ${service.description || ''} ${(service.tags || []).join(' ')}`.toLowerCase();
-      const targets = (service.targets || []).join(' ').toLowerCase();
+      const criteria = service.criteria || {};
+      const criteriaText = Object.values(criteria).flat().join(' ').toLowerCase();
       
       // キーワードマッチングスコア
       for (const need of userNeeds) {
         const needLower = need.toLowerCase();
-        if (serviceText.includes(needLower)) score += 0.3;
-        if (targets.includes(needLower)) score += 0.5;
+        if (serviceText.includes(needLower)) score += 0.4;
+        if (criteriaText.includes(needLower)) score += 0.3;
       }
       
-      // 最低限のスコアがあれば結果に追加
-      if (score > 0.3) {
+      // 就職関連サービスの特別処理
+      if (hasJobKeywords && (service.tags || []).includes('employment')) {
+        score += 0.5;
+      }
+      
+      // 発達障害関連の特別処理
+      if (needsText.includes('発達') || needsText.includes('障害') || needsText.includes('自閉') || needsText.includes('ADHD')) {
+        if ((service.tags || []).includes('neurodivergent') || (service.tags || []).includes('autism')) {
+          score += 0.6;
+        }
+      }
+      
+      // 最低限のスコアがあれば結果に追加（閾値を下げる）
+      if (score > 0.2) {
         results.push({ service, score });
       }
     }
     
-    // スコアでソート
-    return results.sort((a, b) => b.score - a.score);
+    // スコアでソート、最大5件まで
+    return results.sort((a, b) => b.score - a.score).slice(0, 5);
   }
 }
 

@@ -4,6 +4,7 @@ const { Pool } = require('pg');
 const securityConfig = require('./db_security_config');
 const encryptionService = require('./encryption_utils');
 const appleSecurityStandards = require('./apple_security_standards');
+const { userIsolationGuard } = require('./user_isolation_verification');
 
 // PostgreSQL接続プール
 let poolConfig;
@@ -303,6 +304,11 @@ async function query(sql, params = []) {
 // Apple並みセキュアなメッセージ保存（E2EE + 差分プライバシー）
 async function storeSecureUserMessage(userId, messageId, content, role, mode = 'general', messageType = 'text') {
   try {
+    // 🔐 【絶対的UserID検証】すべてのデータアクセス前に必須
+    await userIsolationGuard.verifyUserIdIntegrity(userId, 'store_user_message', { 
+      messageId, role, mode, messageType, contentLength: content.length 
+    });
+    
     // プライバシー影響評価
     const privacyAssessment = appleSecurityStandards.assessPrivacyImpact('store_message');
     console.log(`[PRIVACY] Risk Level: ${privacyAssessment.riskLevel}`);
@@ -323,79 +329,69 @@ async function storeSecureUserMessage(userId, messageId, content, role, mode = '
     // ゼロ知識証明生成
     const zkProof = await appleSecurityStandards.generateZeroKnowledgeProof(userId, messageId);
     
-    // ユーザーIDのハッシュ化（プライバシー保護）
-    const hashedUserId = require('crypto')
-      .createHash('sha256')
-      .update(userId)
-      .digest('hex');
+    // 🔐 【安全なハッシュ化】専用メソッドで確実に生成
+    const hashedUserId = userIsolationGuard.generateSecureHashedUserId(userId);
     
-    const result = await pool.query(
+    // 🔐 【安全なクエリ実行】UserID分離保証付き
+    const result = await userIsolationGuard.executeSecureQuery(
+      pool,
       `INSERT INTO user_messages 
        (user_id, message_id, content, role, mode, message_type, timestamp, zk_proof) 
        VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)
        RETURNING id`,
-      [hashedUserId, messageId, encryptedContent, role, mode, messageType, zkProof.proof]
+      [hashedUserId, messageId, encryptedContent, role, mode, messageType, zkProof.proof],
+      userId,
+      'store_user_message'
     );
     
     // 監査証跡生成
     const auditTrail = await appleSecurityStandards.generateAuditTrail('store_message', minimizedData);
     await logSecurityEvent('message_stored_apple', userId, auditTrail);
     
-    console.log(`[APPLE-SECURE] Message stored with E2EE + Privacy Protection`);
+    console.log(`🔐 [ULTRA-SECURE] Message stored with E2EE + ABSOLUTE Privacy Protection`);
     return result.rows[0];
   } catch (error) {
-    console.error('[APPLE-SECURE] Error storing message:', error.message);
+    console.error('🚨 [ULTRA-SECURE] Error storing message:', error.message);
     throw error;
   }
 }
 
-// Apple並みセキュアな履歴取得（k-匿名性 + 差分プライバシー）
+// セキュアな履歴取得（完全なユーザー分離）
 async function fetchSecureUserHistory(userId, limit = 30) {
   try {
+    // 🔐 【絶対的UserID検証】すべてのデータアクセス前に必須
+    await userIsolationGuard.verifyUserIdIntegrity(userId, 'fetch_user_history', { limit });
+    
     // プライバシー影響評価
     const privacyAssessment = appleSecurityStandards.assessPrivacyImpact('fetch_history');
     console.log(`[PRIVACY] History fetch risk: ${privacyAssessment.riskLevel}`);
     
-    const hashedUserId = require('crypto')
-      .createHash('sha256')
-      .update(userId)
-      .digest('hex');
+    // 🔐 【安全なハッシュ化】専用メソッドで確実に生成
+    const hashedUserId = userIsolationGuard.generateSecureHashedUserId(userId);
     
-    // 同時に複数ユーザーのデータを取得（k-匿名性のため）
-    const result = await pool.query(
+    // 🔐 【安全なクエリ実行】UserID分離保証付き
+    const result = await userIsolationGuard.executeSecureQuery(
+      pool,
       `SELECT * FROM user_messages 
        WHERE user_id = $1 
-       OR user_id IN (
-         SELECT user_id FROM user_messages 
-         WHERE mode = (SELECT mode FROM user_messages WHERE user_id = $1 LIMIT 1)
-         AND user_id != $1
-         LIMIT 4
-       )
        ORDER BY timestamp DESC 
        LIMIT $2`,
-      [hashedUserId, limit * 5]
+      [hashedUserId, limit],
+      userId,
+      'fetch_user_history'
     );
     
-    // k-匿名性を適用
-    const anonymizedData = appleSecurityStandards.ensureKAnonymity(result.rows, 5);
-    
-    // 該当ユーザーのデータのみフィルタリング
-    const userHistory = anonymizedData.filter(row => row.user_id === hashedUserId);
-    
-    // 復号化して返却
-    const decryptedHistory = userHistory.slice(0, limit).map(row => ({
+    // 復号化して返却（該当ユーザーのデータのみ）
+    const decryptedHistory = result.rows.map(row => ({
       ...row,
       content: encryptionService.decrypt(row.content) || row.content,
       user_id: userId // 元のIDに戻す
     }));
     
-    // 統計情報に差分プライバシーノイズ追加
-    const recordCount = appleSecurityStandards.addDifferentialPrivacyNoise(decryptedHistory.length);
-    
-    console.log(`[APPLE-SECURE] Retrieved ~${Math.round(recordCount)} messages with k-anonymity`);
+    console.log(`🔐 [ULTRA-SECURE] Retrieved ${decryptedHistory.length} messages for user ${userId.substring(0, 8)}... (ABSOLUTE user isolation)`);
     return decryptedHistory;
   } catch (error) {
-    console.error('[APPLE-SECURE] Error fetching history:', error.message);
+    console.error('🚨 [ULTRA-SECURE] Error fetching history:', error.message);
     return [];
   }
 }

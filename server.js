@@ -1076,31 +1076,31 @@ async function storeInteraction(userId, role, content) {
     // PostgreSQL失敗時のみAirtableフォールバック（制限付き）
     console.log('⚠️ [FALLBACK] Using Airtable due to PostgreSQL error');
     
-    if (airtableBase) {
+        if (airtableBase) {
       try {
         // プライバシー保護のため内容を制限
         await airtableBase('ConversationHistory').create([
-          {
-            fields: {
+            {
+              fields: {
               UserID: userId.substring(0, 8) + '...', // ユーザーID部分表示
-              Role: role,
+                Role: role,
               Content: content.substring(0, 50) + '...', // 内容制限
-              Timestamp: new Date().toISOString(),
+                Timestamp: new Date().toISOString(),
               Mode: 'general',
               MessageType: 'text',
+              },
             },
-          },
-        ]);
+          ]);
         
         console.log(`✅ [FALLBACK] Limited interaction stored in Airtable`);
-        return true;
+          return true;
       } catch (airtableErr) {
         console.error('[FALLBACK] Airtable error:', airtableErr.message);
-        return false;
+          return false;
+        }
       }
-    }
     
-    return false;
+      return false;
   } catch (err) {
     console.error('[SECURE] Error storing interaction:', err);
     return false;
