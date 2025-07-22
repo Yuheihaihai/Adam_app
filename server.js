@@ -546,7 +546,7 @@ Xの共有方法を尋ねられた場合は、「もしAdamのことが好きな
 ・必要に応じて、送信された画像の内容を解析し、アドバイスに反映します。
 ・わからない場合は画像を作って説明できるので、「〇〇（理解できなかったメッセージ）について画像を作って」とお願いしてみてください。イメージ画像を生成します。
 ・音声入力機能もご利用いただけます（1日3回まで）。サービス向上のため、高いご利用状況により一時的にご利用いただけない場合もございますので、あらかじめご了承ください。順次改善するようにします。
-・あなたの基本機能は、「適職診断」「特性分析」のほか画像生成や画像解析もできます。
+・あなたの基本機能は、「適職診断」「特性分析」のほか画像生成や画像解析もできます。なお、一般的なWeb検索機能はありませんが、適職診断時にはシステムが自動的に最新のキャリア情報を収集して提供します。
 `;
 
 const SYSTEM_PROMPT_CHARACTERISTICS = `
@@ -2550,7 +2550,7 @@ async function processMessage(userId, message) {
       } catch (enhancedError) {
         console.error('[ENHANCED-CONFUSION] エラー:', enhancedError.message);
         // エラー時は従来のメッセージにフォールバック
-        return '申し訳ありませんが、質問の意図が明確ではありません。もう少し詳しく教えていただけますか？';
+      return '申し訳ありませんが、質問の意図が明確ではありません。もう少し詳しく教えていただけますか？';
       }
     }
     
@@ -2953,7 +2953,7 @@ async function handleText(event) {
     }
     
     // LLM強化画像生成判定
-    try {
+      try {
       const shouldGenerate = await enhancedImageDecision.shouldGenerateImage(text);
       if (shouldGenerate) {
         console.log(`[ENHANCED] 画像生成リクエスト検出: "${text}"`);
@@ -2970,9 +2970,9 @@ async function handleText(event) {
         // 画像生成は独自の応答を送信するため、ここでreturn
         return;
       }
-    } catch (imageError) {
+      } catch (imageError) {
       console.error('LLM画像判定エラー:', imageError);
-      
+        
       // フォールバック：従来の判定方法
       if (isDirectImageGenerationRequest(text)) {
         console.log(`[FALLBACK] 画像生成リクエスト検出: "${text}"`);
@@ -2986,18 +2986,18 @@ async function handleText(event) {
         } catch (fallbackError) {
           console.error('フォールバック画像生成エラー:', fallbackError);
           
-          const errorMessage = '申し訳ありません、画像生成中にエラーが発生しました。もう一度お試しいただくか、別の表現で依頼してください。';
-          
-          if (isAudioMessage) {
-            const audioResponse = await audioHandler.generateAudioResponse(errorMessage, userId);
-            await sendAudioWithTextFallback(event.replyToken, errorMessage, audioResponse, userId);
-          } else {
-            await client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: errorMessage
-            });
-          }
-          return;
+        const errorMessage = '申し訳ありません、画像生成中にエラーが発生しました。もう一度お試しいただくか、別の表現で依頼してください。';
+        
+        if (isAudioMessage) {
+          const audioResponse = await audioHandler.generateAudioResponse(errorMessage, userId);
+          await sendAudioWithTextFallback(event.replyToken, errorMessage, audioResponse, userId);
+        } else {
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: errorMessage
+          });
+        }
+        return;
         }
       }
     }
@@ -3482,6 +3482,6 @@ async function summarizeUserMessage(userMessage) {
   }
 }
 
-  // Export the Express app
-  module.exports = app;
+// Export the Express app
+module.exports = app;
 

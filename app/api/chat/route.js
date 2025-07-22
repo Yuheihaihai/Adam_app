@@ -22,7 +22,7 @@ async function detectIntentionWithAI(text) {
 選択肢（1つだけ回答）:
 1. CAREER - キャリア相談・適職診断・職業推薦のリクエスト
 2. HISTORY - 過去の会話記録を思い出して分析するリクエスト
-3. SEARCH - Web検索や情報検索のリクエスト
+3. SEARCH - Web検索リクエスト（※現在利用不可）
 4. ANALYSIS - 詳細な説明や深い分析のリクエスト
 5. MODEL - 特定のAIモデル（Claude等）を使うリクエスト
 6. GENERAL - 上記に当てはまらない一般的な質問や会話
@@ -193,44 +193,10 @@ async function processMessage(userId, messageText) {
       return handleChatRecallWithRetries(userId, messageText);
     }
     
-    // Web検索リクエスト処理
+    // Web検索リクエスト処理 - 無効化（適職診断での自動検索のみ利用可能）
     if (intention === "search") {
-      // 検索クエリの抽出
-      const commands = containsSpecialCommand(messageText);
-      let searchQuery = commands.searchQuery;
-      
-      // 明示的なクエリがない場合はAIで抽出
-      if (!searchQuery) {
-        try {
-          const response = await openai.chat.completions.create({
-            model: "o3-mini-2025-01-31",
-            messages: [
-              {
-                role: "system",
-                content: "ユーザーの検索リクエストから検索キーワードを抽出してください。"
-              },
-              {
-                role: "user",
-                content: `このメッセージから検索すべきキーワードや用語を抽出してください。引用符なしでキーワードだけを返してください。\n\nメッセージ: "${messageText}"`
-              }
-            ],
-            temperature: 0.1,
-            max_tokens: 30
-          });
-          
-          searchQuery = response.choices[0].message.content.trim();
-          console.log(`🔍 [検索キーワード抽出] "${searchQuery}"`);
-        } catch (error) {
-          console.error(`❌ [検索キーワード抽出] エラー: ${error.message}`);
-          searchQuery = messageText.replace(/検索して|調べて|教えて|ください/g, '').trim();
-        }
-      }
-      
-      // Perplexity APIで検索実行
-      const results = await searchWithPerplexity(searchQuery);
-      const systemPrompt = getSystemPromptForMode('normal');
-      const enhancedPrompt = `${systemPrompt}\n\n以下は「${searchQuery}」の検索結果です。これを参考に質問に答えてください：\n${results}`;
-      return processWithAI(enhancedPrompt, messageText, await fetchUserHistory(userId), 'search', userId);
+      // ユーザーに検索機能の制限を説明
+      return "申し訳ございませんが、Adam AIでは一般的なWeb検索機能は提供しておりません。\n\nただし、適職診断やキャリア相談をご利用いただく際は、システムが自動的に最新のキャリア情報を収集してお答えいたします。\n\n「適職診断をお願いします」「私に向いている仕事を教えて」などとお気軽にお話しください。";
     }
     
     // 各種モード選択と処理
