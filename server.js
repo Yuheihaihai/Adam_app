@@ -3483,13 +3483,15 @@ async function handleAudio(event) {
 
     // 音声メッセージ利用の制限チェック
     const userId = event.source.userId;
-    const audioLimitCheck = insightsService.trackAudioRequest(userId);
+    const audioLimitCheck = await insightsService.trackAudioRequest(userId);
     
     if (!audioLimitCheck.allowed) {
       console.log(`音声メッセージの制限に達しました: ${audioLimitCheck.reason}`);
+      // audioLimitCheck.messageが未定義の場合のデフォルトメッセージを設定
+      const limitMessage = audioLimitCheck.message || '申し訳ありません、音声メッセージの利用制限に達しました。しばらく時間をおいてから再度お試しください。';
       await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: audioLimitCheck.message
+        text: limitMessage
       });
       return;
     }
