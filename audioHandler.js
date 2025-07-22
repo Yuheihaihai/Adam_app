@@ -35,7 +35,14 @@ loadRTClient();
 class AudioHandler {
   constructor() {
     // OpenAI APIクライアントの初期化（従来のWhisper/TTS用）
+    if (process.env.OPENAI_API_KEY) {
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      this.openaiEnabled = true;
+    } else {
+      console.warn('[AudioHandler] OpenAI API key not found. Audio processing will be disabled.');
+      this.openai = null;
+      this.openaiEnabled = false;
+    }
     
     // Azure OpenAI設定
     this.useAzure = process.env.AZURE_OPENAI_API_KEY && process.env.AZURE_OPENAI_ENDPOINT;
@@ -184,6 +191,17 @@ class AudioHandler {
   // 音声ファイルをテキストに変換（Speech-to-Text）し、特性も分析
   async transcribeAudio(audioBuffer, userId, options = {}) {
     console.log(`音声テキスト変換と特性分析開始: ${typeof audioBuffer === 'string' ? audioBuffer : 'バイナリデータ'}`);
+    
+    // OpenAI無効時の処理
+    if (!this.openaiEnabled) {
+      console.log(`[AudioHandler] OpenAI disabled. Audio transcription unavailable for user ${userId}`);
+      return {
+        text: null,
+        characteristics: {},
+        disabled: true,
+        message: '音声認識機能は現在利用できません。'
+      };
+    }
     
     // 音声リクエスト制限をチェック - 既にhandleAudio関数でチェック済みのため、ここでは省略可能
     // しかし、他の場所からこの関数が呼ばれる可能性を考慮して、冗長チェックとして残しておく
@@ -834,6 +852,18 @@ class AudioHandler {
     text = String(text);
     
     console.log('音声応答生成開始:', text.substring(0, 30) + '...');
+    
+    // OpenAI無効時の処理
+    if (!this.openaiEnabled && !this.useAzure) {
+      console.log(`[AudioHandler] Audio generation disabled for user ${userId}`);
+      return {
+        buffer: null,
+        filePath: null,
+        text: text,
+        disabled: true,
+        message: '音声生成機能は現在利用できません。'
+      };
+    }
     
     // 音声リクエスト制限をチェック（生成も1リクエストとしてカウント）
     const limitCheck = await this.checkVoiceRequestLimit(userId);

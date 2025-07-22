@@ -21,7 +21,14 @@ class EnhancedCharacteristicsAnalyzer {
     }
     
     // OpenAIクライアント
+    if (process.env.OPENAI_API_KEY) {
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      this.openaiEnabled = true;
+    } else {
+      console.warn('[EnhancedCharacteristicsAnalyzer] OpenAI API key not found. OpenAI analysis will be disabled.');
+      this.openai = null;
+      this.openaiEnabled = false;
+    }
     
     // キャッシュ設定
     this.cacheDir = path.join(__dirname, 'data', 'characteristics_cache');
@@ -129,6 +136,22 @@ class EnhancedCharacteristicsAnalyzer {
     }
     
     // OpenAIによる分析（フォールバックまたは通常処理）
+    if (!this.openaiEnabled) {
+      console.warn('[EnhancedCharacteristicsAnalyzer] OpenAI is disabled. Returning fallback analysis.');
+      const fallbackAnalysis = {
+        legacyMode: true,
+        analysis: '分析機能が利用できません。システム管理者にお問い合わせください。',
+        isCareerAnalysis: isCareerQuery,
+        disabled: true
+      };
+      
+      this.cacheCharacteristics(userId, fallbackAnalysis);
+      return {
+        structuredData: fallbackAnalysis,
+        source: 'disabled'
+      };
+    }
+    
     try {
       const legacyAnalysis = await this._analyzeWithOpenAI(historyData, isCareerQuery);
       

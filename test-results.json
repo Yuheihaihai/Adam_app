@@ -1,0 +1,257 @@
+{
+  "summary": {
+    "pass": 34,
+    "fail": 1,
+    "warn": 6,
+    "total": 41
+  },
+  "results": [
+    {
+      "test": "File Check: メインサーバーファイル",
+      "status": "PASS",
+      "details": "./server.js",
+      "timestamp": "2025-07-04T03:10:16.468Z"
+    },
+    {
+      "test": "File Check: LocalML機械学習システム",
+      "status": "PASS",
+      "details": "./localML.js",
+      "timestamp": "2025-07-04T03:10:16.470Z"
+    },
+    {
+      "test": "File Check: 意図検出モデル",
+      "status": "PASS",
+      "details": "./intentDetectionModel.js",
+      "timestamp": "2025-07-04T03:10:16.470Z"
+    },
+    {
+      "test": "File Check: 感情分析モデル",
+      "status": "PASS",
+      "details": "./emotionAnalysisModel.js",
+      "timestamp": "2025-07-04T03:10:16.470Z"
+    },
+    {
+      "test": "File Check: ML統合モジュール",
+      "status": "PASS",
+      "details": "./mlIntegration.js",
+      "timestamp": "2025-07-04T03:10:16.470Z"
+    },
+    {
+      "test": "File Check: 会話履歴管理",
+      "status": "PASS",
+      "details": "./conversationHistory.js",
+      "timestamp": "2025-07-04T03:10:16.470Z"
+    },
+    {
+      "test": "File Check: 埋め込みサービス",
+      "status": "PASS",
+      "details": "./embeddingService.js",
+      "timestamp": "2025-07-04T03:10:16.470Z"
+    },
+    {
+      "test": "File Check: パッケージ設定",
+      "status": "PASS",
+      "details": "./package.json",
+      "timestamp": "2025-07-04T03:10:16.470Z"
+    },
+    {
+      "test": "File Check: Heroku設定",
+      "status": "PASS",
+      "details": "./Procfile",
+      "timestamp": "2025-07-04T03:10:16.470Z"
+    },
+    {
+      "test": "File Check: 意図検出モデルファイル",
+      "status": "PASS",
+      "details": "./models/intent/1.0.1/model-topology.json",
+      "timestamp": "2025-07-04T03:10:16.470Z"
+    },
+    {
+      "test": "File Check: 意図検出重みファイル",
+      "status": "PASS",
+      "details": "./models/intent/1.0.1/weights.json",
+      "timestamp": "2025-07-04T03:10:16.470Z"
+    },
+    {
+      "test": "Dependency Check: @tensorflow/tfjs",
+      "status": "PASS",
+      "details": "バージョン: ^4.17.0",
+      "timestamp": "2025-07-04T03:10:16.471Z"
+    },
+    {
+      "test": "Dependency Check: @tensorflow/tfjs-node",
+      "status": "PASS",
+      "details": "バージョン: ^4.17.0",
+      "timestamp": "2025-07-04T03:10:16.471Z"
+    },
+    {
+      "test": "Dependency Check: natural",
+      "status": "PASS",
+      "details": "バージョン: ^6.10.4",
+      "timestamp": "2025-07-04T03:10:16.471Z"
+    },
+    {
+      "test": "Dependency Check: airtable",
+      "status": "PASS",
+      "details": "バージョン: ^0.12.1",
+      "timestamp": "2025-07-04T03:10:16.471Z"
+    },
+    {
+      "test": "Dependency Check: openai",
+      "status": "PASS",
+      "details": "バージョン: ^4.0.0",
+      "timestamp": "2025-07-04T03:10:16.471Z"
+    },
+    {
+      "test": "Dependency Check: express",
+      "status": "PASS",
+      "details": "バージョン: ^4.18.2",
+      "timestamp": "2025-07-04T03:10:16.471Z"
+    },
+    {
+      "test": "Dependency Check: @anthropic-ai/sdk",
+      "status": "PASS",
+      "details": "バージョン: ^0.17.0",
+      "timestamp": "2025-07-04T03:10:16.471Z"
+    },
+    {
+      "test": "Environment Variable: OPENAI_API_KEY",
+      "status": "WARN",
+      "details": "未設定",
+      "timestamp": "2025-07-04T03:10:16.471Z"
+    },
+    {
+      "test": "Environment Variable: ANTHROPIC_API_KEY",
+      "status": "WARN",
+      "details": "未設定",
+      "timestamp": "2025-07-04T03:10:16.471Z"
+    },
+    {
+      "test": "Environment Variable: AIRTABLE_API_KEY",
+      "status": "WARN",
+      "details": "未設定",
+      "timestamp": "2025-07-04T03:10:16.471Z"
+    },
+    {
+      "test": "Environment Variable: AIRTABLE_BASE_ID",
+      "status": "WARN",
+      "details": "未設定",
+      "timestamp": "2025-07-04T03:10:16.471Z"
+    },
+    {
+      "test": "Environment Variable: LINE_CHANNEL_ACCESS_TOKEN",
+      "status": "WARN",
+      "details": "未設定",
+      "timestamp": "2025-07-04T03:10:16.471Z"
+    },
+    {
+      "test": "Environment Variable: LINE_CHANNEL_SECRET",
+      "status": "WARN",
+      "details": "未設定",
+      "timestamp": "2025-07-04T03:10:16.471Z"
+    },
+    {
+      "test": "Module Import: LocalML Class",
+      "status": "PASS",
+      "details": "Successfully imported ./localML.js",
+      "timestamp": "2025-07-04T03:10:16.582Z"
+    },
+    {
+      "test": "LocalML Instance Creation",
+      "status": "PASS",
+      "details": "インスタンス作成成功",
+      "timestamp": "2025-07-04T03:10:16.582Z"
+    },
+    {
+      "test": "LocalML Initialization",
+      "status": "PASS",
+      "details": "初期化成功",
+      "timestamp": "2025-07-04T03:10:16.947Z"
+    },
+    {
+      "test": "LocalML Emotion Analysis",
+      "status": "PASS",
+      "details": "感情検出: \"N/A\"",
+      "timestamp": "2025-07-04T03:10:17.008Z"
+    },
+    {
+      "test": "LocalML Pattern Analysis",
+      "status": "FAIL",
+      "details": "パターン検出なし",
+      "timestamp": "2025-07-04T03:10:17.008Z"
+    },
+    {
+      "test": "Module Import: IntentDetectionModel Class",
+      "status": "PASS",
+      "details": "Successfully imported ./intentDetectionModel.js",
+      "timestamp": "2025-07-04T03:10:17.042Z"
+    },
+    {
+      "test": "IntentModel Instance Creation",
+      "status": "PASS",
+      "details": "インスタンス作成成功",
+      "timestamp": "2025-07-04T03:10:17.042Z"
+    },
+    {
+      "test": "IntentModel Initialization",
+      "status": "PASS",
+      "details": "初期化成功",
+      "timestamp": "2025-07-04T03:10:17.045Z"
+    },
+    {
+      "test": "Intent Detection: \"こんにちは\"",
+      "status": "PASS",
+      "details": "検出意図: undefined (信頼度: 0.163)",
+      "timestamp": "2025-07-04T03:10:17.053Z"
+    },
+    {
+      "test": "Intent Detection: \"私の適職を教えてください\"",
+      "status": "PASS",
+      "details": "検出意図: undefined (信頼度: 0.233)",
+      "timestamp": "2025-07-04T03:10:17.066Z"
+    },
+    {
+      "test": "Intent Detection: \"ありがとうございます\"",
+      "status": "PASS",
+      "details": "検出意図: undefined (信頼度: 0.163)",
+      "timestamp": "2025-07-04T03:10:17.075Z"
+    },
+    {
+      "test": "Module Import: EmotionAnalysisModel Class",
+      "status": "PASS",
+      "details": "Successfully imported ./emotionAnalysisModel.js",
+      "timestamp": "2025-07-04T03:10:17.075Z"
+    },
+    {
+      "test": "EmotionModel Instance Creation",
+      "status": "PASS",
+      "details": "インスタンス作成成功",
+      "timestamp": "2025-07-04T03:10:17.075Z"
+    },
+    {
+      "test": "EmotionModel Initialization",
+      "status": "PASS",
+      "details": "初期化成功",
+      "timestamp": "2025-07-04T03:10:17.143Z"
+    },
+    {
+      "test": "Emotion Analysis: \"今日はとても嬉しいです！\"",
+      "status": "PASS",
+      "details": "主要感情: その他 (強度: 0.126)",
+      "timestamp": "2025-07-04T03:10:17.166Z"
+    },
+    {
+      "test": "Emotion Analysis: \"悲しい気持ちです...\"",
+      "status": "PASS",
+      "details": "主要感情: その他 (強度: 0.126)",
+      "timestamp": "2025-07-04T03:10:17.186Z"
+    },
+    {
+      "test": "Emotion Analysis: \"怒りが収まりません\"",
+      "status": "PASS",
+      "details": "主要感情: その他 (強度: 0.126)",
+      "timestamp": "2025-07-04T03:10:17.205Z"
+    }
+  ],
+  "timestamp": "2025-07-04T03:10:17.206Z"
+}

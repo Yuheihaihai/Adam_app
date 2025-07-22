@@ -3,10 +3,22 @@ const { OpenAI } = require('openai');
 
 class UserNeedsAnalyzer {
   constructor(apiKey) {
+    if (apiKey) {
     this.openai = new OpenAI({ apiKey });
+      this.enabled = true;
+    } else {
+      console.warn('[UserNeedsAnalyzer] OpenAI API key not provided. Service will be disabled.');
+      this.openai = null;
+      this.enabled = false;
+    }
   }
 
   async analyzeUserNeeds(userMessage, history) {
+    if (!this.enabled || !this.openai) {
+      console.log('[UserNeedsAnalyzer] Service disabled - returning empty analysis');
+      return {};
+    }
+    
     try {
       // Ensure history is an array
       const historyArray = Array.isArray(history) ? history : [];

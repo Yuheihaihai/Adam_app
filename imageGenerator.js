@@ -10,7 +10,15 @@ const { OpenAI } = require('openai');
 
 class ImageGenerator {
   constructor() {
+    // OpenAI APIキーが設定されている場合のみ初期化
+    if (process.env.OPENAI_API_KEY) {
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      this.isEnabled = true;
+    } else {
+      console.warn('[ImageGenerator] OpenAI API key not found. Image generation will be disabled.');
+      this.openai = null;
+      this.isEnabled = false;
+    }
     
     // 一時ファイルディレクトリの確認と作成
     this.tempDir = path.join(__dirname, 'temp');
@@ -29,6 +37,17 @@ class ImageGenerator {
    */
   async generateImage(event, explanationText, storeInteraction, client) {
     const userId = event.source.userId;
+    
+    // 画像生成機能が無効な場合
+    if (!this.isEnabled) {
+      console.log(`[ImageGenerator] Image generation disabled for user ${userId}`);
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '申し訳ありません。現在、画像生成機能は利用できません。システム管理者にお問い合わせください。'
+      });
+      await storeInteraction(userId, 'system', '[画像生成エラー] 機能が無効です');
+      return false;
+    }
     
     try {
       console.log(`[DEBUG-IMAGE] 画像生成開始: ユーザー=${userId}, テキスト="${explanationText.substring(0, 30)}..."`);

@@ -29,6 +29,9 @@ const dataInterface = new DataInterface();
 // 画像生成モジュールをインポート
 const imageGenerator = require('./imageGenerator');
 
+// LLM強化画像判定モジュール
+const enhancedImageDecision = require('./enhancedImageDecision');
+
 // ユーザーセッション管理のためのオブジェクト
 const sessions = {};
 
@@ -62,11 +65,10 @@ try {
   console.warn('Embedding features could not be loaded, using fallback methods:', error.message);
 }
 
-// 必須環境変数の検証
+// 必須環境変数の検証（LINE Bot動作に必要）
 const requiredEnvVars = [
   'CHANNEL_ACCESS_TOKEN',
-  'CHANNEL_SECRET',
-  'OPENAI_API_KEY'
+  'CHANNEL_SECRET'
 ];
 
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
@@ -77,6 +79,7 @@ if (missingEnvVars.length > 0) {
 
 // 任意環境変数の検証（あれば使用、なければログを出力）
 const optionalEnvVars = [
+  'OPENAI_API_KEY',
   'ANTHROPIC_API_KEY',
   'PERPLEXITY_API_KEY',
   'AIRTABLE_API_KEY',
@@ -501,7 +504,9 @@ app.get('/test-feedback', (req, res) => {
   });
 });
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = process.env.OPENAI_API_KEY ? 
+  new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : 
+  null;
 
 const PerplexitySearch = require('./perplexitySearch');
 const perplexity = new PerplexitySearch(process.env.PERPLEXITY_API_KEY);
@@ -1421,6 +1426,9 @@ const anthropic = new Anthropic({
 
 // callPrimaryModel関数を元のシンプルな実装に戻す
 async function callPrimaryModel(gptOptions) {
+  if (!openai) {
+    throw new Error('OpenAI client not available');
+  }
   const resp = await openai.chat.completions.create(gptOptions);
   return resp.choices && resp.choices[0] && resp.choices[0].message ? resp.choices[0].message.content : '';
 }
@@ -1593,6 +1601,15 @@ ${pastAiReturns}
   };
 
   try {
+    if (!openai) {
+      console.log('⚠️ OpenAI client not available, skipping critic pass');
+      // If critic fails, return original with recommendations
+      if (serviceRecommendationSection) {
+        return aiDraft.trim() + '\n\n' + serviceRecommendationSection;
+      }
+      return aiDraft;
+    }
+    
     console.log('💭 Critic model:', criticOptions.model);
     const criticResponse = await openai.chat.completions.create(criticOptions);
     console.log('✅ Critic pass completed');
@@ -1699,9 +1716,17 @@ async function checkEngagementWithLLM(userMessage, history) {
 応答は「yes」または「no」のみで答えてください。
 `;
 
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
-    });
+    if (!openai) {
+      console.log('⚠️ OpenAI client not available, falling back to keyword-based engagement check');
+      // エラー時はキーワードベースの判定にフォールバック
+      const hasPersonalReference = PERSONAL_REFERENCES.some(ref => 
+        userMessage.toLowerCase().includes(ref)
+      );
+      const hasPositiveKeyword = POSITIVE_KEYWORDS.some(keyword => 
+        userMessage.includes(keyword)
+      );
+      return hasPersonalReference && hasPositiveKeyword;
+    }
     
     const response = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
@@ -2487,8 +2512,31 @@ async function processMessage(userId, message) {
     
     // 混乱状態のチェック
     if (isConfusionRequest(sanitizedMessage)) {
-      console.log('混乱状態の質問を検出しました');
-      return '申し訳ありませんが、質問の意図が明確ではありません。もう少し詳しく教えていただけますか？';
+      console.log('混乱状態の質問を検出しました - 要約+回答形式で対応');
+      
+      try {
+        // 1. ユーザーメッセージを要約
+        const summary = await summarizeUserMessage(sanitizedMessage);
+        
+        // 2. 通常のAI処理を実行して回答を生成
+        const { mode, limit } = determineModeAndLimit(sanitizedMessage);
+        const historyData = await fetchUserHistory(validatedUserId, limit);
+        const systemPrompt = getSystemPromptForMode(mode);
+        const aiResponse = await processWithAI(systemPrompt, sanitizedMessage, historyData, mode, validatedUserId);
+        
+        // 3. 要約+確認+回答の形式で組み合わせ
+        const enhancedResponse = `「${summary}」という解釈であっていますか？\n\n${aiResponse}`;
+        
+        console.log(`[ENHANCED-CONFUSION] 要約: "${summary}"`);
+        console.log(`[ENHANCED-CONFUSION] 応答長: ${enhancedResponse.length}文字`);
+        
+        return enhancedResponse;
+        
+      } catch (enhancedError) {
+        console.error('[ENHANCED-CONFUSION] エラー:', enhancedError.message);
+        // エラー時は従来のメッセージにフォールバック
+        return '申し訳ありませんが、質問の意図が明確ではありません。もう少し詳しく教えていただけますか？';
+      }
     }
     
     // 管理者コマンドのチェック
@@ -2529,9 +2577,8 @@ async function processMessage(userId, message) {
       } else if (result.content) {
         responseText = result.content;
       } else {
-        // どちらも見つからない場合はJSONに変換して返す
-        responseText = '申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。';
-        console.error('Warning: processWithAI returned an object without text or content property');
+        console.warn('結果オブジェクトから応答テキストを抽出できませんでした:', result);
+        responseText = JSON.stringify(result);
       }
     }
     
@@ -2542,6 +2589,7 @@ async function processMessage(userId, message) {
     await storeInteraction(validatedUserId, 'assistant', responseText);
     
     return responseText;
+    
   } catch (error) {
     console.error(`メッセージ処理エラー: ${error.message}`);
     console.error(error.stack);
@@ -2766,9 +2814,14 @@ async function handleImage(event) {
       // }
       
       // OpenAI Vision APIに送信するリクエストを準備
-      const openai = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY
-      });
+      if (!openai) {
+        console.log('⚠️ OpenAI client not available, image analysis disabled');
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: '申し訳ありません。現在、画像分析機能は利用できません。'
+        });
+        return Promise.resolve();
+      }
       
       const response = await openai.chat.completions.create({
         model: "gpt-4o",
@@ -2884,11 +2937,12 @@ async function handleText(event) {
         return;
     }
     
-    // 画像生成リクエストの検出と処理
-    if (isDirectImageGenerationRequest(text)) {
-      console.log(`画像生成リクエスト検出: "${text}"`);
-      
-      try {
+    // LLM強化画像生成判定
+    try {
+      const shouldGenerate = await enhancedImageDecision.shouldGenerateImage(text);
+      if (shouldGenerate) {
+        console.log(`[ENHANCED] 画像生成リクエスト検出: "${text}"`);
+        
         // 画像生成処理を実行
         const imageGenerated = await imageGenerator.generateImage(event, text, storeInteraction, client);
         
@@ -2900,22 +2954,36 @@ async function handleText(event) {
         
         // 画像生成は独自の応答を送信するため、ここでreturn
         return;
-      } catch (imageError) {
-        console.error('画像生成処理エラー:', imageError);
+      }
+    } catch (imageError) {
+      console.error('LLM画像判定エラー:', imageError);
+      
+      // フォールバック：従来の判定方法
+      if (isDirectImageGenerationRequest(text)) {
+        console.log(`[FALLBACK] 画像生成リクエスト検出: "${text}"`);
         
-        // エラー時のフォールバック応答
-        const errorMessage = '申し訳ありません、画像生成中にエラーが発生しました。もう一度お試しいただくか、別の表現で依頼してください。';
-        
-        if (isAudioMessage) {
-          const audioResponse = await audioHandler.generateAudioResponse(errorMessage, userId);
-          await sendAudioWithTextFallback(event.replyToken, errorMessage, audioResponse, userId);
-        } else {
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: errorMessage
-          });
+        try {
+          const imageGenerated = await imageGenerator.generateImage(event, text, storeInteraction, client);
+          if (imageGenerated) {
+            console.log('フォールバック画像生成が完了しました');
+            return;
+          }
+        } catch (fallbackError) {
+          console.error('フォールバック画像生成エラー:', fallbackError);
+          
+          const errorMessage = '申し訳ありません、画像生成中にエラーが発生しました。もう一度お試しいただくか、別の表現で依頼してください。';
+          
+          if (isAudioMessage) {
+            const audioResponse = await audioHandler.generateAudioResponse(errorMessage, userId);
+            await sendAudioWithTextFallback(event.replyToken, errorMessage, audioResponse, userId);
+          } else {
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: errorMessage
+            });
+          }
+          return;
         }
-        return;
       }
     }
     
@@ -3323,6 +3391,28 @@ async function handleAudio(event) {
   }
 }
 
+// ヘルスチェックエンドポイント
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    services: {
+      database: 'connected',
+      ml: 'initialized',
+      server: 'running'
+    }
+  });
+});
+
+// ルートエンドポイント
+app.get('/', (req, res) => {
+  res.status(200).json({
+    message: 'Adam AI Assistant Server',
+    status: 'running',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Only start the server if this file is executed directly (not required/imported)
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;
@@ -3332,6 +3422,51 @@ if (require.main === module) {
   });
 }
 
-// Export the Express app
-module.exports = app;
+/**
+ * LLMを使用してユーザーメッセージを要約し、解釈を確認する
+ * @param {string} userMessage - ユーザーメッセージ
+ * @return {Promise<string>} 要約されたメッセージ
+ */
+async function summarizeUserMessage(userMessage) {
+  if (!userMessage) return 'メッセージの内容';
+  
+  // OpenAI API が利用可能な場合のみLLM要約を実行
+  if (!process.env.OPENAI_API_KEY) {
+    // フォールバック：最初の30文字程度を使用
+    return userMessage.length > 30 ? userMessage.substring(0, 30) + '...' : userMessage;
+  }
+  
+  try {
+    const { OpenAI } = require('openai');
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system", 
+          content: "ユーザーのメッセージを簡潔に要約してください。15文字以内で、ユーザーが何について質問または相談しているかを明確にしてください。"
+        },
+        {
+          role: "user", 
+          content: `以下のメッセージを要約してください：「${userMessage}」`
+        }
+      ],
+      max_tokens: 30,
+      temperature: 0.1
+    });
+    
+    const summary = response.choices[0].message.content.trim();
+    console.log(`[SUMMARY] "${userMessage.substring(0, 30)}..." → "${summary}"`);
+    return summary;
+    
+  } catch (error) {
+    console.error('[SUMMARY] エラー:', error.message);
+    // エラー時のフォールバック
+    return userMessage.length > 30 ? userMessage.substring(0, 30) + '...' : userMessage;
+  }
+}
+
+  // Export the Express app
+  module.exports = app;
 

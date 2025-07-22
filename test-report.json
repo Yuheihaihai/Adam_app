@@ -1,0 +1,226 @@
+{
+  "testSummary": {
+    "total": 30,
+    "passed": 22,
+    "failed": 1,
+    "warnings": 7
+  },
+  "testResults": [
+    {
+      "test": "ファイル存在: server.js",
+      "status": "PASS",
+      "details": "サイズ: 143.8KB",
+      "category": "files",
+      "timestamp": "2025-07-04T03:30:31.269Z"
+    },
+    {
+      "test": "ファイル存在: localML.js",
+      "status": "PASS",
+      "details": "サイズ: 54.9KB",
+      "category": "files",
+      "timestamp": "2025-07-04T03:30:31.269Z"
+    },
+    {
+      "test": "ファイル存在: intentDetectionModel.js",
+      "status": "PASS",
+      "details": "サイズ: 34.7KB",
+      "category": "files",
+      "timestamp": "2025-07-04T03:30:31.269Z"
+    },
+    {
+      "test": "ファイル存在: emotionAnalysisModel.js",
+      "status": "PASS",
+      "details": "サイズ: 6.8KB",
+      "category": "files",
+      "timestamp": "2025-07-04T03:30:31.269Z"
+    },
+    {
+      "test": "ファイル存在: mlIntegration.js",
+      "status": "PASS",
+      "details": "サイズ: 33.3KB",
+      "category": "files",
+      "timestamp": "2025-07-04T03:30:31.269Z"
+    },
+    {
+      "test": "ファイル存在: package.json",
+      "status": "PASS",
+      "details": "サイズ: 1.3KB",
+      "category": "files",
+      "timestamp": "2025-07-04T03:30:31.269Z"
+    },
+    {
+      "test": "ファイル存在: embeddingService.js",
+      "status": "PASS",
+      "details": "サイズ: 11.6KB",
+      "category": "files",
+      "timestamp": "2025-07-04T03:30:31.270Z"
+    },
+    {
+      "test": "ファイル存在: perplexitySearch.js",
+      "status": "PASS",
+      "details": "サイズ: 20.3KB",
+      "category": "files",
+      "timestamp": "2025-07-04T03:30:31.270Z"
+    },
+    {
+      "test": "ファイル存在: userNeedsAnalyzer.js",
+      "status": "PASS",
+      "details": "サイズ: 16.5KB",
+      "category": "files",
+      "timestamp": "2025-07-04T03:30:31.270Z"
+    },
+    {
+      "test": "ファイル存在: serviceRecommender.js",
+      "status": "PASS",
+      "details": "サイズ: 49.0KB",
+      "category": "files",
+      "timestamp": "2025-07-04T03:30:31.270Z"
+    },
+    {
+      "test": "依存関係: @tensorflow/tfjs",
+      "status": "PASS",
+      "details": "バージョン: ^4.17.0",
+      "category": "deps",
+      "timestamp": "2025-07-04T03:30:31.358Z"
+    },
+    {
+      "test": "依存関係: express",
+      "status": "PASS",
+      "details": "バージョン: ^4.18.2",
+      "category": "deps",
+      "timestamp": "2025-07-04T03:30:31.433Z"
+    },
+    {
+      "test": "依存関係: openai",
+      "status": "PASS",
+      "details": "バージョン: ^4.0.0",
+      "category": "deps",
+      "timestamp": "2025-07-04T03:30:31.485Z"
+    },
+    {
+      "test": "依存関係: axios",
+      "status": "PASS",
+      "details": "バージョン: ^1.8.4",
+      "category": "deps",
+      "timestamp": "2025-07-04T03:30:31.504Z"
+    },
+    {
+      "test": "依存関係: dotenv",
+      "status": "PASS",
+      "details": "バージョン: ^16.0.1",
+      "category": "deps",
+      "timestamp": "2025-07-04T03:30:31.505Z"
+    },
+    {
+      "test": "必須環境変数: CHANNEL_ACCESS_TOKEN",
+      "status": "PASS",
+      "details": "設定済み",
+      "category": "env",
+      "timestamp": "2025-07-04T03:30:31.506Z"
+    },
+    {
+      "test": "必須環境変数: CHANNEL_SECRET",
+      "status": "PASS",
+      "details": "設定済み",
+      "category": "env",
+      "timestamp": "2025-07-04T03:30:31.506Z"
+    },
+    {
+      "test": "任意環境変数: OPENAI_API_KEY",
+      "status": "WARN",
+      "details": "未設定（機能制限あり）",
+      "category": "env",
+      "timestamp": "2025-07-04T03:30:31.506Z"
+    },
+    {
+      "test": "任意環境変数: ANTHROPIC_API_KEY",
+      "status": "WARN",
+      "details": "未設定（機能制限あり）",
+      "category": "env",
+      "timestamp": "2025-07-04T03:30:31.506Z"
+    },
+    {
+      "test": "任意環境変数: PERPLEXITY_API_KEY",
+      "status": "WARN",
+      "details": "未設定（機能制限あり）",
+      "category": "env",
+      "timestamp": "2025-07-04T03:30:31.506Z"
+    },
+    {
+      "test": "任意環境変数: AIRTABLE_API_KEY",
+      "status": "WARN",
+      "details": "未設定（機能制限あり）",
+      "category": "env",
+      "timestamp": "2025-07-04T03:30:31.506Z"
+    },
+    {
+      "test": "任意環境変数: AIRTABLE_BASE_ID",
+      "status": "WARN",
+      "details": "未設定（機能制限あり）",
+      "category": "env",
+      "timestamp": "2025-07-04T03:30:31.506Z"
+    },
+    {
+      "test": "ルートエンドポイント",
+      "status": "FAIL",
+      "details": "Unexpected token < in JSON at position 0",
+      "category": "server",
+      "timestamp": "2025-07-04T03:30:31.524Z"
+    },
+    {
+      "test": "ヘルスチェックエンドポイント",
+      "status": "PASS",
+      "details": "ステータス: healthy",
+      "category": "server",
+      "timestamp": "2025-07-04T03:30:31.528Z"
+    },
+    {
+      "test": "LocalML感情分析",
+      "status": "PASS",
+      "details": "分析結果を取得: 5項目",
+      "category": "ml",
+      "timestamp": "2025-07-04T03:30:31.997Z"
+    },
+    {
+      "test": "意図検出モデル",
+      "status": "PASS",
+      "details": "検出された意図: [object Object]",
+      "category": "ml",
+      "timestamp": "2025-07-04T03:30:32.023Z"
+    },
+    {
+      "test": "感情分析モデル",
+      "status": "PASS",
+      "details": "検出された感情: {\"scores\":{\"喜び\":0.12597240507602692,\"悲しみ\":0.12255178391933441,\"怒り\":0.1278592348098755,\"不安\":0.1257932037115097,\"驚き\":0.12536633014678955,\"混乱\":0.12445099651813507,\"中立\":0.12301992624998093,\"その他\":0.12498609721660614},\"dominant\":\"怒り\",\"intensity\":0.1278592348098755}",
+      "category": "ml",
+      "timestamp": "2025-07-04T03:30:32.136Z"
+    },
+    {
+      "test": "埋め込みサービス",
+      "status": "PASS",
+      "details": "埋め込み次元: 1536",
+      "category": "services",
+      "timestamp": "2025-07-04T03:30:32.136Z"
+    },
+    {
+      "test": "Perplexity検索",
+      "status": "WARN",
+      "details": "APIキー未設定",
+      "category": "services",
+      "timestamp": "2025-07-04T03:30:32.137Z"
+    },
+    {
+      "test": "ユーザーニーズ分析",
+      "status": "WARN",
+      "details": "APIキー未設定",
+      "category": "services",
+      "timestamp": "2025-07-04T03:30:32.138Z"
+    }
+  ],
+  "timestamp": "2025-07-04T03:30:32.138Z",
+  "environment": {
+    "nodeVersion": "v18.20.5",
+    "platform": "darwin",
+    "arch": "arm64"
+  }
+}

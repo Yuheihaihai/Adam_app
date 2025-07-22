@@ -107,6 +107,12 @@ class ServiceRecommender {
   }
   
   async _checkTableExists() {
+    if (!this.airtableBase) {
+      console.log('Airtable not configured. Using local storage fallback.');
+      this.tableExists = false;
+      return;
+    }
+    
     try {
       await this.airtableBase(this.RECOMMENDATIONS_TABLE).select({ maxRecords: 1 }).firstPage();
       this.tableExists = true;

@@ -11,6 +11,7 @@ class EmbeddingService {
     this.cacheEnabled = true;               // キャッシュ機能
     this.client = null;
     this.initialized = false;
+    this.isEnabled = false;                 // Add isEnabled property
     
     // シンプルなメモリキャッシュ
     this.cache = new Map();
@@ -19,6 +20,9 @@ class EmbeddingService {
     this.maxTokenLimit = 8000;              // 余裕を持って8,000トークンまでに制限（APIの上限は8,192）
     this.avgCharsPerToken = 2.5;            // より保守的な値に調整（日本語では通常1文字で2トークン程度）
     this.safetyBuffer = 0.7;                // 追加の安全マージン（70%）
+    
+    // Initialize on construction
+    this.initialize();
   }
 
   /**
@@ -28,17 +32,22 @@ class EmbeddingService {
   async initialize() {
     try {
       if (!this.openaiApiKey) {
-        console.error('OpenAI API Key is not set. Please set OPENAI_API_KEY environment variable.');
+        console.warn('OpenAI API Key is not set. EmbeddingService will operate in fallback mode.');
+        this.initialized = false;
+        this.isEnabled = false; // Add isEnabled property
         return false;
       }
 
       this.client = new OpenAI({ apiKey: this.openaiApiKey });
       this.initialized = true;
+      this.isEnabled = true; // Add isEnabled property
       
       console.log(`EmbeddingService initialized with model: ${this.model}`);
       return true;
     } catch (error) {
       console.error('Failed to initialize EmbeddingService:', error);
+      this.initialized = false;
+      this.isEnabled = false; // Add isEnabled property
       return false;
     }
   }
@@ -114,7 +123,11 @@ class EmbeddingService {
   async getEmbedding(text) {
     // 初期化確認
     if (!this.initialized) {
-      await this.initialize();
+      const initSuccess = await this.initialize();
+      if (!initSuccess) {
+        console.warn('EmbeddingService not initialized. Returning zero vector.');
+        return new Array(this.embeddingDimension).fill(0);
+      }
     }
 
     // 入力検証

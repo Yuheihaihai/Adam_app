@@ -3,19 +3,28 @@ const { OpenAI } = require('openai');
 class PerplexitySearch {
   constructor(apiKey) {
     if (!apiKey) {
-      console.error('Perplexity API key is missing');
-      throw new Error('Perplexity API key is required');
-    }
-    
+      console.warn('Perplexity API key is missing. Service will be disabled.');
+      this.client = null;
+      this.enabled = false;
+      this.isEnabled = false; // Add isEnabled property for consistency
+    } else {
     this.client = new OpenAI({ 
       apiKey: apiKey,
       baseURL: "https://api.perplexity.ai",
       timeout: 25000,  // 25 second timeout (below Heroku's 30s limit)
       maxRetries: 2    // Allow 2 retries
     });
+      this.enabled = true;
+      this.isEnabled = true; // Add isEnabled property for consistency
+    }
   }
 
   async enhanceKnowledge(history, userMessage) {
+    if (!this.enabled || !this.client) {
+      console.log('📊 [PERPLEXITY ML] Service disabled - API key not available');
+      return null;
+    }
+    
     if (!needsKnowledge(userMessage)) {
       console.log('📊 [PERPLEXITY ML] Knowledge enhancement skipped - message does not match criteria');
       return null;
@@ -124,6 +133,10 @@ ${analysisPrompt}`
 
   // For weather/sports test queries only
   async handleAllowedQuery(query) {
+    if (!this.enabled || !this.client) {
+      return "申し訳ありません。検索サービスは現在利用できません。";
+    }
+    
     try {
       // 拡張版の意味的クエリ判定を使用
       const isAllowed = await this.isAllowedQuerySemantic(query);
@@ -213,6 +226,11 @@ ${analysisPrompt}`
   }
 
   async getJobTrends(searchQuery = null) {
+    if (!this.enabled || !this.client) {
+      console.log('📈 [PERPLEXITY ML] Service disabled - API key not available');
+      return null;
+    }
+    
     try {
       // If no search query is provided, use a default one
       let query = searchQuery;
@@ -306,6 +324,11 @@ Indeed、Wantedly、type.jpなどの具体的な求人情報のURL（3つ程度�
    * @returns {Promise<Object|null>} - 適職推奨結果
    */
   async getJobRecommendations(history, userMessage) {
+    if (!this.enabled || !this.client) {
+      console.log('🎯 [PERPLEXITY ML] Service disabled - API key not available');
+      return null;
+    }
+    
     try {
       console.log('\n🎯 [PERPLEXITY ML] JOB RECOMMENDATIONS PROCESS');
       console.log('   ├─ Input message length:', userMessage.length, 'characters');
@@ -381,6 +404,10 @@ ${userMessage}
    * @returns {Promise<string>} - 検索結果
    */
   async generalSearch(query) {
+    if (!this.enabled || !this.client) {
+      return "申し訳ありません。検索サービスは現在利用できません。";
+    }
+    
     try {
       if (!query || query.length < 5) {
         return "検索クエリが短すぎます。もう少し具体的な質問をしてください。";
