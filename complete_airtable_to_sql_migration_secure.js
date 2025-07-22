@@ -130,6 +130,13 @@ class UltraSecureAirtableToSQLMigration {
             continue;
           }
           
+          // 🛡️ テストデータ除外フィルター（本番データ保護）
+          if (userId.startsWith('test-') || userId.includes('test') || !userId.startsWith('U')) {
+            console.log(`   🛡️ テストデータ除外: ${userId.substring(0, 8)}...`);
+            this.stats.conversationHistory.skipped++;
+            continue;
+          }
+          
           // 🔐 【絶対的UserID検証】
           await userIsolationGuard.verifyUserIdIntegrity(userId, 'migrate_conversation_history', {
             recordId: record.id,
@@ -230,6 +237,13 @@ class UltraSecureAirtableToSQLMigration {
           if (!userId || !analysisData) {
             console.log(`   ⚠️ 必須フィールド不足: ${record.id}`);
             this.stats.userAnalysis.errors++;
+            continue;
+          }
+          
+          // 🛡️ テストデータ除外フィルター（本番データ保護）
+          if (userId.startsWith('test-') || userId.includes('test') || !userId.startsWith('U')) {
+            console.log(`   🛡️ テストデータ除外: ${userId.substring(0, 8)}...`);
+            this.stats.userAnalysis.skipped++;
             continue;
           }
           
