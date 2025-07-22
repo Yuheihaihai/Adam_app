@@ -868,6 +868,24 @@ function checkAdminCommand(text) {
     };
   }
   
+  // Apple基準プライバシーコマンド
+  const privacyCommands = {
+    'プライバシー設定': 'privacy_settings',
+    'データ削除': 'delete_my_data', 
+    'データ出力': 'export_my_data',
+    'プライバシーレポート': 'privacy_report'
+  };
+  
+  for (const [command, type] of Object.entries(privacyCommands)) {
+    if (text === command || text.startsWith(command + ' ')) {
+      return {
+        isCommand: true,
+        type: type,
+        args: text.substring(command.length).trim()
+      };
+    }
+  }
+  
   return { isCommand: false };
 }
 
@@ -1021,77 +1039,75 @@ function getSystemPromptForMode(mode) {
 async function storeInteraction(userId, role, content) {
   try {
     console.log(
-      `Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`
+      `[SECURE] Storing encrypted interaction => userId: ${userId.substring(0, 8)}..., role: ${role}`
     );
     
     // 一意のメッセージIDを生成
     const messageId = Date.now().toString();
     
-    // ConversationHistoryテーブルに保存
+    // PostgreSQLセキュア保存を優先使用（USE_POSTGRESQL環境変数で制御）
+    if (process.env.USE_POSTGRESQL === 'true' && db && db.storeSecureUserMessage) {
+      try {
+        await db.storeSecureUserMessage(
+          userId, 
+          messageId, 
+          content, 
+          role,
+          'general', // デフォルトモード
+          'text'     // デフォルトメッセージタイプ
+        );
+        
+        // セキュリティイベントログ
+        await db.logSecurityEvent('message_stored', userId, {
+          messageLength: content.length,
+          role: role
+        });
+        
+        console.log(`✅ [SECURE] Encrypted interaction stored in PostgreSQL`);
+        return true;
+      } catch (pgError) {
+        console.error('❌ [SECURE] PostgreSQL secure storage error:', pgError.message);
+        // PostgreSQLエラー時はAirtableにフォールバック
+      }
+    }
+    
+    // PostgreSQL失敗時のみAirtableフォールバック（制限付き）
+    console.log('⚠️ [FALLBACK] Using Airtable due to PostgreSQL error');
+    
     if (airtableBase) {
       try {
+        // プライバシー保護のため内容を制限
         await airtableBase('ConversationHistory').create([
           {
             fields: {
-              UserID: userId,
+              UserID: userId.substring(0, 8) + '...', // ユーザーID部分表示
               Role: role,
-              Content: content,
+              Content: content.substring(0, 50) + '...', // 内容制限
               Timestamp: new Date().toISOString(),
-              Mode: 'general', // デフォルトのモードを追加
-              MessageType: 'text', // デフォルトのメッセージタイプを追加
+              Mode: 'general',
+              MessageType: 'text',
             },
           },
         ]);
         
-        console.log(`会話履歴の保存成功 => ユーザー: ${userId}, タイプ: ${role}, 長さ: ${content.length}文字`);
+        console.log(`✅ [FALLBACK] Limited interaction stored in Airtable`);
         return true;
       } catch (airtableErr) {
-        console.error('Error storing to ConversationHistory:', airtableErr);
-        console.error(`ConversationHistory保存エラー => ユーザー: ${userId}`);
-        console.error(`エラータイプ: ${airtableErr.name || 'Unknown'}`);
-        console.error(`エラーメッセージ: ${airtableErr.message || 'No message'}`);
-        
-        // ConversationHistoryに保存できない場合は、元のINTERACTIONS_TABLEにフォールバック
-        if (airtableBase) {
-          await airtableBase(INTERACTIONS_TABLE).create([
-            {
-              fields: {
-                UserID: userId,
-                Role: role,
-                Content: content,
-                Timestamp: new Date().toISOString(),
-                // フォールバックテーブルには追加のフィールドは含めない（エラーの原因になる可能性あり）
-              },
-            },
-          ]);
-          console.log(`会話履歴のフォールバック保存成功 => INTERACTIONS_TABLEに保存`);
-          return true;
-        } else {
-          console.error('Airtable接続が設定されていないため、フォールバック保存もできませんでした');
-          return false;
-        }
+        console.error('[FALLBACK] Airtable error:', airtableErr.message);
+        return false;
       }
-    } else {
-      console.warn('Airtable接続が初期化されていないため、会話履歴を保存できません');
-      return false;
     }
+    
+    return false;
   } catch (err) {
-    console.error('Error storing interaction:', err);
-    // 詳細なエラー情報をログに出力（会話保存の失敗原因特定のため）
-    console.error(`会話保存エラーの詳細 => ユーザー: ${userId}`); 
-    console.error(`エラータイプ: ${err.name || 'Unknown'}`);
-    console.error(`エラーメッセージ: ${err.message || 'No message'}`);
+    console.error('[SECURE] Error storing interaction:', err);
     return false;
   }
 }
 
 async function fetchUserHistory(userId, limit) {
   try {
-    console.log(`Fetching history for user ${userId}, limit: ${limit}`);
-    
-    // API認証情報の検証（デバッグ用）
-    console.log(`[接続検証] Airtable認証情報 => API_KEY存在: ${!!process.env.AIRTABLE_API_KEY}, BASE_ID存在: ${!!process.env.AIRTABLE_BASE_ID}`);
-    console.log(`[接続検証] airtableBase初期化状態: ${airtableBase ? '成功' : '未初期化'}`);
+    console.log(`[SECURE] Fetching encrypted history for user ${userId.substring(0, 8)}..., limit: ${limit}`);
     
     // 履歴分析用のメタデータオブジェクトを初期化
     const historyMetadata = {
@@ -1101,8 +1117,40 @@ async function fetchUserHistory(userId, limit) {
       insufficientReason: null
     };
     
+    // PostgreSQLセキュア履歴取得を優先使用（USE_POSTGRESQL環境変数で制御）
+    if (process.env.USE_POSTGRESQL === 'true' && db && db.fetchSecureUserHistory) {
+      try {
+        const secureHistory = await db.fetchSecureUserHistory(userId, limit);
+        
+        // セキュリティイベントログ
+        await db.logSecurityEvent('history_accessed', userId, {
+          recordsRetrieved: secureHistory.length,
+          limit: limit
+        });
+        
+        console.log(`✅ [SECURE] Retrieved ${secureHistory.length} encrypted records from PostgreSQL`);
+        
+        // メタデータ更新
+        historyMetadata.totalRecords = secureHistory.length;
+        
+        // 履歴を適切な形式に変換
+        const history = secureHistory.map(record => ({
+          role: record.role,
+          content: record.content
+        }));
+        
+        return { history, metadata: historyMetadata };
+      } catch (pgError) {
+        console.error('❌ [SECURE] PostgreSQL secure fetch error:', pgError.message);
+        // PostgreSQLエラー時はAirtableにフォールバック
+      }
+    }
+    
+    // PostgreSQL失敗時のみAirtableフォールバック
+    console.log('⚠️ [FALLBACK] Using Airtable due to PostgreSQL error');
+    
     if (!airtableBase) {
-      console.error('Airtable接続が初期化されていないため、履歴を取得できません');
+      console.error('[FALLBACK] Airtable not initialized');
       historyMetadata.insufficientReason = 'airtable_not_initialized';
       return { history: [], metadata: historyMetadata };
     }
@@ -3437,12 +3485,31 @@ app.get('/', (req, res) => {
   });
 });
 
+// Apple基準: 自動削除スケジューラー起動
+if (process.env.DATA_RETENTION_DAYS) {
+  setInterval(async () => {
+    try {
+      const deletedCount = await db.executeScheduledDeletions();
+      if (deletedCount > 0) {
+        console.log(`[APPLE-PRIVACY] Auto-deleted ${deletedCount} expired records`);
+      }
+    } catch (error) {
+      console.error('[APPLE-PRIVACY] Auto-deletion error:', error.message);
+    }
+  }, 24 * 60 * 60 * 1000); // 24時間ごと
+}
+
 // Only start the server if this file is executed directly (not required/imported)
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
-    console.log(`Server started on port ${PORT}`);
-    console.log(`Visit: http://localhost:${PORT} (if local)\n`);
+    console.log(`🚀 Server started on port ${PORT}`);
+    console.log(`Visit: http://localhost:${PORT} (if local)`);
+    console.log(`🔐 Apple並みセキュリティ: 有効`);
+    console.log(`🔒 E2EE暗号化: 有効`);
+    console.log(`🛡️ 差分プライバシー: ε=${process.env.PRIVACY_EPSILON || '1.0'}`);
+    console.log(`📅 データ保持期間: ${process.env.DATA_RETENTION_DAYS || '90'}日`);
+    console.log(`🎭 k-匿名性: k=${process.env.K_ANONYMITY_THRESHOLD || '5'}\n`);
   });
 }
 

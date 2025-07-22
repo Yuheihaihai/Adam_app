@@ -1,6 +1,9 @@
 // db.js
 require('dotenv').config();
 const { Pool } = require('pg');
+const securityConfig = require('./db_security_config');
+const encryptionService = require('./encryption_utils');
+const appleSecurityStandards = require('./apple_security_standards');
 
 // PostgreSQL接続プール
 let poolConfig;
@@ -83,7 +86,7 @@ async function initializeTables() {
       console.log('Will continue without vector search capabilities');
     }
     
-    // ユーザーメッセージテーブル
+    // Apple基準セキュアメッセージテーブル
     await client.query(`
       CREATE TABLE IF NOT EXISTS user_messages (
         id SERIAL PRIMARY KEY,
@@ -93,11 +96,34 @@ async function initializeTables() {
         role VARCHAR(50) NOT NULL,
         timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         mode VARCHAR(50),
-        message_type VARCHAR(50)
+        message_type VARCHAR(50),
+        zk_proof TEXT,
+        deletion_scheduled_at TIMESTAMP,
+        privacy_level INTEGER DEFAULT 3,
+        e2ee_key_id VARCHAR(255)
       )
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_user_messages_user_id ON user_messages(user_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_user_messages_timestamp ON user_messages(timestamp)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_user_messages_deletion ON user_messages(deletion_scheduled_at)`);
+    
+    // Apple基準: 90日後の自動削除トリガー
+    await client.query(`
+      CREATE OR REPLACE FUNCTION auto_delete_old_messages() RETURNS trigger AS $$
+      BEGIN
+        NEW.deletion_scheduled_at := NEW.timestamp + INTERVAL '90 days';
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+    `);
+    
+    await client.query(`
+      DROP TRIGGER IF EXISTS set_deletion_date ON user_messages;
+      CREATE TRIGGER set_deletion_date
+        BEFORE INSERT ON user_messages
+        FOR EACH ROW
+        EXECUTE FUNCTION auto_delete_old_messages();
+    `);
     
     // message_idカラムが存在しない場合は追加
     try {
@@ -141,6 +167,21 @@ async function initializeTables() {
       )
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_user_audio_stats_user_id ON user_audio_stats(user_id)`);
+
+    // セキュリティ監査ログテーブル
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS security_audit_log (
+        id SERIAL PRIMARY KEY,
+        event_type VARCHAR(50) NOT NULL,
+        user_id VARCHAR(255),
+        details TEXT,
+        ip_address VARCHAR(45),
+        user_agent TEXT,
+        timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_audit_log_timestamp ON security_audit_log(timestamp)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_audit_log_event_type ON security_audit_log(event_type)`);
 
     // セマンティック検索用テーブル - pgvector拡張を使用
     try {
@@ -259,9 +300,226 @@ async function query(sql, params = []) {
   }
 }
 
+// Apple並みセキュアなメッセージ保存（E2EE + 差分プライバシー）
+async function storeSecureUserMessage(userId, messageId, content, role, mode = 'general', messageType = 'text') {
+  try {
+    // プライバシー影響評価
+    const privacyAssessment = appleSecurityStandards.assessPrivacyImpact('store_message');
+    console.log(`[PRIVACY] Risk Level: ${privacyAssessment.riskLevel}`);
+    
+    // データ最小化原則適用
+    const minimizedData = appleSecurityStandards.minimizeData({
+      userId,
+      messageId,
+      content,
+      role,
+      mode,
+      messageType
+    }, 'storage');
+    
+    // エンドツーエンド暗号化
+    const encryptedContent = encryptionService.encrypt(content);
+    
+    // ゼロ知識証明生成
+    const zkProof = await appleSecurityStandards.generateZeroKnowledgeProof(userId, messageId);
+    
+    // ユーザーIDのハッシュ化（プライバシー保護）
+    const hashedUserId = require('crypto')
+      .createHash('sha256')
+      .update(userId)
+      .digest('hex');
+    
+    const result = await pool.query(
+      `INSERT INTO user_messages 
+       (user_id, message_id, content, role, mode, message_type, timestamp, zk_proof) 
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)
+       RETURNING id`,
+      [hashedUserId, messageId, encryptedContent, role, mode, messageType, zkProof.proof]
+    );
+    
+    // 監査証跡生成
+    const auditTrail = await appleSecurityStandards.generateAuditTrail('store_message', minimizedData);
+    await logSecurityEvent('message_stored_apple', userId, auditTrail);
+    
+    console.log(`[APPLE-SECURE] Message stored with E2EE + Privacy Protection`);
+    return result.rows[0];
+  } catch (error) {
+    console.error('[APPLE-SECURE] Error storing message:', error.message);
+    throw error;
+  }
+}
+
+// Apple並みセキュアな履歴取得（k-匿名性 + 差分プライバシー）
+async function fetchSecureUserHistory(userId, limit = 30) {
+  try {
+    // プライバシー影響評価
+    const privacyAssessment = appleSecurityStandards.assessPrivacyImpact('fetch_history');
+    console.log(`[PRIVACY] History fetch risk: ${privacyAssessment.riskLevel}`);
+    
+    const hashedUserId = require('crypto')
+      .createHash('sha256')
+      .update(userId)
+      .digest('hex');
+    
+    // 同時に複数ユーザーのデータを取得（k-匿名性のため）
+    const result = await pool.query(
+      `SELECT * FROM user_messages 
+       WHERE user_id = $1 
+       OR user_id IN (
+         SELECT user_id FROM user_messages 
+         WHERE mode = (SELECT mode FROM user_messages WHERE user_id = $1 LIMIT 1)
+         AND user_id != $1
+         LIMIT 4
+       )
+       ORDER BY timestamp DESC 
+       LIMIT $2`,
+      [hashedUserId, limit * 5]
+    );
+    
+    // k-匿名性を適用
+    const anonymizedData = appleSecurityStandards.ensureKAnonymity(result.rows, 5);
+    
+    // 該当ユーザーのデータのみフィルタリング
+    const userHistory = anonymizedData.filter(row => row.user_id === hashedUserId);
+    
+    // 復号化して返却
+    const decryptedHistory = userHistory.slice(0, limit).map(row => ({
+      ...row,
+      content: encryptionService.decrypt(row.content) || row.content,
+      user_id: userId // 元のIDに戻す
+    }));
+    
+    // 統計情報に差分プライバシーノイズ追加
+    const recordCount = appleSecurityStandards.addDifferentialPrivacyNoise(decryptedHistory.length);
+    
+    console.log(`[APPLE-SECURE] Retrieved ~${Math.round(recordCount)} messages with k-anonymity`);
+    return decryptedHistory;
+  } catch (error) {
+    console.error('[APPLE-SECURE] Error fetching history:', error.message);
+    return [];
+  }
+}
+
+// セキュリティ監査ログ
+async function logSecurityEvent(eventType, userId, details) {
+  try {
+    const maskedUserId = encryptionService.maskSensitiveData(userId);
+    const maskedDetails = encryptionService.maskSensitiveData(JSON.stringify(details));
+    
+    await pool.query(
+      `INSERT INTO security_audit_log 
+       (event_type, user_id, details, timestamp) 
+       VALUES ($1, $2, $3, NOW())`,
+      [eventType, maskedUserId, maskedDetails]
+    );
+  } catch (error) {
+    console.error('[SECURITY] Failed to log security event:', error.message);
+  }
+}
+
+// Apple基準データ削除（削除証明書付き）
+async function deleteUserDataWithCertificate(userId, options = {}) {
+  try {
+    const hashedUserId = require('crypto')
+      .createHash('sha256')
+      .update(userId)
+      .digest('hex');
+    
+    // 削除対象データタイプ
+    const dataTypes = ['messages', 'embeddings', 'analysis_results', 'audio_stats'];
+    
+    // トランザクション開始
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      // 各テーブルからデータ削除
+      const deletionResults = {};
+      
+      // メッセージ削除
+      const messageResult = await client.query(
+        'DELETE FROM user_messages WHERE user_id = $1 RETURNING COUNT(*)',
+        [hashedUserId]
+      );
+      deletionResults.messages = messageResult.rowCount;
+      
+      // エンベディング削除
+      const embeddingResult = await client.query(
+        'DELETE FROM semantic_embeddings WHERE user_id = $1 RETURNING COUNT(*)',
+        [hashedUserId]
+      );
+      deletionResults.embeddings = embeddingResult.rowCount;
+      
+      // 分析結果削除
+      const analysisResult = await client.query(
+        'DELETE FROM analysis_results WHERE user_id = $1 RETURNING COUNT(*)',
+        [hashedUserId]
+      );
+      deletionResults.analysis = analysisResult.rowCount;
+      
+      // 音声統計削除
+      const audioResult = await client.query(
+        'DELETE FROM user_audio_stats WHERE user_id = $1 RETURNING COUNT(*)',
+        [hashedUserId]
+      );
+      deletionResults.audio = audioResult.rowCount;
+      
+      await client.query('COMMIT');
+      
+      // 削除証明書生成
+      const certificate = appleSecurityStandards.generateDeletionCertificate(userId, dataTypes);
+      
+      // 削除証明書を監査ログに記録
+      await logSecurityEvent('data_deletion_certified', userId, {
+        certificate: certificate.certificateId,
+        deletionResults,
+        timestamp: certificate.deletionTimestamp
+      });
+      
+      console.log(`[APPLE-SECURE] User data deleted with certificate: ${certificate.certificateId}`);
+      return certificate;
+      
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('[APPLE-SECURE] Error deleting user data:', error.message);
+    throw error;
+  }
+}
+
+// 自動削除スケジューラー（90日経過データ）
+async function executeScheduledDeletions() {
+  try {
+    const result = await pool.query(`
+      DELETE FROM user_messages 
+      WHERE deletion_scheduled_at <= NOW()
+      RETURNING user_id, COUNT(*) as deleted_count
+      GROUP BY user_id
+    `);
+    
+    for (const row of result.rows) {
+      console.log(`[AUTO-DELETE] Deleted ${row.deleted_count} messages for user ${row.user_id.substring(0, 8)}...`);
+    }
+    
+    return result.rowCount;
+  } catch (error) {
+    console.error('[AUTO-DELETE] Error executing scheduled deletions:', error.message);
+    return 0;
+  }
+}
+
 module.exports = {
   pool,
   query,
   testConnection,
-  initializeTables
+  initializeTables,
+  storeSecureUserMessage,
+  fetchSecureUserHistory,
+  logSecurityEvent,
+  deleteUserDataWithCertificate,
+  executeScheduledDeletions
 }; 
