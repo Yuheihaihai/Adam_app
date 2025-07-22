@@ -31,6 +31,10 @@ const insightsService = require('./insightsService');
 const enhancedCharacteristics = require('./enhancedCharacteristicsAnalyzer');
 const audioHandler = require('./audioHandler');
 
+// PostgreSQL統合用のDataInterface
+const DataInterface = require('./dataInterface');
+const dataInterface = new DataInterface();
+
 // Embedding拡張機能のインポート - 既存コードを壊さないよう追加のみ
 let embeddingFeatures;
 try {
@@ -2301,15 +2305,17 @@ async function processMessage(userId, messageText) {
     console.log(`選択されたモード: ${mode}, 履歴制限: ${limit}`);
     
     // 履歴データを取得
-    const historyData = await fetchUserHistory(validatedUserId, limit);
+    const historyResult = await fetchUserHistory(validatedUserId, limit);
+    const historyData = historyResult.history || [];
     console.log(`${historyData.length}件の履歴を取得しました`);
     
     // 会話内容からシステムプロンプトを決定
     const systemPrompt = getSystemPromptForMode(mode);
     
     // AIを使用して応答を生成
-    const result = await processWithAI(systemPrompt, sanitizedMessage, historyData, mode, validatedUserId);
-    console.log(`AI応答生成完了: "${result.substring(0, 50)}${result.length > 50 ? '...' : ''}"`);
+    const aiResult = await processWithAI(systemPrompt, sanitizedMessage, historyResult, mode, validatedUserId);
+    const result = aiResult.response || aiResult; // responseプロパティがあればそれを使用、なければ全体を使用
+    console.log(`AI応答生成完了: "${typeof result === 'string' ? result.substring(0, 50) : result}${typeof result === 'string' && result.length > 50 ? '...' : ''}"`);
     
     // 会話履歴を保存
     await storeInteraction(validatedUserId, 'user', sanitizedMessage);
@@ -3715,9 +3721,6 @@ async function handleAudio(event) {
       if (limitInfo && limitInfo.dailyCount >= Math.floor(limitInfo.dailyLimit * 0.7)) {
         // 残り回数が少なくなった場合（例: 70%以上使用）に警告を送信
         const usageMessage = audioHandler.generateUsageLimitMessage(limitInfo);
-// PostgreSQL統合用のDataInterface
-const DataInterface = require('./dataInterface');
-const dataInterface = new DataInterface();
 
         await client.pushMessage(userId, {
           type: 'text',
