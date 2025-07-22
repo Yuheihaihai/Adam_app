@@ -2287,9 +2287,13 @@ async function processMessage(userId, messageText) {
     
     // 管理者コマンドのチェック
     const adminCommand = checkAdminCommand(sanitizedMessage);
-    if (adminCommand) {
+    if (adminCommand && adminCommand.isCommand) {
       console.log('管理者コマンドを検出しました');
-      return adminCommand;
+      // 管理者コマンドに対する適切な応答を返す
+      if (adminCommand.type === 'quota_removal') {
+        return `${adminCommand.target}の総量規制を解除しました。`;
+      }
+      return '管理者コマンドを実行しました。';
     }
     
     // モードと履歴制限を決定
