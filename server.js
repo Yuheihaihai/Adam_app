@@ -2443,19 +2443,13 @@ async function fetchAndAnalyzeHistory(userId) {
     console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
     console.log(`→ 特性分析レスポンス生成完了: ${response.substring(0, 50)}...`);
     console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
-    return {
-      type: 'text',
-      text: response
-    };
+    return response;
     
   } catch (error) {
     console.error(`❌ Error in fetchAndAnalyzeHistory: ${error.message}`);
     console.error(`→ スタックトレース: ${error.stack}`);
     // エラーが発生した場合でも、ユーザーフレンドリーなメッセージを返す
-    return {
-      type: 'text',
-      text: "申し訳ありません。会話履歴の分析中にエラーが発生しました。もう一度お試しいただくか、別の質問をしていただけますか？"
-    };
+    return "申し訳ありません。会話履歴の分析中にエラーが発生しました。もう一度お試しいただくか、別の質問をしていただけますか？";
   }
 }
 
