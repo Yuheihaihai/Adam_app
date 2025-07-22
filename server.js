@@ -2522,7 +2522,22 @@ async function processMessage(userId, message) {
         const { mode, limit } = determineModeAndLimit(sanitizedMessage);
         const historyData = await fetchUserHistory(validatedUserId, limit);
         const systemPrompt = getSystemPromptForMode(mode);
-        const aiResponse = await processWithAI(systemPrompt, sanitizedMessage, historyData, mode, validatedUserId);
+        const aiResult = await processWithAI(systemPrompt, sanitizedMessage, historyData, mode, validatedUserId);
+        
+        // processWithAIの戻り値からresponseを抽出
+        let aiResponse = '';
+        if (typeof aiResult === 'string') {
+          aiResponse = aiResult;
+        } else if (aiResult && aiResult.response) {
+          aiResponse = aiResult.response;
+        } else if (aiResult && aiResult.text) {
+          aiResponse = aiResult.text;
+        } else if (aiResult && aiResult.content) {
+          aiResponse = aiResult.content;
+        } else {
+          console.error('[ENHANCED-CONFUSION] processWithAIから予期しない形式の応答:', aiResult);
+          aiResponse = 'ご質問にお答えします。詳細については、お聞かせください。';
+        }
         
         // 3. 要約+確認+回答の形式で組み合わせ
         const enhancedResponse = `「${summary}」という解釈であっていますか？\n\n${aiResponse}`;
