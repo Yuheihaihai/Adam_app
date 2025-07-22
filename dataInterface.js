@@ -21,11 +21,8 @@ class DataInterface {
         }
       }
       
-      // データベースからユーザーのメッセージ履歴を取得
-      const messages = await this.dbConnection.query(
-        'SELECT id, user_id, content, role, timestamp FROM user_messages WHERE user_id = $1 ORDER BY timestamp DESC LIMIT $2',
-        [userId, limit]
-      );
+      // セキュアなメソッドを使用してユーザーのメッセージ履歴を取得
+      const messages = await this.dbConnection.fetchSecureUserHistory(userId, limit);
       
       // キャッシュに保存
       this.messageCache.set(cacheKey, {
@@ -40,11 +37,19 @@ class DataInterface {
     }
   }
   
-  async storeUserMessage(userId, content, role) {
+  async storeUserMessage(userId, content, role, mode = 'general', messageType = 'text') {
     try {
-      const result = await this.dbConnection.query(
-        'INSERT INTO user_messages (user_id, content, role) VALUES ($1, $2, $3)',
-        [userId, content, role]
+      // メッセージIDを生成
+      const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // セキュアなメソッドを使用してメッセージを保存
+      const result = await this.dbConnection.storeSecureUserMessage(
+        userId, 
+        messageId, 
+        content, 
+        role, 
+        mode, 
+        messageType
       );
       
       // キャッシュをクリア
@@ -52,7 +57,13 @@ class DataInterface {
         .filter(key => key.startsWith(userId))
         .forEach(key => this.messageCache.delete(key));
       
-      return result.insertId;
+      // resultがオブジェクトでidプロパティがある場合はそれを返す
+      // なければ生成したmessageIdを返す（保存は成功したと仮定）
+      if (result && typeof result === 'object' && result.id) {
+        return result.id;
+      }
+      // 保存が成功したがIDが返されない場合は、生成したmessageIdを返す
+      return result ? messageId : null;
     } catch (error) {
       console.error('Error storing user message:', error);
       throw error;
