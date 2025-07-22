@@ -18,6 +18,8 @@ const Tokens = require('csrf');
 const crypto = require('crypto');
 // DataInterfaceをインポート
 const DataInterface = require('./dataInterface');
+// PostgreSQLデータベースモジュールをインポート
+const db = require('./db');
 
 // ロガーをインポート
 const logger = require('./logger');

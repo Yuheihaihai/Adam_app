@@ -327,6 +327,80 @@ function performSecureCleanup() {
 setInterval(performSecureCleanup, 10 * 60 * 1000);
 
 /**
+ * PostgreSQL版getMLData関数 - ユーザーのML分析データを取得
+ */
+async function getMLData(userId, userMessage, mode) {
+  console.log(`\n🔍 [PostgreSQL-ML Integration] モード: ${mode}, ユーザーID: ${userId.substring(0, 8)}...`);
+  
+  try {
+    // PostgreSQL LocalMLからユーザー分析データを取得
+    const analysisData = await postgresqlLocalML.getUserAnalysisSecure(userId, mode);
+    
+    if (!analysisData) {
+      console.log('    ├─ PostgreSQL: ユーザー分析データなし');
+      return null;
+    }
+    
+    console.log(`    ├─ PostgreSQL: ユーザー分析データ取得成功 (${mode}モード)`);
+    return analysisData;
+    
+  } catch (error) {
+    console.error('    ├─ ❌ PostgreSQL ML data error:', error.message);
+    logger.error('PostgreSQL-MLIntegration', 'Error fetching ML data', { error: error.message, userId, mode });
+    return null;
+  }
+}
+
+/**
+ * PostgreSQL版generateSystemPrompt関数 - MLデータからシステムプロンプトを生成
+ */
+function generateSystemPrompt(mode, mlData) {
+  console.log(`\n📝 [PostgreSQL-ML Integration] システムプロンプト生成: ${mode}モード`);
+  
+  let basePrompt = `あなたは発達障害支援特化のAIアシスタントです。ユーザーの特性に合わせた最適なサポートを提供してください。`;
+  
+  if (!mlData) {
+    console.log('    ├─ MLデータなし: デフォルトプロンプト使用');
+    return basePrompt;
+  }
+  
+  try {
+    // ユーザーの特性に基づくプロンプト調整
+    if (mlData.communication_style) {
+      const commStyle = mlData.communication_style;
+      
+      if (commStyle.direct_communication) {
+        basePrompt += `\n\nユーザーは直接的なコミュニケーションを好みます。要点を明確に、簡潔に伝えてください。`;
+      }
+      
+      if (commStyle.formal_language_preference) {
+        basePrompt += `\n\nユーザーはフォーマルな言葉遣いを好みます。丁寧な「です・ます」調で対応してください。`;
+      }
+    }
+    
+    // 感情的特性に基づく調整
+    if (mlData.emotional_patterns) {
+      const emotionalPatterns = mlData.emotional_patterns;
+      
+      if (emotionalPatterns.anxiety_prone) {
+        basePrompt += `\n\nユーザーは不安を感じやすいです。安心感を与える穏やかな表現を心がけてください。`;
+      }
+      
+      if (emotionalPatterns.needs_encouragement) {
+        basePrompt += `\n\nユーザーは励ましを必要としています。ポジティブで支援的な言葉を使ってください。`;
+      }
+    }
+    
+    console.log(`    ├─ システムプロンプト生成完了 (長さ: ${basePrompt.length}文字)`);
+    return basePrompt;
+    
+  } catch (error) {
+    console.error('    ├─ ❌ システムプロンプト生成エラー:', error.message);
+    return basePrompt;
+  }
+}
+
+/**
  * 互換性インターフェース
  */
 module.exports = {
@@ -365,5 +439,9 @@ module.exports = {
     averageResponseTime: '150ms', // PostgreSQL高速化
     memoryUsage: process.memoryUsage(),
     uptime: process.uptime()
-  })
+  }),
+
+  // 新しく追加する関数
+  getMLData,
+  generateSystemPrompt
 }; 
