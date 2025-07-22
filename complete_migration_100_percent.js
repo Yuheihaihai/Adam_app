@@ -4,9 +4,10 @@ const Airtable = require('airtable');
 const db = require('./db');
 
 // Airtable設定
-const airtableConfig = require('./config/airtable');
-const base = new Airtable({ apiKey: airtableConfig.apiKey }).base(airtableConfig.baseId);
-const table = base(airtableConfig.conversationTable);
+const base = new Airtable({ 
+  apiKey: process.env.AIRTABLE_API_KEY 
+}).base(process.env.AIRTABLE_BASE_ID);
+const table = base('ConversationHistory');
 
 async function completeFullMigration() {
   console.log('🚀 100%完全移行開始...\n');
