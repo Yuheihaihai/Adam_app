@@ -825,6 +825,125 @@ class PostgreSQLLocalML {
       encouragement: allMessages.includes('励まして') || allMessages.includes('応援')
     };
   }
+
+  /**
+   * PostgreSQLからセキュアにユーザー分析データを取得
+   */
+  async getUserAnalysisSecure(userId, mode = 'general') {
+    try {
+      console.log(`[PostgreSQL-LocalML] Getting analysis for user ${userId.substring(0, 8)}..., mode: ${mode}`);
+      
+      // 入力検証
+      this._validateUserInput(userId, mode);
+      
+      // ユーザーIDハッシュ化
+      const hashedUserId = require('crypto').createHash('sha256').update(userId).digest('hex');
+      
+      const client = await db.pool.connect();
+      
+      try {
+        const query = `
+          SELECT analysis_data_encrypted, created_at, data_version, zk_proof
+          FROM user_ml_analysis 
+          WHERE user_id_hash = $1 AND mode = $2
+          ORDER BY created_at DESC
+          LIMIT 1
+        `;
+        
+        const result = await client.query(query, [hashedUserId, mode]);
+        
+        if (result.rows.length === 0) {
+          console.log(`[PostgreSQL-LocalML] No analysis data found for user ${userId.substring(0, 8)}..., mode: ${mode}`);
+          return null;
+        }
+        
+        const row = result.rows[0];
+        
+        // データ復号化
+        const decryptedData = encryptionService.decrypt(row.analysis_data_encrypted);
+        if (!decryptedData) {
+          console.error('[PostgreSQL-LocalML] Failed to decrypt analysis data');
+          return null;
+        }
+        
+        const analysisData = JSON.parse(decryptedData);
+        console.log(`[PostgreSQL-LocalML] Successfully retrieved analysis data for user ${userId.substring(0, 8)}..., mode: ${mode}`);
+        
+        return analysisData;
+        
+      } finally {
+        client.release();
+      }
+      
+    } catch (error) {
+      console.error('[PostgreSQL-LocalML] Error getting user analysis:', this._maskSensitiveData(error.message));
+      return null;
+    }
+  }
+
+  /**
+   * PostgreSQLにセキュアにユーザー分析データを保存
+   */
+  async saveUserAnalysisSecure(userId, mode, analysisData) {
+    try {
+      console.log(`[PostgreSQL-LocalML] Saving analysis for user ${userId.substring(0, 8)}..., mode: ${mode}`);
+      
+      // 入力検証
+      this._validateUserInput(userId, mode);
+      
+      // ユーザーIDハッシュ化
+      const hashedUserId = require('crypto').createHash('sha256').update(userId).digest('hex');
+      
+      // データ暗号化
+      const encryptedData = encryptionService.encrypt(JSON.stringify(analysisData));
+      
+      // Zero-Knowledge Proof生成
+      const zkProof = require('crypto').createHash('sha256').update(hashedUserId + mode + Date.now()).digest('hex').substring(0, 32);
+      
+      const client = await db.pool.connect();
+      
+      try {
+        // 既存データの確認・更新または新規作成
+        const existingQuery = `
+          SELECT id FROM user_ml_analysis 
+          WHERE user_id_hash = $1 AND mode = $2
+        `;
+        
+        const existingResult = await client.query(existingQuery, [hashedUserId, mode]);
+        
+        if (existingResult.rows.length > 0) {
+          // 更新
+          const updateQuery = `
+            UPDATE user_ml_analysis 
+            SET analysis_data_encrypted = $1, updated_at = NOW(), zk_proof = $2, data_version = '1.0'
+            WHERE user_id_hash = $3 AND mode = $4
+          `;
+          
+          await client.query(updateQuery, [encryptedData, zkProof, hashedUserId, mode]);
+          console.log(`[PostgreSQL-LocalML] Analysis data updated for user ${userId.substring(0, 8)}..., mode: ${mode}`);
+        } else {
+          // 新規作成
+          const insertQuery = `
+            INSERT INTO user_ml_analysis 
+            (user_id_hash, mode, analysis_data_encrypted, created_at, updated_at, data_version, privacy_level, zk_proof, deletion_scheduled_at)
+            VALUES ($1, $2, $3, NOW(), NOW(), '1.0', 3, $4, NOW() + INTERVAL '180 days')
+          `;
+          
+          await client.query(insertQuery, [hashedUserId, mode, encryptedData, zkProof]);
+          console.log(`[PostgreSQL-LocalML] New analysis data created for user ${userId.substring(0, 8)}..., mode: ${mode}`);
+        }
+        
+        return true;
+        
+      } finally {
+        client.release();
+      }
+      
+    } catch (error) {
+      console.error('[PostgreSQL-LocalML] Error saving user analysis:', this._maskSensitiveData(error.message));
+      return false;
+    }
+  }
 }
 
 module.exports = PostgreSQLLocalML; 

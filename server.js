@@ -2468,8 +2468,8 @@ ${additionalPromptData.jobTrends.analysis}`;
     // AIの応答もsemantic_embeddingsに保存（ユーザーからの質問と一緒に）
     try {
       console.log(`\n💾 EMBEDDING STORAGE - Storing AI response in semantic database...`);
-      // AIの応答が十分な長さであれば保存
-      if (aiResponse && aiResponse.trim().length > 20) {
+      // AIの応答が十分な長さであれば保存（semanticSearchが利用可能な場合のみ）
+      if (semanticSearch && aiResponse && aiResponse.trim().length > 20) {
         const storageStartTime = Date.now();
         const stored = await semanticSearch.storeMessageEmbedding(userId, aiResponse, null);
         if (stored) {
@@ -2477,6 +2477,8 @@ ${additionalPromptData.jobTrends.analysis}`;
         } else {
           console.warn(`⚠️ AI response embedding was not stored (rejected by storage criteria)`);
         }
+      } else if (!semanticSearch) {
+        console.log(`ℹ️ Semantic search not available, skipping embedding storage`);
       } else {
         console.log(`ℹ️ AI response too short for semantic storage (${aiResponse?.length || 0} chars), skipping`);
       }
