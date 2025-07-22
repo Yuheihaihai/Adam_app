@@ -14,7 +14,12 @@ async function verifyPostgreSQLProduction() {
     // 1. 基本接続テスト
     console.log('=== 1. データベース接続テスト ===');
     const connectionTest = await db.query('SELECT NOW() as current_time');
-    console.log('✅ 接続成功:', connectionTest.rows[0].current_time);
+    if (connectionTest && connectionTest.rows && connectionTest.rows.length > 0) {
+      console.log('✅ 接続成功:', connectionTest.rows[0].current_time);
+    } else {
+      console.log('❌ 接続テスト: 結果が空です');
+      return;
+    }
     
     // 2. テーブル存在確認
     console.log('\n=== 2. テーブル存在確認 ===');
@@ -25,8 +30,10 @@ async function verifyPostgreSQLProduction() {
       ORDER BY table_name
     `;
     const tables = await db.query(tablesQuery);
-    console.log('✅ 存在するテーブル:');
-    tables.rows.forEach(row => console.log(`   - ${row.table_name}`));
+    if (tables && tables.rows) {
+      console.log('✅ 存在するテーブル:');
+      tables.rows.forEach(row => console.log(`   - ${row.table_name}`));
+    }
     
     // 3. user_messagesテーブル詳細確認
     console.log('\n=== 3. user_messagesテーブル構造 ===');
@@ -37,16 +44,20 @@ async function verifyPostgreSQLProduction() {
       ORDER BY ordinal_position
     `;
     const columns = await db.query(columnsQuery);
-    console.log('✅ user_messagesカラム構造:');
-    columns.rows.forEach(row => 
-      console.log(`   - ${row.column_name}: ${row.data_type} (null: ${row.is_nullable})`)
-    );
+    if (columns && columns.rows) {
+      console.log('✅ user_messagesカラム構造:');
+      columns.rows.forEach(row => 
+        console.log(`   - ${row.column_name}: ${row.data_type} (null: ${row.is_nullable})`)
+      );
+    }
     
     // 4. データ件数確認
     console.log('\n=== 4. データ件数確認 ===');
     const countQuery = 'SELECT COUNT(*) as total FROM user_messages';
     const countResult = await db.query(countQuery);
-    console.log(`✅ user_messagesレコード数: ${countResult.rows[0].total}`);
+    if (countResult && countResult.rows && countResult.rows[0]) {
+      console.log(`✅ user_messagesレコード数: ${countResult.rows[0].total}`);
+    }
     
     // 5. 最新データサンプル
     console.log('\n=== 5. 最新データサンプル（復号化前） ===');
@@ -57,12 +68,14 @@ async function verifyPostgreSQLProduction() {
       LIMIT 5
     `;
     const samples = await db.query(sampleQuery);
-    samples.rows.forEach((row, i) => {
-      console.log(`   ${i+1}. UserID: ${row.user_id.substring(0,12)}...`);
-      console.log(`      Role: ${row.role}`);
-      console.log(`      Content Length: ${row.content_length} chars`);
-      console.log(`      Time: ${row.timestamp}`);
-    });
+    if (samples && samples.rows) {
+      samples.rows.forEach((row, i) => {
+        console.log(`   ${i+1}. UserID: ${row.user_id ? row.user_id.substring(0,12) + '...' : 'N/A'}`);
+        console.log(`      Role: ${row.role || 'N/A'}`);
+        console.log(`      Content Length: ${row.content_length || 0} chars`);
+        console.log(`      Time: ${row.timestamp || 'N/A'}`);
+      });
+    }
     
     // 6. 実際のLINE形式UserIDでのテスト（安全なテスト）
     console.log('\n=== 6. LINE形式UserIDテスト ===');
@@ -84,9 +97,11 @@ async function verifyPostgreSQLProduction() {
       // 読み込みテスト
       console.log('読み込みテスト実行中...');
       const history = await db.fetchSecureUserHistory(testUserId, 1);
-      console.log(`✅ 読み込み成功: ${history.length}件取得`);
-      if (history.length > 0) {
-        console.log(`   内容: "${history[0].content}"`);
+      if (history && Array.isArray(history)) {
+        console.log(`✅ 読み込み成功: ${history.length}件取得`);
+        if (history.length > 0 && history[0].content) {
+          console.log(`   内容: "${history[0].content}"`);
+        }
       }
       
     } catch (testError) {
@@ -95,7 +110,7 @@ async function verifyPostgreSQLProduction() {
     
     // 7. 環境変数確認
     console.log('\n=== 7. 重要な環境変数確認 ===');
-    console.log(`USE_POSTGRESQL: ${process.env.USE_POSTGRESQL}`);
+    console.log(`USE_POSTGRESQL: ${process.env.USE_POSTGRESQL || 'Not set'}`);
     console.log(`DATABASE_URL存在: ${process.env.DATABASE_URL ? 'Yes' : 'No'}`);
     console.log(`ENCRYPTION_KEY存在: ${process.env.ENCRYPTION_KEY ? 'Yes' : 'No'}`);
     
@@ -108,14 +123,21 @@ async function verifyPostgreSQLProduction() {
       ORDER BY timestamp DESC 
       LIMIT 10
     `;
-    const recentActivity = await db.query(recentQuery);
-    if (recentActivity.rows.length === 0) {
-      console.log('   過去1時間にアクティビティなし');
-    } else {
-      console.log(`✅ 過去1時間のアクティビティ: ${recentActivity.rows.length}件`);
-      recentActivity.rows.forEach((row, i) => {
-        console.log(`   ${i+1}. UserID: ${row.user_id.substring(0,10)}... Role: ${row.role} Time: ${row.timestamp}`);
-      });
+    try {
+      const recentActivity = await db.query(recentQuery);
+      if (recentActivity && recentActivity.rows) {
+        if (recentActivity.rows.length === 0) {
+          console.log('   過去1時間にアクティビティなし');
+        } else {
+          console.log(`✅ 過去1時間のアクティビティ: ${recentActivity.rows.length}件`);
+          recentActivity.rows.forEach((row, i) => {
+            const userIdDisplay = row.user_id ? row.user_id.substring(0,10) + '...' : 'N/A';
+            console.log(`   ${i+1}. UserID: ${userIdDisplay} Role: ${row.role || 'N/A'} Time: ${row.timestamp || 'N/A'}`);
+          });
+        }
+      }
+    } catch (recentError) {
+      console.log('⚠️ 過去1時間のアクティビティ確認エラー:', recentError.message);
     }
     
     console.log('\n🎉 PostgreSQL本番環境検証完了');
