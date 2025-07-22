@@ -3505,11 +3505,11 @@ if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`🚀 Server started on port ${PORT}`);
     console.log(`Visit: http://localhost:${PORT} (if local)`);
-    console.log(`🔐 Apple並みセキュリティ: 有効`);
-    console.log(`🔒 E2EE暗号化: 有効`);
-    console.log(`🛡️ 差分プライバシー: ε=${process.env.PRIVACY_EPSILON || '1.0'}`);
-    console.log(`📅 データ保持期間: ${process.env.DATA_RETENTION_DAYS || '90'}日`);
-    console.log(`🎭 k-匿名性: k=${process.env.K_ANONYMITY_THRESHOLD || '5'}\n`);
+            console.log(`🔐 Apple並みセキュリティ: 有効`);
+        console.log(`🔒 E2EE暗号化: 有効`);
+        console.log(`🛡️ 差分プライバシー: ε=${process.env.PRIVACY_EPSILON || '1.0'}`);
+        console.log(`📅 データ保持期間: ${process.env.DATA_RETENTION_DAYS || '180'}日`);
+        console.log(`🎭 k-匿名性: k=${process.env.K_ANONYMITY_THRESHOLD || '5'}\n`);
   });
 }
 
