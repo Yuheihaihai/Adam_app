@@ -31,10 +31,6 @@ const insightsService = require('./insightsService');
 const enhancedCharacteristics = require('./enhancedCharacteristicsAnalyzer');
 const audioHandler = require('./audioHandler');
 
-// PostgreSQL統合用のDataInterface
-const DataInterface = require('./dataInterface');
-const dataInterface = new DataInterface();
-
 // Embedding拡張機能のインポート - 既存コードを壊さないよう追加のみ
 let embeddingFeatures;
 try {
@@ -977,71 +973,63 @@ async function storeInteraction(userId, role, content) {
       `Storing interaction => userId: ${userId}, role: ${role}, content: ${content}`
     );
     
-    // 環境変数USE_POSTGRESQLをチェック（デフォルトはtrue）
-    const usePostgreSQL = process.env.USE_POSTGRESQL !== 'false';
+    // 一意のメッセージIDを生成
+    const messageId = Date.now().toString();
     
-    if (usePostgreSQL) {
-      // PostgreSQLに保存
+    // ConversationHistoryテーブルに保存
+    if (airtableBase) {
       try {
-        const messageId = await dataInterface.storeUserMessage(
-          userId,
-          content,
-          role,
-          'general', // デフォルトのモード
-          'text'     // デフォルトのメッセージタイプ
-        );
+        await airtableBase('ConversationHistory').create([
+          {
+            fields: {
+              UserID: userId,
+              Role: role,
+              Content: content,
+              Timestamp: new Date().toISOString(),
+              Mode: 'general', // デフォルトのモードを追加
+              MessageType: 'text', // デフォルトのメッセージタイプを追加
+            },
+          },
+        ]);
         
-        if (messageId) {
-          console.log(`✅ [PostgreSQL] 会話履歴の保存成功 => ID: ${messageId}, ユーザー: ${userId}, タイプ: ${role}`);
+        console.log(`会話履歴の保存成功 => ユーザー: ${userId}, タイプ: ${role}, 長さ: ${content.length}文字`);
+        return true;
+      } catch (airtableErr) {
+        console.error('Error storing to ConversationHistory:', airtableErr);
+        console.error(`ConversationHistory保存エラー => ユーザー: ${userId}`);
+        console.error(`エラータイプ: ${airtableErr.name || 'Unknown'}`);
+        console.error(`エラーメッセージ: ${airtableErr.message || 'No message'}`);
+        
+        // ConversationHistoryに保存できない場合は、元のINTERACTIONS_TABLEにフォールバック
+        if (airtableBase) {
+          await airtableBase(INTERACTIONS_TABLE).create([
+            {
+              fields: {
+                UserID: userId,
+                Role: role,
+                Content: content,
+                Timestamp: new Date().toISOString(),
+                // フォールバックテーブルには追加のフィールドは含めない（エラーの原因になる可能性あり）
+              },
+            },
+          ]);
+          console.log(`会話履歴のフォールバック保存成功 => INTERACTIONS_TABLEに保存`);
           return true;
         } else {
-          throw new Error('Message ID not returned from PostgreSQL');
+          console.error('Airtable接続が設定されていないため、フォールバック保存もできませんでした');
+          return false;
         }
-      } catch (pgError) {
-        console.error('❌ [PostgreSQL] 保存エラー:', pgError.message);
-        
-        // フォールバック: Airtableに保存を試みる
-        if (airtableBase) {
-          console.log('⚠️ Falling back to Airtable...');
-          return await storeToAirtable(userId, role, content);
-        }
-        return false;
       }
     } else {
-      // Airtableに保存（レガシーモード）
-      return await storeToAirtable(userId, role, content);
+      console.warn('Airtable接続が初期化されていないため、会話履歴を保存できません');
+      return false;
     }
   } catch (err) {
     console.error('Error storing interaction:', err);
-    return false;
-  }
-}
-
-// Airtableへの保存を別関数として分離
-async function storeToAirtable(userId, role, content) {
-  if (!airtableBase) {
-    console.warn('Airtable接続が初期化されていないため、会話履歴を保存できません');
-    return false;
-  }
-  
-  try {
-    await airtableBase('ConversationHistory').create([
-      {
-        fields: {
-          UserID: userId,
-          Role: role,
-          Content: content,
-          Timestamp: new Date().toISOString(),
-          Mode: 'general',
-          MessageType: 'text',
-        },
-      },
-    ]);
-    
-    console.log(`[Airtable] 会話履歴の保存成功 => ユーザー: ${userId}, タイプ: ${role}`);
-    return true;
-  } catch (airtableErr) {
-    console.error('[Airtable] 保存エラー:', airtableErr.message);
+    // 詳細なエラー情報をログに出力（会話保存の失敗原因特定のため）
+    console.error(`会話保存エラーの詳細 => ユーザー: ${userId}`); 
+    console.error(`エラータイプ: ${err.name || 'Unknown'}`);
+    console.error(`エラーメッセージ: ${err.message || 'No message'}`);
     return false;
   }
 }
@@ -1050,8 +1038,9 @@ async function fetchUserHistory(userId, limit) {
   try {
     console.log(`Fetching history for user ${userId}, limit: ${limit}`);
     
-    // 環境変数USE_POSTGRESQLをチェック（デフォルトはtrue）
-    const usePostgreSQL = process.env.USE_POSTGRESQL !== 'false';
+    // API認証情報の検証（デバッグ用）
+    console.log(`[接続検証] Airtable認証情報 => API_KEY存在: ${!!process.env.AIRTABLE_API_KEY}, BASE_ID存在: ${!!process.env.AIRTABLE_BASE_ID}`);
+    console.log(`[接続検証] airtableBase初期化状態: ${airtableBase ? '成功' : '未初期化'}`);
     
     // 履歴分析用のメタデータオブジェクトを初期化
     const historyMetadata = {
@@ -1061,112 +1050,181 @@ async function fetchUserHistory(userId, limit) {
       insufficientReason: null
     };
     
-    if (usePostgreSQL) {
-      // PostgreSQLから履歴を取得
-      try {
-        console.log(`[PostgreSQL] ユーザー ${userId} の履歴を取得中...`);
-        const history = await dataInterface.getUserHistory(userId, limit);
-        
-        if (history && history.length > 0) {
-          console.log(`✅ [PostgreSQL] Found ${history.length} records for user`);
+    if (!airtableBase) {
+      console.error('Airtable接続が初期化されていないため、履歴を取得できません');
+      historyMetadata.insufficientReason = 'airtable_not_initialized';
+      return { history: [], metadata: historyMetadata };
+    }
+    
+    // ConversationHistoryテーブルからの取得を試みる
+    try {
+      console.log(`ConversationHistory テーブルからユーザー ${userId} の履歴を取得中...`);
           
-          // メタデータを更新
-          historyMetadata.totalRecords = history.length;
-          history.forEach(record => {
-            const type = record.role || 'unknown';
-            historyMetadata.recordsByType[type] = (historyMetadata.recordsByType[type] || 0) + 1;
+      // すべてのフィールドを確実に取得するためのカラム指定
+      const columns = ['UserID', 'Role', 'Content', 'Timestamp', 'Mode', 'MessageType'];
+      
+      // filterByFormulaとsortを設定
+          const conversationRecords = await airtableBase('ConversationHistory')
+            .select({
+              filterByFormula: `{UserID} = "${userId}"`,
+          sort: [{ field: 'Timestamp', direction: 'desc' }], // 降順に変更
+          fields: columns,  // 明示的にフィールドを指定
+              maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
+            })
+            .all();
             
-            // キャリア関連のコンテンツをチェック
-            if (record.content && (
-              record.content.includes('仕事') || 
-              record.content.includes('職') ||
-              record.content.includes('キャリア') ||
-              record.content.includes('適職')
-            )) {
-              historyMetadata.hasCareerRelatedContent = true;
+          if (conversationRecords && conversationRecords.length > 0) {
+        console.log(`Found ${conversationRecords.length} records for user in ConversationHistory table`);
+        
+        // 取得したデータを変換
+        const history = [];
+        
+        // 降順で取得したレコードを逆順（昇順）に処理
+        const recordsInAscOrder = [...conversationRecords].reverse();
+        
+        for (const record of recordsInAscOrder) {
+          try {
+            // デバッグを追加
+            if (history.length === 0) {
+              console.log(`\n===== レコード構造サンプル =====`);
+              console.log(`  レコードID: ${record.id}`);
+              console.log(`  フィールド: ${JSON.stringify(record.fields)}`);
+              console.log(`===== レコード構造サンプル終了 =====\n`);
             }
-          });
-          
-          return { history, metadata: historyMetadata };
-        } else {
-          console.log(`[PostgreSQL] No history found for user ${userId}`);
-          historyMetadata.insufficientReason = 'no_records_found';
-          
-          // Airtableからも試みる（移行期間中のフォールバック）
-          if (airtableBase) {
-            console.log('⚠️ Attempting to fetch from Airtable as fallback...');
-            return await fetchFromAirtable(userId, limit, historyMetadata);
+            
+            // フィールドから直接データを取得（最も一般的な方法）
+            const role = record.fields.Role || '';
+            const content = record.fields.Content || '';
+            
+            // データのチェック
+            if (!content || content.trim() === '') {
+              console.log(`⚠ 警告: レコード ${record.id} のContent (${content}) が空です。スキップします。`);
+              continue;
+            }
+            
+            // 正規化して追加
+            const normalizedRole = role.toLowerCase() === 'assistant' ? 'assistant' : 'user';
+            history.push({
+              role: normalizedRole,
+              content: content
+            });
+            
+          } catch (recordErr) {
+            console.error(`レコード処理エラー: ${recordErr.message}`);
           }
-          
-          return { history: [], metadata: historyMetadata };
         }
-      } catch (pgError) {
-        console.error('❌ [PostgreSQL] Error fetching history:', pgError.message);
-        
-        // エラー時はAirtableにフォールバック
-        if (airtableBase) {
-          console.log('⚠️ Falling back to Airtable due to PostgreSQL error...');
-          return await fetchFromAirtable(userId, limit, historyMetadata);
+            
+            // 履歴の内容を分析
+        historyMetadata.totalRecords += history.length;
+            analyzeHistoryContent(history, historyMetadata);
+            
+        // 最新のlimit件を取得
+            if (history.length > limit) {
+              return { history: history.slice(-limit), metadata: historyMetadata };
+            }
+            return { history, metadata: historyMetadata };
+      } else {
+        console.log(`No records found for user ${userId} in ConversationHistory table`);
+          }
+        } catch (tableErr) {
+      console.error(`ConversationHistory table not found or error: ${tableErr.message}. Falling back to UserAnalysis.`);
         }
         
-        return { history: [], metadata: historyMetadata };
+    // ConversationHistoryが使えないかデータがない場合は旧テーブルからの取得を試みる
+        try {
+      const records = await airtableBase('UserAnalysis')
+            .select({
+          filterByFormula: `{UserID} = "${userId}"`,
+          maxRecords: 100
+            })
+            .all();
+            
+      if (records && records.length > 0) {
+        console.log(`Found ${records.length} records for user in original INTERACTIONS_TABLE`);
+        
+        // まず会話履歴として明示的に保存されたものを探す
+        const conversationRecord = records.find(r => r.get('Mode') === 'conversation');
+        if (conversationRecord) {
+          try {
+            const analysisData = conversationRecord.get('AnalysisData');
+            if (analysisData) {
+              let data;
+              try {
+                data = JSON.parse(analysisData);
+                if (data && data.conversation && Array.isArray(data.conversation)) {
+                  const history = data.conversation;
+                  
+                  // 履歴の内容を分析
+                  historyMetadata.totalRecords += history.length;
+                  analyzeHistoryContent(history, historyMetadata);
+                  
+                  // 最新のlimit件を取得
+                  if (history.length > limit) {
+                    return { history: history.slice(-limit), metadata: historyMetadata };
+                  }
+                  return { history, metadata: historyMetadata };
+                }
+              } catch (jsonErr) {
+                console.error(`JSON parse error in AnalysisData: ${jsonErr.message}`);
+              }
+            }
+          } catch (getErr) {
+            console.error(`Error getting AnalysisData: ${getErr.message}`);
+          }
+        }
+        
+        // 履歴レコードが見つからない場合は、テキストフィールドから最小限の情報を抽出
+        const history = [];
+        
+        for (const record of records) {
+          try {
+            const userMessage = record.get('UserMessage');
+            const aiResponse = record.get('AIResponse');
+            
+            if (userMessage && userMessage.trim() !== '') {
+              history.push({
+                role: 'user',
+                content: userMessage
+              });
+            }
+            
+            if (aiResponse && aiResponse.trim() !== '') {
+              history.push({
+                role: 'assistant',
+                content: aiResponse
+              });
+            }
+          } catch (recordErr) {
+            // エラーは無視して次のレコードを処理
+          }
+        }
+    
+    // 履歴の内容を分析
+        historyMetadata.totalRecords += history.length;
+    analyzeHistoryContent(history, historyMetadata);
+    
+        // 時間順に並べ替え (最も古いものから新しいものへ)
+        history.sort((a, b) => {
+          const timestampA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const timestampB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return timestampA - timestampB;
+        });
+        
+        // 最新のlimit件を取得
+        if (history.length > limit) {
+          return { history: history.slice(-limit), metadata: historyMetadata };
+        }
+    return { history, metadata: historyMetadata };
       }
-    } else {
-      // Airtableから履歴を取得（レガシーモード）
-      return await fetchFromAirtable(userId, limit, historyMetadata);
+    } catch (tableErr) {
+      console.error(`UserAnalysis table error: ${tableErr.message}`);
     }
-  } catch (error) {
-    console.error('Error in fetchUserHistory:', error);
+    
+    // どちらのテーブルからも取得できなかった場合は空配列を返す
+    return { history: [], metadata: historyMetadata };
+  } catch (err) {
+    console.error(`Error fetching user history: ${err.message}`);
     return { history: [], metadata: { totalRecords: 0, insufficientReason: 'error' } };
-  }
-}
-
-// Airtableからの取得を別関数として分離
-async function fetchFromAirtable(userId, limit, historyMetadata) {
-  if (!airtableBase) {
-    console.error('Airtable接続が初期化されていないため、履歴を取得できません');
-    historyMetadata.insufficientReason = 'airtable_not_initialized';
-    return { history: [], metadata: historyMetadata };
-  }
-  
-  try {
-    const columns = ['UserID', 'Role', 'Content', 'Timestamp', 'Mode', 'MessageType'];
-    const conversationRecords = await airtableBase('ConversationHistory')
-      .select({
-        filterByFormula: `{UserID} = "${userId}"`,
-        sort: [{ field: 'Timestamp', direction: 'desc' }],
-        fields: columns,
-        maxRecords: limit * 2
-      })
-      .all();
-    
-    if (conversationRecords && conversationRecords.length > 0) {
-      console.log(`[Airtable] Found ${conversationRecords.length} records`);
-      
-      const history = [];
-      const recordsInAscOrder = [...conversationRecords].reverse();
-      
-      for (const record of recordsInAscOrder) {
-        const role = record.fields.Role || '';
-        const content = record.fields.Content || '';
-        
-        if (content && content.trim() !== '') {
-          history.push({
-            role: role.toLowerCase(),
-            content: content,
-            timestamp: record.fields.Timestamp || new Date().toISOString()
-          });
-        }
-      }
-      
-      historyMetadata.totalRecords = history.length;
-      return { history: history.slice(-limit), metadata: historyMetadata };
-    }
-    
-    return { history: [], metadata: historyMetadata };
-  } catch (error) {
-    console.error('[Airtable] Error fetching history:', error);
-    return { history: [], metadata: historyMetadata };
   }
 }
 
@@ -1794,8 +1852,8 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
             return null;
           }
         }
-        // LocalML processing for other modes (general, mental_health, analysis, characteristics)
-        else if (['general', 'mental_health', 'analysis', 'characteristics'].includes(mode)) {
+        // LocalML processing for other modes (general, mental_health, analysis)
+        else if (['general', 'mental_health', 'analysis'].includes(mode)) {
           try {
             console.log('\n🤖 [1C] ML AUGMENTATION: LOCALML DATA - Starting');
             const localMlStartTime = Date.now();
@@ -2291,13 +2349,9 @@ async function processMessage(userId, messageText) {
     
     // 管理者コマンドのチェック
     const adminCommand = checkAdminCommand(sanitizedMessage);
-    if (adminCommand && adminCommand.isCommand) {
+    if (adminCommand) {
       console.log('管理者コマンドを検出しました');
-      // 管理者コマンドに対する適切な応答を返す
-      if (adminCommand.type === 'quota_removal') {
-        return `${adminCommand.target}の総量規制を解除しました。`;
-      }
-      return '管理者コマンドを実行しました。';
+      return adminCommand;
     }
     
     // モードと履歴制限を決定
@@ -2305,17 +2359,15 @@ async function processMessage(userId, messageText) {
     console.log(`選択されたモード: ${mode}, 履歴制限: ${limit}`);
     
     // 履歴データを取得
-    const historyResult = await fetchUserHistory(validatedUserId, limit);
-    const historyData = historyResult.history || [];
+    const historyData = await fetchUserHistory(validatedUserId, limit);
     console.log(`${historyData.length}件の履歴を取得しました`);
     
     // 会話内容からシステムプロンプトを決定
     const systemPrompt = getSystemPromptForMode(mode);
     
     // AIを使用して応答を生成
-    const aiResult = await processWithAI(systemPrompt, sanitizedMessage, historyResult, mode, validatedUserId);
-    const result = aiResult.response || aiResult; // responseプロパティがあればそれを使用、なければ全体を使用
-    console.log(`AI応答生成完了: "${typeof result === 'string' ? result.substring(0, 50) : result}${typeof result === 'string' && result.length > 50 ? '...' : ''}"`);
+    const result = await processWithAI(systemPrompt, sanitizedMessage, historyData, mode, validatedUserId);
+    console.log(`AI応答生成完了: "${result.substring(0, 50)}${result.length > 50 ? '...' : ''}"`);
     
     // 会話履歴を保存
     await storeInteraction(validatedUserId, 'user', sanitizedMessage);
@@ -2378,12 +2430,7 @@ async function fetchAndAnalyzeHistory(userId) {
   
   try {
     // PostgreSQLから最大200件のメッセージを取得
-    
-    // fetchUserHistoryから履歴を取得（更新版）
-    const historyResult = await fetchUserHistory(userId, 200);
-    const pgHistory = historyResult.history || [];
-    const historyMetadata = historyResult.metadata || {};
-    console.log(`📝 Found ${pgHistory.length} records from database in ${Date.now() - startTime}ms`);
+    const pgHistory = await fetchUserHistory(userId, 200);
     console.log(`📝 Found ${pgHistory.length} records from PostgreSQL in ${Date.now() - startTime}ms`);
     
     // Airtableからも追加でデータを取得（可能な場合）
@@ -2397,7 +2444,7 @@ async function fetchAndAnalyzeHistory(userId) {
         const records = await base('ConversationHistory')
           .select({
             filterByFormula: `{userId} = '${userId}'`,
-            sort: [{ field: 'Timestamp', direction: 'desc' }],
+            sort: [{ field: 'timestamp', direction: 'desc' }],
             maxRecords: 200
           })
           .all();
@@ -2405,7 +2452,7 @@ async function fetchAndAnalyzeHistory(userId) {
         airtableHistory = records.map(record => ({
           role: record.get('role') || 'user',
           content: record.get('content') || '',
-          timestamp: record.get('Timestamp') || new Date().toISOString()
+          timestamp: record.get('timestamp') || new Date().toISOString()
         }));
         
         console.log(`📝 Found additional ${airtableHistory.length} records from Airtable`);
@@ -2443,13 +2490,19 @@ async function fetchAndAnalyzeHistory(userId) {
     console.log(`✨ History analysis completed in ${Date.now() - startTime}ms`);
     console.log(`→ 特性分析レスポンス生成完了: ${response.substring(0, 50)}...`);
     console.log(`======= 特性分析デバッグログ: 履歴分析完了 =======\n`);
-    return response;
+    return {
+      type: 'text',
+      text: response
+    };
     
   } catch (error) {
     console.error(`❌ Error in fetchAndAnalyzeHistory: ${error.message}`);
     console.error(`→ スタックトレース: ${error.stack}`);
     // エラーが発生した場合でも、ユーザーフレンドリーなメッセージを返す
-    return "申し訳ありません。会話履歴の分析中にエラーが発生しました。もう一度お試しいただくか、別の質問をしていただけますか？";
+    return {
+      type: 'text',
+      text: "申し訳ありません。会話履歴の分析中にエラーが発生しました。もう一度お試しいただくか、別の質問をしていただけますか？"
+    };
   }
 }
 
@@ -2653,36 +2706,6 @@ async function handleText(event) {
       return;
     }
     
-    // 画像生成リクエストの検出と処理
-    if (isDirectImageGenerationRequest(text)) {
-      console.log(`画像生成リクエスト検出: "${text}"`);
-      
-      try {
-        // 画像生成処理を実行
-        const imageGenerated = await imageGenerator.generateImage(event, text, storeInteraction, client);
-        
-        if (imageGenerated) {
-          console.log('画像生成が正常に完了しました');
-        } else {
-          console.log('画像生成に失敗しました');
-        }
-        
-        // 画像生成は独自の応答を送信するため、ここでreturn
-        return;
-      } catch (imageError) {
-        console.error('画像生成処理エラー:', imageError);
-        
-        // エラー時のフォールバック応答
-        const errorMessage = '申し訳ありません、画像生成中にエラーが発生しました。もう一度お試しいただくか、別の表現で依頼してください。';
-        
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: errorMessage
-        });
-        return;
-      }
-    }
-    
     // 音声タイプ変更リクエストの検出と処理
     const isVoiceChangeRequest = await audioHandler.detectVoiceChangeRequest(text, userId);
     
@@ -2762,12 +2785,13 @@ async function handleText(event) {
         
         // replyMessageが空の場合のチェックを追加
         if (!replyMessage) {
-          console.error('警告: replyMessageが空です。デフォルトメッセージを使用します。');
+          console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
           replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
         }
         
-        // 音声変更リクエスト内の通常処理でも音声を生成しない
-        audioResponse = null;
+        // ユーザー設定を反映した音声応答生成
+        const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
+        audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
       }
     } else {
       // 通常のメッセージ処理
@@ -2775,12 +2799,13 @@ async function handleText(event) {
       
       // replyMessageが空の場合のチェックを追加
       if (!replyMessage) {
-        console.error('警告: replyMessageが空です。デフォルトメッセージを使用します。');
+        console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
         replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
       }
       
-      // 通常のテキストメッセージには音声応答を生成しない
-      audioResponse = null;
+      // ユーザー設定を反映した音声応答生成
+      const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
+      audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
     }
     
     // 利用制限チェック（音声応答生成後）
@@ -2912,9 +2937,11 @@ async function handleText(event) {
 }
 
 // サーバー起動設定
-// app.listen()はmain.jsで実行されるため、ここでは実行しない
 const PORT = process.env.PORT || 3000;
-console.log(`Server configured for port ${PORT}`);
+app.listen(PORT, () => {
+  console.log(`Listening on port ${PORT}`);
+  console.log(`Visit: http://localhost:${PORT} (if local)\n`);
+});
 
 /**
  * ユーザー入力の検証と無害化
@@ -3483,20 +3510,16 @@ async function handleAudio(event) {
 
     // 音声メッセージ利用の制限チェック
     const userId = event.source.userId;
-    const audioLimitCheck = await insightsService.trackAudioRequest(userId);
+    const audioLimitCheck = insightsService.trackAudioRequest(userId);
     
     if (!audioLimitCheck.allowed) {
       console.log(`音声メッセージの制限に達しました: ${audioLimitCheck.reason}`);
-      // audioLimitCheck.messageが未定義の場合のデフォルトメッセージを設定
-      const limitMessage = audioLimitCheck.message || '申し訳ありません、音声メッセージの利用制限に達しました。しばらく時間をおいてから再度お試しください。';
       await client.replyMessage(event.replyToken, {
         type: 'text',
-        text: limitMessage
+        text: audioLimitCheck.message
       });
       return;
     }
-    
-
 
     const messageId = event.message.id;
     
@@ -3691,14 +3714,20 @@ async function handleAudio(event) {
         return;
       }
       
-      // 音声入力には音声のみで返信
+      // テキストと音声の両方を返信（ファイルが存在する場合のみ）
       if (audioFileExists) {
         try {
-          await client.replyMessage(event.replyToken, {
-            type: 'audio',
-            originalContentUrl: audioUrl,
-            duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
-          }).catch(error => {
+          await client.replyMessage(event.replyToken, [
+            {
+              type: 'text',
+              text: replyMessage
+            },
+            {
+              type: 'audio',
+              originalContentUrl: audioUrl,
+              duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
+            }
+          ]).catch(error => {
             console.error('LINE返信エラー:', error.message);
             // 音声メッセージ送信に失敗した場合、テキストのみで再試行
             if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
@@ -3724,7 +3753,7 @@ async function handleAudio(event) {
           }
         }
       } else {
-        // 音声ファイルが生成できなかった場合はテキストで返信
+        // テキストのみ返信
         try {
           await client.replyMessage(event.replyToken, {
             type: 'text',
@@ -3737,13 +3766,10 @@ async function handleAudio(event) {
         }
       }
       
-      // 音声使用状況の追加メッセージは音声入力時には送信しない
-      // （音声入力には音声のみで返す仕様のため）
-      /*
+      // 音声使用状況の追加メッセージ（毎回は表示せず、特定の閾値に達した場合のみ）
       if (limitInfo && limitInfo.dailyCount >= Math.floor(limitInfo.dailyLimit * 0.7)) {
         // 残り回数が少なくなった場合（例: 70%以上使用）に警告を送信
         const usageMessage = audioHandler.generateUsageLimitMessage(limitInfo);
-
         await client.pushMessage(userId, {
           type: 'text',
           text: usageMessage
@@ -3751,7 +3777,6 @@ async function handleAudio(event) {
           console.error('使用状況メッセージ送信エラー:', error.message);
         });
       }
-      */
       
       // 統計データ更新
       updateUserStats(userId, 'audio_messages', 1);

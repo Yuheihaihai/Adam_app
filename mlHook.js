@@ -92,7 +92,7 @@ function analyzeResponseWithMl(aiResponse, mlData, mode) {
     }
 
     // その他のモード: LocalMLデータの反映分析
-    else if (['general', 'mental_health', 'analysis'].includes(mode) && mlData) {
+    else if (['general', 'mental_health', 'analysis', 'characteristics'].includes(mode) && mlData) {
       logger.debug('MLHook', `Using ${mode} mode analysis logic`);
       // 特徴語の検出
       const terms = getKeyTermsForMode(mode, mlData);

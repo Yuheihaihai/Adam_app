@@ -255,7 +255,7 @@ ${mlData.knowledge}
       return prompt;
     } 
     // 他のモード: LocalMLデータ用のプロンプト
-    else if (['general', 'mental_health', 'analysis'].includes(mode)) {
+    else if (['general', 'mental_health', 'analysis', 'characteristics'].includes(mode)) {
       return localML.generateSystemPrompt(mode, mlData);
     }
     

@@ -78,6 +78,9 @@ async function initializeTables() {
   try {
     client = await pool.connect();
     
+    // トランザクション開始 - 同時実行を防ぐ
+    await client.query('BEGIN');
+    
     // pgvector拡張機能の有効化（存在しなければ作成）
     try {
       await client.query(`CREATE EXTENSION IF NOT EXISTS vector`);
@@ -108,23 +111,32 @@ async function initializeTables() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_user_messages_timestamp ON user_messages(timestamp)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_user_messages_deletion ON user_messages(deletion_scheduled_at)`);
     
-    // Apple基準: 90日後の自動削除トリガー
-    await client.query(`
-      CREATE OR REPLACE FUNCTION auto_delete_old_messages() RETURNS trigger AS $$
-      BEGIN
-        NEW.deletion_scheduled_at := NEW.timestamp + INTERVAL '90 days';
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql;
+    // Apple基準: 180日後の自動削除トリガー
+    // 既存のトリガーを確認してから作成
+    const triggerExists = await client.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'set_deletion_date'
+      )
     `);
     
-    await client.query(`
-      DROP TRIGGER IF EXISTS set_deletion_date ON user_messages;
-      CREATE TRIGGER set_deletion_date
-        BEFORE INSERT ON user_messages
-        FOR EACH ROW
-        EXECUTE FUNCTION auto_delete_old_messages();
-    `);
+    if (!triggerExists.rows[0].exists) {
+      await client.query(`
+        CREATE OR REPLACE FUNCTION auto_delete_old_messages() RETURNS trigger AS $$
+        BEGIN
+          NEW.deletion_scheduled_at := NEW.timestamp + INTERVAL '180 days';
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+      `);
+      
+      await client.query(`
+        CREATE TRIGGER set_deletion_date
+          BEFORE INSERT ON user_messages
+          FOR EACH ROW
+          EXECUTE FUNCTION auto_delete_old_messages();
+      `);
+    }
     
     // message_idカラムが存在しない場合は追加
     try {
@@ -187,34 +199,44 @@ async function initializeTables() {
     // セマンティック検索用テーブル - pgvector拡張を使用
     try {
       // pgvector拡張が有効な場合のみテーブル作成
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS semantic_embeddings (
-          id SERIAL PRIMARY KEY,
-          user_id VARCHAR(255) NOT NULL,
-          message_id VARCHAR(255),
-          content TEXT NOT NULL,
-          embedding vector(1536),
-          is_question BOOLEAN DEFAULT FALSE,
-          is_important BOOLEAN DEFAULT FALSE,
-          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          expires_at TIMESTAMP,
-          access_count INTEGER DEFAULT 0
+      const extensionCheck = await client.query(`
+        SELECT EXISTS (
+          SELECT 1 FROM pg_extension WHERE extname = 'vector'
         )
       `);
       
-      // 検索用インデックス作成
-      await client.query(`CREATE INDEX IF NOT EXISTS idx_semantic_embeddings_user_id ON semantic_embeddings(user_id)`);
-      await client.query(`CREATE INDEX IF NOT EXISTS idx_semantic_embeddings_expires ON semantic_embeddings(expires_at)`);
-      
-      // ベクトルインデックス作成（存在しない場合のみ）
-      try {
-        await client.query(`CREATE INDEX IF NOT EXISTS idx_semantic_embeddings_vector ON semantic_embeddings USING ivfflat (embedding vector_l2_ops)`);
-        console.log('Vector index created successfully');
-      } catch (indexError) {
-        console.log('Vector index already exists or could not be created:', indexError.message);
+      if (extensionCheck.rows[0].exists) {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS semantic_embeddings (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            message_id VARCHAR(255),
+            content TEXT NOT NULL,
+            embedding vector(1536),
+            is_question BOOLEAN DEFAULT FALSE,
+            is_important BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP,
+            access_count INTEGER DEFAULT 0
+          )
+        `);
+        
+        // 検索用インデックス作成
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_semantic_embeddings_user_id ON semantic_embeddings(user_id)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_semantic_embeddings_expires ON semantic_embeddings(expires_at)`);
+        
+        // ベクトルインデックス作成（存在しない場合のみ）
+        try {
+          await client.query(`CREATE INDEX IF NOT EXISTS idx_semantic_embeddings_vector ON semantic_embeddings USING ivfflat (embedding vector_l2_ops)`);
+          console.log('Vector index created successfully');
+        } catch (indexError) {
+          console.log('Vector index already exists or could not be created:', indexError.message);
+        }
+        
+        console.log('Semantic search tables created successfully');
+      } else {
+        console.log('pgvector extension not available - skipping semantic search tables');
       }
-      
-      console.log('Semantic search tables created successfully');
     } catch (error) {
       console.error('Failed to create semantic search tables:', error.message);
     }
@@ -262,25 +284,60 @@ async function initializeTables() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_intent_vocabulary_token ON intent_vocabulary(token)`);
 
+    // user_ml_analysisテーブル（LocalML用）
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_ml_analysis (
+        id SERIAL PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL,
+        analysis_data JSONB NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_user_ml_analysis_user_id ON user_ml_analysis(user_id)`);
+
     // 定期的な古いエンベディングのクリーンアップ用関数
     try {
-      await client.query(`
-        CREATE OR REPLACE FUNCTION cleanup_old_embeddings() RETURNS void AS $$
-        BEGIN
-          DELETE FROM semantic_embeddings 
-          WHERE (expires_at IS NOT NULL AND expires_at < NOW())
-          OR (created_at < NOW() - INTERVAL '30 days' AND access_count < 3);
-        END;
-        $$ LANGUAGE plpgsql;
+      // 既存の関数を確認
+      const funcExists = await client.query(`
+        SELECT EXISTS (
+          SELECT 1 FROM pg_proc 
+          WHERE proname = 'cleanup_old_embeddings'
+        )
       `);
-      console.log('Cleanup function created successfully');
+      
+      if (!funcExists.rows[0].exists) {
+        await client.query(`
+          CREATE OR REPLACE FUNCTION cleanup_old_embeddings() RETURNS void AS $$
+          BEGIN
+            DELETE FROM semantic_embeddings 
+            WHERE (expires_at IS NOT NULL AND expires_at < NOW())
+            OR (created_at < NOW() - INTERVAL '30 days' AND access_count < 3);
+          END;
+          $$ LANGUAGE plpgsql;
+        `);
+        console.log('Cleanup function created successfully');
+      } else {
+        console.log('Cleanup function already exists');
+      }
     } catch (error) {
-      console.error('Failed to create cleanup function:', error.message);
+      // 同時実行エラーの場合は無視
+      if (error.message.includes('tuple concurrently updated')) {
+        console.log('Cleanup function creation skipped - concurrent update');
+      } else {
+        console.error('Failed to create cleanup function:', error.message);
+      }
     }
 
+    // トランザクションコミット
+    await client.query('COMMIT');
     console.log('Database tables initialized');
     return true;
   } catch (error) {
+    // エラー時はロールバック
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     console.error('Failed to initialize tables:', error.message);
     return false;
   } finally {

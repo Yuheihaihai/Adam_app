@@ -1152,6 +1152,9 @@ class LocalML {
       case 'analysis':
         prompt += this._generateAnalysisPrompt(analysis);
         break;
+      case 'characteristics':
+        prompt += this._generateCharacteristicsPrompt(analysis);
+        break;
       default:
         return null;
     }
@@ -1297,6 +1300,78 @@ class LocalML {
         prompt += `- 詳細度の好み: ${this._translateDetail(analysis.preferences.detail_level)}\n`;
       }
     }
+    
+    return prompt;
+  }
+
+  /**
+   * 特性分析モード用のプロンプト生成
+   */
+  _generateCharacteristicsPrompt(analysis) {
+    let prompt = `## コミュニケーション特性\n`;
+    
+    // コミュニケーションスタイル
+    if (analysis.communication_style) {
+      const style = analysis.communication_style;
+      const styles = [];
+      
+      if (style.direct_communication) styles.push('直接的');
+      if (style.formal_language_preference) styles.push('丁寧語好み');
+      if (style.casual_language_preference) styles.push('カジュアル');
+      if (style.indirect_communication) styles.push('間接的');
+      
+      if (styles.length > 0) {
+        prompt += `- コミュニケーション: ${styles.join('、')}\n`;
+      }
+    }
+    
+    // 認知特性
+    if (analysis.cognitive_style) {
+      const cognitive = analysis.cognitive_style;
+      const cognitiveTraits = [];
+      
+      if (cognitive.analytical_thinking) cognitiveTraits.push('分析的思考');
+      if (cognitive.creative_thinking) cognitiveTraits.push('創造的思考');
+      if (cognitive.detail_oriented) cognitiveTraits.push('細部重視');
+      if (cognitive.big_picture_focus) cognitiveTraits.push('全体把握');
+      
+      if (cognitiveTraits.length > 0) {
+        prompt += `- 思考特性: ${cognitiveTraits.join('、')}\n`;
+      }
+    }
+    
+    prompt += `\n## 感情と動機\n`;
+    
+    // 感情パターン
+    if (analysis.sentiment) {
+      const sentimentMap = {
+        positive: 'ポジティブ',
+        negative: 'ネガティブ',
+        anxious: '不安傾向',
+        neutral: '安定的'
+      };
+      prompt += `- 感情傾向: ${sentimentMap[analysis.sentiment] || analysis.sentiment}\n`;
+    }
+    
+    // 動機と目標
+    if (analysis.motivation_goals) {
+      const motivation = analysis.motivation_goals;
+      const motivations = [];
+      
+      if (motivation.achievement_oriented) motivations.push('達成志向');
+      if (motivation.growth_oriented) motivations.push('成長志向');
+      if (motivation.belonging_goal) motivations.push('所属欲求');
+      if (motivation.recognition_seeking) motivations.push('承認欲求');
+      
+      if (motivations.length > 0) {
+        prompt += `- 動機特性: ${motivations.join('、')}\n`;
+      }
+    }
+    
+    prompt += `\n## 応答の個人化指針\n`;
+    prompt += `- あなたらしい自然な話し方で温かく親しみやすく特性をお話ししてください\n`;
+    prompt += `- 機械的な分析ではなく、友達のような温かい言葉で伝えてください\n`;
+    prompt += `- 上記の特性を踏まえて、あなたに最も合った方法でコミュニケーションを取ってください\n`;
     
     return prompt;
   }
