@@ -23,8 +23,9 @@ async function finalMigrationAndVerification() {
     // 1. PostgreSQL接続確認
     console.log('=== 1. PostgreSQL接続確認 ===');
     const dbTest = await db.query('SELECT COUNT(*) as total FROM user_messages');
-    if (dbTest && dbTest.rows && dbTest.rows[0]) {
-      stats.postgresqlRecords = parseInt(dbTest.rows[0].total);
+    // db.queryは配列を返すので、適切にアクセス
+    if (dbTest && Array.isArray(dbTest) && dbTest.length > 0 && dbTest[0].total) {
+      stats.postgresqlRecords = parseInt(dbTest[0].total);
       console.log(`✅ PostgreSQL接続OK - 既存レコード数: ${stats.postgresqlRecords}`);
     } else {
       throw new Error('PostgreSQL接続またはuser_messagesテーブルに問題があります');
@@ -139,6 +140,8 @@ async function finalMigrationAndVerification() {
           console.log('✅ 読み書きテスト成功');
         } else {
           console.log('❌ 読み書きテスト失敗: 内容不一致');
+          console.log(`   期待値: "${testMessage}"`);
+          console.log(`   実際値: "${retrievedContent}"`);
         }
       } else {
         console.log('❌ 読み書きテスト失敗: データ取得できず');
@@ -151,7 +154,7 @@ async function finalMigrationAndVerification() {
     // 5. 最終状況確認
     console.log('\n=== 5. 最終状況確認 ===');
     const finalDbTest = await db.query('SELECT COUNT(*) as total FROM user_messages');
-    const finalRecordCount = finalDbTest && finalDbTest.rows ? parseInt(finalDbTest.rows[0].total) : 0;
+    const finalRecordCount = finalDbTest && Array.isArray(finalDbTest) && finalDbTest[0] ? parseInt(finalDbTest[0].total) : 0;
     
     console.log(`📊 最終結果:`);
     console.log(`   - PostgreSQL最終レコード数: ${finalRecordCount}`);
