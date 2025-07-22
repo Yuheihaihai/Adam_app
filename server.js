@@ -3495,6 +3495,8 @@ async function handleAudio(event) {
       });
       return;
     }
+    
+
 
     const messageId = event.message.id;
     
@@ -3707,7 +3709,7 @@ async function handleAudio(event) {
             // 音声メッセージ送信に失敗した場合、テキストのみで再試行
             if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
               console.log('音声メッセージ送信失敗、テキストのみで再試行します');
-              return client.replyMessage(event.replyToken, {
+              return client.pushMessage(userId, {
                 type: 'text',
                 text: replyMessage
               }).catch(retryError => {
