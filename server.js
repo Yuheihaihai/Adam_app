@@ -3691,25 +3691,19 @@ async function handleAudio(event) {
         return;
       }
       
-      // テキストと音声の両方を返信（ファイルが存在する場合のみ）
+      // 音声入力には音声のみで返信
       if (audioFileExists) {
         try {
-          await client.replyMessage(event.replyToken, [
-            {
-              type: 'text',
-              text: replyMessage
-            },
-            {
-              type: 'audio',
-              originalContentUrl: audioUrl,
-              duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
-            }
-          ]).catch(error => {
+          await client.replyMessage(event.replyToken, {
+            type: 'audio',
+            originalContentUrl: audioUrl,
+            duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
+          }).catch(error => {
             console.error('LINE返信エラー:', error.message);
             // 音声メッセージ送信に失敗した場合、テキストのみで再試行
             if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
               console.log('音声メッセージ送信失敗、テキストのみで再試行します');
-              return client.pushMessage(userId, {
+              return client.replyMessage(event.replyToken, {
                 type: 'text',
                 text: replyMessage
               }).catch(retryError => {
@@ -3730,7 +3724,7 @@ async function handleAudio(event) {
           }
         }
       } else {
-        // テキストのみ返信
+        // 音声ファイルが生成できなかった場合はテキストで返信
         try {
           await client.replyMessage(event.replyToken, {
             type: 'text',
@@ -3743,7 +3737,9 @@ async function handleAudio(event) {
         }
       }
       
-      // 音声使用状況の追加メッセージ（毎回は表示せず、特定の閾値に達した場合のみ）
+      // 音声使用状況の追加メッセージは音声入力時には送信しない
+      // （音声入力には音声のみで返す仕様のため）
+      /*
       if (limitInfo && limitInfo.dailyCount >= Math.floor(limitInfo.dailyLimit * 0.7)) {
         // 残り回数が少なくなった場合（例: 70%以上使用）に警告を送信
         const usageMessage = audioHandler.generateUsageLimitMessage(limitInfo);
@@ -3755,6 +3751,7 @@ async function handleAudio(event) {
           console.error('使用状況メッセージ送信エラー:', error.message);
         });
       }
+      */
       
       // 統計データ更新
       updateUserStats(userId, 'audio_messages', 1);
