@@ -2659,6 +2659,36 @@ async function handleText(event) {
       return;
     }
     
+    // 画像生成リクエストの検出と処理
+    if (isDirectImageGenerationRequest(text)) {
+      console.log(`画像生成リクエスト検出: "${text}"`);
+      
+      try {
+        // 画像生成処理を実行
+        const imageGenerated = await imageGenerator.generateImage(event, text, storeInteraction, client);
+        
+        if (imageGenerated) {
+          console.log('画像生成が正常に完了しました');
+        } else {
+          console.log('画像生成に失敗しました');
+        }
+        
+        // 画像生成は独自の応答を送信するため、ここでreturn
+        return;
+      } catch (imageError) {
+        console.error('画像生成処理エラー:', imageError);
+        
+        // エラー時のフォールバック応答
+        const errorMessage = '申し訳ありません、画像生成中にエラーが発生しました。もう一度お試しいただくか、別の表現で依頼してください。';
+        
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: errorMessage
+        });
+        return;
+      }
+    }
+    
     // 音声タイプ変更リクエストの検出と処理
     const isVoiceChangeRequest = await audioHandler.detectVoiceChangeRequest(text, userId);
     

@@ -55,11 +55,8 @@ class ImageGenerator {
       // 画像生成リクエストをConversationHistoryに記録
       await storeInteraction(userId, 'user', `[画像生成リクエスト] ${explanationText.substring(0, 100)}...`);
       
-      // ユーザーに処理中メッセージを送信
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '画像を生成しています。少々お待ちください...'
-      });
+      // 処理中メッセージは送信しない（replyTokenは画像送信のために保持）
+      console.log('[DALL-E] 画像生成処理を開始...');
 
       // 画像生成プロンプトの準備
       let dallePrompt = explanationText;
@@ -73,7 +70,7 @@ class ImageGenerator {
       // プロンプトが空でないか確認
       if (!dallePrompt) {
         console.error('[DALL-E] Error: Prompt is empty after removing prefix.');
-        await client.pushMessage(userId, {
+        await client.replyMessage(event.replyToken, {
           type: 'text',
           text: '画像生成のリクエスト内容が空です。もう一度お試しください。'
         });
@@ -104,10 +101,10 @@ class ImageGenerator {
       const tempFilePath = path.join(this.tempDir, `dalle_${Date.now()}.png`);
       fs.writeFileSync(tempFilePath, imageBuffer);
       
-      // LINE Messaging APIで画像のみを送信
-      console.log(`[DALL-E] Sending only image to user ${userId} via LINE`);
+      // LINE Messaging APIで画像を返信
+      console.log(`[DALL-E] Sending image to user ${userId} via LINE`);
       
-      await client.pushMessage(userId, {
+      await client.replyMessage(event.replyToken, {
           type: 'image',
           originalContentUrl: `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${path.basename(tempFilePath)}`,
           previewImageUrl: `${process.env.SERVER_URL || 'https://adam-app-cloud-v2-4-40ae2b8ccd08.herokuapp.com'}/temp/${path.basename(tempFilePath)}`
