@@ -2738,13 +2738,12 @@ async function handleText(event) {
         
         // replyMessageが空の場合のチェックを追加
         if (!replyMessage) {
-          console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
+          console.error('警告: replyMessageが空です。デフォルトメッセージを使用します。');
           replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
         }
         
-        // ユーザー設定を反映した音声応答生成
-        const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
-        audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
+        // 音声変更リクエスト内の通常処理でも音声を生成しない
+        audioResponse = null;
       }
     } else {
       // 通常のメッセージ処理
@@ -2752,13 +2751,12 @@ async function handleText(event) {
       
       // replyMessageが空の場合のチェックを追加
       if (!replyMessage) {
-        console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
+        console.error('警告: replyMessageが空です。デフォルトメッセージを使用します。');
         replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
       }
       
-      // ユーザー設定を反映した音声応答生成
-      const userVoicePrefs = audioHandler.getUserVoicePreferences(userId);
-      audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
+      // 通常のテキストメッセージには音声応答を生成しない
+      audioResponse = null;
     }
     
     // 利用制限チェック（音声応答生成後）
