@@ -41,6 +41,7 @@
     "openai": "^4.0.0",
     "pg": "^8.11.3",
     "rt-client": "^0.5.1",
+    "sqlite3": "^5.1.7",
     "xss": "^1.0.14"
   },
   "devDependencies": {
