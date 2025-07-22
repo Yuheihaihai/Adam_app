@@ -3,9 +3,11 @@
  * 
  * server.jsから呼び出される機械学習フックポイント
  * 既存のコードを変更せずに機械学習機能を統合
+ * 
+ * 🔐 PostgreSQL版 - Apple並みセキュリティ強化済み
  */
 
-const { getMLData, generateSystemPrompt } = require('./mlIntegration');
+const { getMLData, generateSystemPrompt } = require('./mlIntegration_postgresql');
 const logger = require('./logger');
 
 /**

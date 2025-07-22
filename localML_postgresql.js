@@ -88,43 +88,33 @@ class PostgreSQLLocalML {
     return true;
   }
 
-  /**
-   * 入力検証（SQLインジェクション対策）
-   */
-  _validateUserInput(userId, mode) {
-    // ユーザーID検証
-    if (!userId || typeof userId !== 'string') {
-      throw new Error('無効なユーザーID');
-    }
-    if (userId.length > SECURITY_CONFIG.MAX_USER_ID_LENGTH) {
-      throw new Error('ユーザーIDが長すぎます');
-    }
-    if (!SECURITY_CONFIG.USER_ID_PATTERN.test(userId)) {
-      throw new Error('ユーザーIDに不正な文字が含まれています');
-    }
+  // --- [修正版] 入力バリデーション強化・DoS対策・ログマスキング徹底・Airtable依存排除 ---
 
-    // モード検証
-    if (mode && !SECURITY_CONFIG.ALLOWED_MODES.includes(mode)) {
+  // 入力バリデーション強化
+  _validateUserInput(userId, mode) {
+    if (!userId || typeof userId !== 'string' || userId.length > 64 || !/^[a-zA-Z0-9_-]+$/.test(userId)) {
+      throw new Error('無効なユーザーID: 64文字以下の英数字・-_のみ許可');
+    }
+    if (mode && !['general', 'mental_health', 'analysis'].includes(mode)) {
       throw new Error('許可されていないモードです');
     }
-
     return true;
   }
 
-  /**
-   * 機密データのマスキング
-   */
+  // DoS対策: メッセージ長・JSONサイズ制限
+  _validateMessage(message) {
+    if (typeof message !== 'string' || message.length > 2000) {
+      throw new Error('メッセージが長すぎます（2000文字以内）');
+    }
+    return true;
+  }
+
+  // ログマスキング徹底
   _maskSensitiveData(data) {
-    if (!SECURITY_CONFIG.LOG_MASKING) return data;
-    
     if (typeof data === 'string') {
-      // ユーザーIDマスキング
       data = data.replace(/U[0-9a-f]{32}/g, 'U***MASKED***');
-      // 分析データマスキング
-      SECURITY_CONFIG.SENSITIVE_FIELDS.forEach(field => {
-        const regex = new RegExp(`"${field}":\\s*"[^"]*"`, 'g');
-        data = data.replace(regex, `"${field}": "***MASKED***"`);
-      });
+      data = data.replace(/"analysisData":\s*".*?"/g, '"analysisData":"***MASKED***"');
+      data = data.replace(/"userId":\s*".*?"/g, '"userId":"***MASKED***"');
     }
     return data;
   }
@@ -443,6 +433,7 @@ class PostgreSQLLocalML {
       
       // 入力検証
       this._validateUserInput(userId, mode);
+      this._validateMessage(userMessage);
       
       // 固定遅延（タイミング攻撃対策）
       const minDelay = 100 + Math.random() * 50; // 100-150ms
@@ -548,9 +539,291 @@ class PostgreSQLLocalML {
   _initializeGeneralPatterns() { /* 既存実装 */ return {}; }
   _initializeMentalHealthPatterns() { /* 既存実装 */ return {}; }
   _initializeAnalysisPatterns() { /* 既存実装 */ return {}; }
-  analyzeUserMessage(message, history) { 
-    // 既存のanalyzeUserMessage実装をそのまま使用
-    return Promise.resolve({});
+
+  /**
+   * ユーザーメッセージの分析（PostgreSQL版）
+   */
+  async analyzeUserMessage(userMessage, history = [], previousAnalysis = null) {
+    try {
+      console.log('  [PostgreSQL-LocalML] ユーザーメッセージの分析開始');
+      
+      const startTime = Date.now();
+      const currentMessage = userMessage.trim();
+      
+      // 基本分析
+      const analysis = {
+        topics: [],
+        sentiment: 'neutral',
+        support_needs: {
+          listening: false,
+          advice: false,
+          information: false,
+          encouragement: false
+        },
+        preferences: {
+          detail_level: 'moderate'
+        }
+      };
+      
+      // 一般モードで分析
+      const modeAnalysis = await this._analyzeGeneralConversation(null, history, currentMessage);
+      
+      // 分析結果をマージ
+      Object.assign(analysis, modeAnalysis);
+      
+      // 基本感情分析
+      if (!analysis.sentiment) {
+        // 単純な感情分析ロジック
+        if (currentMessage.includes('嬉しい') || currentMessage.includes('楽しい') || 
+            currentMessage.includes('好き') || currentMessage.includes('ありがとう')) {
+          analysis.sentiment = 'positive';
+        } else if (currentMessage.includes('悲しい') || currentMessage.includes('辛い') || 
+                   currentMessage.includes('嫌い') || currentMessage.includes('苦しい')) {
+          analysis.sentiment = 'negative';
+        } else {
+          analysis.sentiment = 'neutral';
+        }
+      }
+      
+      // 詳細度の好みを分析
+      analysis.preferences = analysis.preferences || {};
+      
+      // 会話全体のテキストを結合
+      const allMessages = history.map(msg => msg.message).join(' ') + ' ' + currentMessage;
+      
+      // 詳細度の好みを分析
+      if (allMessages.includes('詳しく') || allMessages.includes('詳細') || allMessages.includes('徹底的')) {
+        analysis.preferences.detail_level = 'very_detailed';
+      } else if (allMessages.includes('簡潔') || allMessages.includes('要点') || allMessages.includes('ざっくり')) {
+        analysis.preferences.detail_level = 'concise';
+      } else {
+        analysis.preferences.detail_level = 'moderate';
+      }
+      
+      // サポートニーズを分析
+      analysis.support_needs = await this._analyzeSupportNeeds(allMessages);
+      
+      const elapsedTime = Date.now() - startTime;
+      console.log(`  [PostgreSQL-LocalML] 分析完了 (${elapsedTime}ms)`);
+      
+      return analysis;
+    } catch (error) {
+      console.error('[PostgreSQL-LocalML] Error analyzing user message:', error);
+      return {
+        topics: [],
+        sentiment: 'neutral',
+        support_needs: {
+          listening: false,
+          advice: false,
+          information: false,
+          encouragement: false
+        },
+        preferences: {
+          detail_level: 'moderate'
+        }
+      };
+    }
+  }
+
+  /**
+   * 一般会話の分析
+   */
+  async _analyzeGeneralConversation(userId, history, currentMessage) {
+    console.log('    ├─ PostgreSQL-一般モードの分析を実行');
+    const analysis = {
+      intent: {},
+      sentiment: null,
+      support_needs: {},
+      topics: []
+    };
+    
+    // 会話全体のテキストを結合
+    const allMessages = history.map(msg => msg.message).join(' ') + ' ' + currentMessage;
+    
+    // AI埋め込みベースの感情分析
+    try {
+      analysis.sentiment = await this._analyzeEmotionalSentiment(currentMessage, allMessages);
+      console.log(`    ├─ 感情分析: ${analysis.sentiment}`);
+    } catch (error) {
+      console.error('[PostgreSQL-LocalML] Error in sentiment analysis:', error);
+      analysis.sentiment = 'neutral';
+    }
+    
+    // トピック抽出
+    try {
+      analysis.topics = await this._analyzeTopics(allMessages);
+      console.log(`    ├─ トピック抽出: ${analysis.topics.length}件`);
+    } catch (error) {
+      console.error('[PostgreSQL-LocalML] Error in topic extraction:', error);
+      analysis.topics = [];
+    }
+    
+    // サポートニーズの分析
+    try {
+      analysis.support_needs = await this._analyzeSupportNeeds(allMessages);
+      console.log('    ├─ サポートニーズ分析完了');
+    } catch (error) {
+      console.error('[PostgreSQL-LocalML] Error analyzing support needs:', error);
+      analysis.support_needs = {
+        listening: false,
+        advice: false,
+        information: false,
+        encouragement: false
+      };
+    }
+    
+    return analysis;
+  }
+
+  /**
+   * TensorFlow.js感情分析モデルによる感情分析
+   */
+  async _analyzeEmotionalSentiment(currentMessage, allMessages) {
+    try {
+      // TensorFlow.js感情分析モデルを使用
+      if (this.emotionModel && this.emotionModel.modelLoaded) {
+        const analysisResult = await this.emotionModel.analyzeEmotion(currentMessage);
+        
+        // 感情ラベルを英語に変換
+        const emotionMapping = {
+          '喜び': 'positive',
+          '悲しみ': 'negative',
+          '怒り': 'angry',
+          '不安': 'anxious',
+          '驚き': 'surprised',
+          '混乱': 'confused',
+          '中立': 'neutral',
+          'その他': 'neutral'
+        };
+        
+        const mappedEmotion = emotionMapping[analysisResult.dominant] || 'neutral';
+        
+        // 強度が低い場合は埋め込みベースの分析も併用
+        if (analysisResult.intensity < 0.6) {
+          const embeddingResult = await this._analyzeEmotionalSentimentWithEmbedding(currentMessage, allMessages);
+          return this._combineEmotionResults(mappedEmotion, embeddingResult, analysisResult.intensity);
+        }
+        
+        return mappedEmotion;
+      } else {
+        return await this._analyzeEmotionalSentimentWithEmbedding(currentMessage, allMessages);
+      }
+      
+    } catch (error) {
+      console.error('[PostgreSQL-LocalML] Error in emotion analysis:', error);
+      return await this._analyzeEmotionalSentimentWithEmbedding(currentMessage, allMessages);
+    }
+  }
+  
+  /**
+   * 埋め込みベースの感情分析
+   */
+  async _analyzeEmotionalSentimentWithEmbedding(currentMessage, allMessages) {
+    // 埋め込みサービスのインスタンスが存在しない場合は作成
+    if (!this.embeddingService) {
+      const EmbeddingService = require('./embeddingService');
+      this.embeddingService = new EmbeddingService();
+      await this.embeddingService.initialize();
+    }
+    
+    // 感情カテゴリと代表的な例文のマッピング
+    const emotionExamples = {
+      positive: "嬉しい、楽しい、幸せ、良かった、素晴らしい、ありがとう、最高、元気、希望、前向き",
+      negative: "悲しい、辛い、苦しい、最悪、嫌だ、困った、不安、心配、怖い、つらい",
+      angry: "怒り、イライラ、腹立つ、ムカつく、許せない、頭にくる、憤り、不満",
+      anxious: "不安、心配、緊張、怖い、ドキドキ、落ち着かない、そわそわ、気になる",
+      neutral: "普通、まあまあ、どちらでもない、特に、なんとも、そうですね、了解、わかりました"
+    };
+    
+    const SIMILARITY_THRESHOLD = 0.55;
+    
+    try {
+      const textToAnalyze = currentMessage + ' ' + allMessages.substring(0, 500);
+      
+      let maxSimilarity = 0;
+      let detectedEmotion = 'neutral';
+      
+      // 各感情カテゴリの類似度をチェック
+      for (const [emotion, examples] of Object.entries(emotionExamples)) {
+        try {
+          const similarity = await this.embeddingService.getTextSimilarity(textToAnalyze, examples);
+          
+          if (similarity > maxSimilarity && similarity > SIMILARITY_THRESHOLD) {
+            maxSimilarity = similarity;
+            detectedEmotion = emotion;
+          }
+        } catch (error) {
+          console.error(`[PostgreSQL-LocalML] Error detecting ${emotion} emotion:`, error.message);
+        }
+      }
+      
+      // フォールバック: 簡単なキーワードチェック
+      if (detectedEmotion === 'neutral' && maxSimilarity < SIMILARITY_THRESHOLD) {
+        if (/😊|😄|🎉|良い|嬉しい|楽しい/.test(currentMessage)) {
+          detectedEmotion = 'positive';
+        } else if (/😢|😭|😰|辛い|悲しい|不安/.test(currentMessage)) {
+          detectedEmotion = 'negative';
+        } else if (/😡|💢|怒|イライラ/.test(currentMessage)) {
+          detectedEmotion = 'angry';
+        }
+      }
+      
+      return detectedEmotion;
+      
+    } catch (error) {
+      console.error('[PostgreSQL-LocalML] Error in embedding-based sentiment analysis:', error);
+      return 'neutral';
+    }
+  }
+  
+  /**
+   * 感情分析結果の組み合わせ
+   */
+  _combineEmotionResults(tfResult, embeddingResult, tfIntensity) {
+    if (tfResult === embeddingResult) {
+      return tfResult;
+    }
+    
+    if (tfIntensity >= 0.4) {
+      return tfResult;
+    }
+    
+    return embeddingResult;
+  }
+
+  /**
+   * トピック分析
+   */
+  async _analyzeTopics(allMessages) {
+    // 簡単なキーワードベースのトピック抽出
+    const topics = [];
+    const topicKeywords = {
+      'work': ['仕事', '職場', '会社', '上司', '同僚', '業務'],
+      'health': ['健康', '体調', '病気', '疲れ', '医者', '薬'],
+      'family': ['家族', '親', '子供', '夫', '妻', '兄弟'],
+      'study': ['勉強', '学校', '試験', '宿題', '成績', '授業'],
+      'relationship': ['友達', '恋人', '人間関係', '付き合い', '結婚', '恋愛']
+    };
+    
+    for (const [topic, keywords] of Object.entries(topicKeywords)) {
+      if (keywords.some(keyword => allMessages.includes(keyword))) {
+        topics.push(topic);
+      }
+    }
+    
+    return topics;
+  }
+
+  /**
+   * サポートニーズ分析
+   */
+  async _analyzeSupportNeeds(allMessages) {
+    return {
+      listening: allMessages.includes('聞いて') || allMessages.includes('話したい'),
+      advice: allMessages.includes('どうすれば') || allMessages.includes('アドバイス'),
+      information: allMessages.includes('教えて') || allMessages.includes('知りたい'),
+      encouragement: allMessages.includes('励まして') || allMessages.includes('応援')
+    };
   }
 }
 

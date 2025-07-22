@@ -6,8 +6,6 @@
 const crypto = require('crypto');
 
 // テスト用の環境変数設定
-process.env.AIRTABLE_API_KEY = 'test_key_1234567890';
-process.env.AIRTABLE_BASE_ID = 'test_base_1234567890';
 process.env.ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
 
 console.log('🔐 LocalML セキュリティテスト開始...\n');
