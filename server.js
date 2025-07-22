@@ -2397,7 +2397,7 @@ async function fetchAndAnalyzeHistory(userId) {
         const records = await base('ConversationHistory')
           .select({
             filterByFormula: `{userId} = '${userId}'`,
-            sort: [{ field: 'timestamp', direction: 'desc' }],
+            sort: [{ field: 'Timestamp', direction: 'desc' }],
             maxRecords: 200
           })
           .all();
@@ -2405,7 +2405,7 @@ async function fetchAndAnalyzeHistory(userId) {
         airtableHistory = records.map(record => ({
           role: record.get('role') || 'user',
           content: record.get('content') || '',
-          timestamp: record.get('timestamp') || new Date().toISOString()
+          timestamp: record.get('Timestamp') || new Date().toISOString()
         }));
         
         console.log(`📝 Found additional ${airtableHistory.length} records from Airtable`);
