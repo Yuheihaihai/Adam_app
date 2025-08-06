@@ -78,7 +78,7 @@ async function initializeTables() {
   try {
     client = await pool.connect();
     
-    // トランザクション開始 - 同時実行を防ぐ
+    await client.query('SET TRANSACTION ISOLATION LEVEL SERIALIZABLE');
     await client.query('BEGIN');
     
     // pgvector拡張機能の有効化（存在しなければ作成）
@@ -138,19 +138,6 @@ async function initializeTables() {
       `);
     }
     
-    // message_idカラムが存在しない場合は追加
-    try {
-      await client.query(`
-        ALTER TABLE user_messages 
-        ADD COLUMN IF NOT EXISTS message_id VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS mode VARCHAR(50),
-        ADD COLUMN IF NOT EXISTS message_type VARCHAR(50)
-      `);
-      console.log('Added missing columns to user_messages table');
-    } catch (error) {
-      console.error('Error adding columns to user_messages table:', error.message);
-    }
-
     // 分析結果テーブル
     await client.query(`
       CREATE TABLE IF NOT EXISTS analysis_results (
