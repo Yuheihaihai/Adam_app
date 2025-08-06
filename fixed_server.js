@@ -2336,6 +2336,13 @@ async function processMessage(userId, messageText) {
   try {
     console.log(`メッセージ処理開始: "${sanitizedMessage.substring(0, 50)}${sanitizedMessage.length > 50 ? '...' : ''}"`);
     
+    // 直接的な画像生成リクエストのチェック
+    if (isDirectImageGenerationRequest(sanitizedMessage)) {
+      console.log('直接的な画像生成リクエストを検出しました');
+      // 画像生成処理をここで実行（イベントオブジェクトが必要なため、別途処理）
+      return `了解しました！「${sanitizedMessage}」の画像を生成します。少しお時間をください...`;
+    }
+    
     // 混乱状態のチェック
     if (isConfusionRequest(sanitizedMessage)) {
       console.log('混乱状態の質問を検出しました');
@@ -2789,8 +2796,24 @@ async function handleText(event) {
         audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
       }
     } else {
-      // 通常のメッセージ処理
-      replyMessage = await processMessage(userId, text);
+      // 画像生成リクエストのチェック
+      if (isDirectImageGenerationRequest(text)) {
+        console.log('画像生成リクエストを検出しました');
+        
+        // 画像生成処理を実行
+        const imageGenerationResult = await handleVisionExplanation(event, text);
+        
+        if (imageGenerationResult) {
+          console.log('画像生成処理が完了しました');
+          return; // 画像生成処理内でLINEへの返信も処理されるため、ここで終了
+        } else {
+          console.log('画像生成処理が失敗しました');
+          replyMessage = '申し訳ありません。画像生成中にエラーが発生しました。もう一度お試しください。';
+        }
+      } else {
+        // 通常のメッセージ処理
+        replyMessage = await processMessage(userId, text);
+      }
       
       // replyMessageが空の場合のチェックを追加
       if (!replyMessage) {
