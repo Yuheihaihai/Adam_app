@@ -301,7 +301,13 @@ const userPreferences = {
   }
 };
 
+const { intrusionDetectionMiddleware } = require('./intrusionDetector');
+
 const app = express();
+
+// Intrusion Detection Middleware - should be one of the first to run
+app.use(intrusionDetectionMiddleware);
+
 app.set('trust proxy', 1);
 // セキュリティヘッダーの強化
 app.use(helmet({
