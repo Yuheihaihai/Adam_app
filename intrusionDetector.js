@@ -26,9 +26,10 @@ function detect(text) {
 }
 
 /**
- * Middleware to detect and log intrusion attempts.
+ * Middleware to detect, log, and optionally block intrusion attempts.
+ * @param {boolean} enableBlocking Whether to block detected attacks (default: false)
  */
-function intrusionDetectionMiddleware(req, res, next) {
+function intrusionDetectionMiddleware(req, res, next, enableBlocking = false) {
     if (req.body && req.body.events) {
         for (const event of req.body.events) {
             if (event.type === 'message' && event.message.type === 'text') {
@@ -39,7 +40,7 @@ function intrusionDetectionMiddleware(req, res, next) {
                     const userId = event.source.userId;
                     const ip = req.ip || req.connection.remoteAddress;
 
-                    const logMessage = `[INTRUSION DETECTED] Type: ${result.type}, UserID: ${userId}, IP: ${ip}, Payload: "${text}"`;
+                    const logMessage = `🚨 [INTRUSION DETECTED] Type: ${result.type}, UserID: ${userId}, IP: ${ip}, Payload: "${text}"`;
                     console.error(logMessage);
                     logger.warn('IntrusionDetection', 'Potential attack detected', {
                         type: result.type,
@@ -47,6 +48,15 @@ function intrusionDetectionMiddleware(req, res, next) {
                         ip: ip,
                         payload: text
                     });
+                    
+                    // ブロック機能が有効な場合
+                    if (enableBlocking) {
+                        console.error(`🚫 [INTRUSION BLOCKED] Blocking request due to ${result.type} attack`);
+                        return res.status(403).json({
+                            error: 'Access denied',
+                            reason: 'Potential security threat detected'
+                        });
+                    }
                 }
             }
         }

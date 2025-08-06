@@ -17,6 +17,9 @@ const xss = require('xss');
 const Tokens = require('csrf');
 const crypto = require('crypto');
 
+// 包括的なセキュリティシステムをインポート
+const advancedSecurity = require('./advancedSecuritySystem');
+
 // 画像生成モジュールをインポート
 const imageGenerator = require('./imageGenerator');
 
@@ -305,6 +308,9 @@ const { intrusionDetectionMiddleware } = require('./intrusionDetector');
 
 const app = express();
 
+// 包括的なセキュリティシステムを適用（侵入検知システムより先に実行）
+app.use(advancedSecurity.advancedSecurityMiddleware);
+
 // Intrusion Detection Middleware - should be one of the first to run
 app.use(intrusionDetectionMiddleware);
 
@@ -495,6 +501,15 @@ app.get('/test-feedback', (req, res) => {
       positive: FEEDBACK_PATTERNS.positive,
       negative: FEEDBACK_PATTERNS.negative
     }
+  });
+});
+
+// セキュリティ統計エンドポイント（管理者用）
+app.get('/security/stats', (req, res) => {
+  const stats = advancedSecurity.getSecurityStats();
+  res.json({
+    timestamp: new Date().toISOString(),
+    security: stats
   });
 });
 
