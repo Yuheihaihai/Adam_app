@@ -101,6 +101,148 @@ const SECURITY_CONFIG = {
                 /\/setup\.cgi/i,
                 /\/system\/deviceinfo/i
             ]
+        },
+        
+        // NoSQLインジェクション攻撃
+        nosqlInjection: {
+            mongoOperators: [
+                /\$ne\s*:/i,
+                /\$gt\s*:/i,
+                /\$lt\s*:/i,
+                /\$gte\s*:/i,
+                /\$lte\s*:/i,
+                /\$in\s*:/i,
+                /\$nin\s*:/i,
+                /\$regex\s*:/i,
+                /\$where\s*:/i,
+                /\$eval\s*:/i,
+                /\$expr\s*:/i,
+                /\$jsonSchema\s*:/i,
+                /\$function\s*:/i,
+                /\$accumulator\s*:/i
+            ],
+            payloadPatterns: [
+                /\{\s*\$ne\s*:\s*null\s*\}/i,
+                /\{\s*\$regex\s*:\s*['"]\.*['"]?\s*\}/i,
+                /\{\s*\$where\s*:\s*['"].*function.*['"]?\s*\}/i,
+                /true\s*,\s*true/i,
+                /\[\]\s*\|\|\s*\[\]/i,
+                /1\s*==\s*1/i
+            ]
+        },
+        
+        // SSRF (Server-Side Request Forgery) 攻撃
+        ssrf: {
+            protocols: [
+                /file:\/\//i,
+                /ftp:\/\//i,
+                /gopher:\/\//i,
+                /ldap:\/\//i,
+                /ldaps:\/\//i,
+                /dict:\/\//i,
+                /sftp:\/\//i,
+                /tftp:\/\//i,
+                /jar:\/\//i
+            ],
+            internalIPs: [
+                /10\.\d{1,3}\.\d{1,3}\.\d{1,3}/,
+                /172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}/,
+                /192\.168\.\d{1,3}\.\d{1,3}/,
+                /127\.\d{1,3}\.\d{1,3}\.\d{1,3}/,
+                /0\.0\.0\.0/,
+                /169\.254\.\d{1,3}\.\d{1,3}/, // Link-local
+                /::1/, // IPv6 localhost
+                /fe80::/i // IPv6 link-local
+            ],
+            suspiciousHosts: [
+                /localhost/i,
+                /0x[0-9a-f]+/i, // Hex IP
+                /\d+\.\d+\.\d+\.\d+:\d+/, // IP with port
+                /metadata\.google\.internal/i,
+                /169\.254\.169\.254/i, // AWS metadata
+                /100\.100\.100\.200/i // Alibaba Cloud metadata
+            ],
+            urlPatterns: [
+                /url\s*=\s*['"]?[^'">\s]*['"]?/i,
+                /href\s*=\s*['"]?[^'">\s]*['"]?/i,
+                /src\s*=\s*['"]?[^'">\s]*['"]?/i,
+                /action\s*=\s*['"]?[^'">\s]*['"]?/i
+            ]
+        },
+        
+        // XXE (XML External Entity) 攻撃
+        xxe: {
+            entityDeclarations: [
+                /<!ENTITY\s+\w+\s+SYSTEM\s+['"][^'"]*['"]>/i,
+                /<!ENTITY\s+\w+\s+PUBLIC\s+['"][^'"]*['"]\s+['"][^'"]*['"]>/i,
+                /<!ENTITY\s+%\s*\w+\s+SYSTEM\s+['"][^'"]*['"]>/i,
+                /<!ENTITY\s+%\s*\w+\s+PUBLIC\s+['"][^'"]*['"]\s+['"][^'"]*['"]>/i
+            ],
+            xmlPatterns: [
+                /<!DOCTYPE\s+\w+\s+\[.*<!ENTITY/is,
+                /&\w+;/,
+                /%\w+;/,
+                /SYSTEM\s+['"]file:\/\//i,
+                /SYSTEM\s+['"]http:\/\//i,
+                /SYSTEM\s+['"]https:\/\//i,
+                /SYSTEM\s+['"]ftp:\/\//i
+            ],
+            suspiciousContent: [
+                /\/etc\/passwd/i,
+                /\/etc\/shadow/i,
+                /\/proc\/self\/environ/i,
+                /\/proc\/version/i,
+                /C:\\Windows\\system32/i,
+                /file:\/\/\/etc\//i,
+                /php:\/\/filter/i
+            ]
+        },
+        
+        // テンプレートインジェクション
+        templateInjection: {
+            patterns: [
+                /\{\{.*\}\}/,  // Handlebars, Mustache
+                /\{%.*%\}/,    // Jinja2, Twig
+                /\$\{.*\}/,    // JSP EL, FreeMarker
+                /<%= .* %>/,   // JSP, ERB
+                /<\? .* \?>/,  // PHP
+                /\{\{.*\|\s*safe\s*\}\}/i, // Template filters
+                /__import__/i,
+                /config\./i,
+                /self\.__/i,
+                /\[\[.*\]\]/   // MediaWiki
+            ]
+        },
+        
+        // LDAP インジェクション
+        ldapInjection: {
+            patterns: [
+                /\(\s*\|\s*\(/,
+                /\)\s*\|\s*\(/,
+                /\(\s*&\s*\(/,
+                /\*\s*\)\s*\(/,
+                /\|\s*\(\s*\w+\s*=\s*\*/,
+                /&\s*\(\s*\w+\s*=\s*\*/,
+                /objectClass\s*=\s*\*/i,
+                /cn\s*=\s*\*/i,
+                /uid\s*=\s*\*/i
+            ]
+        },
+        
+        // XPath インジェクション
+        xpathInjection: {
+            patterns: [
+                /or\s+1\s*=\s*1/i,
+                /and\s+1\s*=\s*1/i,
+                /'\s*or\s*'1'\s*=\s*'1/i,
+                /"\s*or\s*"1"\s*=\s*"1/i,
+                /count\s*\(\s*\/\//i,
+                /string-length\s*\(/i,
+                /substring\s*\(/i,
+                /normalize-space\s*\(/i,
+                /\/\*.*\*\//,
+                /\[\s*position\s*\(\s*\)\s*=\s*\d+\s*\]/
+            ]
         }
     },
     
@@ -353,6 +495,213 @@ function detectAPIAbuse(req) {
 }
 
 /**
+ * NoSQLインジェクション検知
+ */
+function detectNoSQLInjection(text) {
+    if (!text || typeof text !== 'string') return false;
+    
+    const config = SECURITY_CONFIG.modernThreats.nosqlInjection;
+    
+    // MongoDB演算子の検知
+    for (const pattern of config.mongoOperators) {
+        if (pattern.test(text)) {
+            logSecurityEvent('NOSQL_INJECTION_DETECTED', {
+                type: 'MONGO_OPERATOR',
+                pattern: pattern.source,
+                text: text.substring(0, 100) + '...'
+            });
+            return true;
+        }
+    }
+    
+    // NoSQLペイロードパターンの検知
+    for (const pattern of config.payloadPatterns) {
+        if (pattern.test(text)) {
+            logSecurityEvent('NOSQL_INJECTION_DETECTED', {
+                type: 'PAYLOAD_PATTERN',
+                pattern: pattern.source,
+                text: text.substring(0, 100) + '...'
+            });
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * SSRF (Server-Side Request Forgery) 攻撃検知
+ */
+function detectSSRF(text) {
+    if (!text || typeof text !== 'string') return false;
+    
+    const config = SECURITY_CONFIG.modernThreats.ssrf;
+    
+    // 危険なプロトコルの検知
+    for (const pattern of config.protocols) {
+        if (pattern.test(text)) {
+            logSecurityEvent('SSRF_DETECTED', {
+                type: 'DANGEROUS_PROTOCOL',
+                pattern: pattern.source,
+                text: text.substring(0, 100) + '...'
+            });
+            return true;
+        }
+    }
+    
+    // 内部IPアドレスアクセスの検知
+    for (const pattern of config.internalIPs) {
+        if (pattern.test(text)) {
+            logSecurityEvent('SSRF_DETECTED', {
+                type: 'INTERNAL_IP_ACCESS',
+                pattern: pattern.source,
+                text: text.substring(0, 100) + '...'
+            });
+            return true;
+        }
+    }
+    
+    // 不審なホストの検知
+    for (const pattern of config.suspiciousHosts) {
+        if (pattern.test(text)) {
+            logSecurityEvent('SSRF_DETECTED', {
+                type: 'SUSPICIOUS_HOST',
+                pattern: pattern.source,
+                text: text.substring(0, 100) + '...'
+            });
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * XXE (XML External Entity) 攻撃検知
+ */
+function detectXXE(text) {
+    if (!text || typeof text !== 'string') return false;
+    
+    const config = SECURITY_CONFIG.modernThreats.xxe;
+    
+    // エンティティ宣言の検知
+    for (const pattern of config.entityDeclarations) {
+        if (pattern.test(text)) {
+            logSecurityEvent('XXE_DETECTED', {
+                type: 'ENTITY_DECLARATION',
+                pattern: pattern.source,
+                text: text.substring(0, 100) + '...'
+            });
+            return true;
+        }
+    }
+    
+    // XMLパターンの検知
+    for (const pattern of config.xmlPatterns) {
+        if (pattern.test(text)) {
+            logSecurityEvent('XXE_DETECTED', {
+                type: 'XML_PATTERN',
+                pattern: pattern.source,
+                text: text.substring(0, 100) + '...'
+            });
+            return true;
+        }
+    }
+    
+    // 不審なコンテンツの検知
+    for (const pattern of config.suspiciousContent) {
+        if (pattern.test(text)) {
+            logSecurityEvent('XXE_DETECTED', {
+                type: 'SUSPICIOUS_CONTENT',
+                pattern: pattern.source,
+                text: text.substring(0, 100) + '...'
+            });
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * テンプレートインジェクション検知
+ */
+function detectTemplateInjection(text) {
+    if (!text || typeof text !== 'string') return false;
+    
+    const patterns = SECURITY_CONFIG.modernThreats.templateInjection.patterns;
+    for (const pattern of patterns) {
+        if (pattern.test(text)) {
+            logSecurityEvent('TEMPLATE_INJECTION_DETECTED', {
+                pattern: pattern.source,
+                text: text.substring(0, 100) + '...'
+            });
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * LDAPインジェクション検知
+ */
+function detectLDAPInjection(text) {
+    if (!text || typeof text !== 'string') return false;
+    
+    const patterns = SECURITY_CONFIG.modernThreats.ldapInjection.patterns;
+    for (const pattern of patterns) {
+        if (pattern.test(text)) {
+            logSecurityEvent('LDAP_INJECTION_DETECTED', {
+                pattern: pattern.source,
+                text: text.substring(0, 100) + '...'
+            });
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * XPathインジェクション検知
+ */
+function detectXPathInjection(text) {
+    if (!text || typeof text !== 'string') return false;
+    
+    const patterns = SECURITY_CONFIG.modernThreats.xpathInjection.patterns;
+    for (const pattern of patterns) {
+        if (pattern.test(text)) {
+            logSecurityEvent('XPATH_INJECTION_DETECTED', {
+                pattern: pattern.source,
+                text: text.substring(0, 100) + '...'
+            });
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * 包括的新手攻撃検知
+ */
+function detectModernThreats(text) {
+    if (!text || typeof text !== 'string') return false;
+    
+    const detectionResults = [
+        detectNoSQLInjection(text),
+        detectSSRF(text),
+        detectXXE(text),
+        detectTemplateInjection(text),
+        detectLDAPInjection(text),
+        detectXPathInjection(text)
+    ];
+    
+    return detectionResults.some(result => result === true);
+}
+
+/**
  * 行動分析
  */
 function analyzeBehavior(ip, req) {
@@ -508,7 +857,13 @@ function getSeverityLevel(attackType) {
         'BEHAVIOR_ANOMALY': 'MEDIUM',
         'GEO_BLOCKED': 'LOW',
         'TRUST_SCORE_LOW': 'MEDIUM',
-        'APT_INDICATOR': 'CRITICAL'
+        'APT_INDICATOR': 'CRITICAL',
+        'NOSQL_INJECTION_DETECTED': 'CRITICAL',
+        'SSRF_DETECTED': 'HIGH',
+        'XXE_DETECTED': 'CRITICAL',
+        'TEMPLATE_INJECTION_DETECTED': 'HIGH',
+        'LDAP_INJECTION_DETECTED': 'HIGH',
+        'XPATH_INJECTION_DETECTED': 'HIGH'
     };
     return severityLevels[attackType] || 'LOW';
 }
@@ -552,10 +907,21 @@ function nextGenSecurityMiddleware(req, res, next) {
         if (req.body && req.body.events) {
             for (const event of req.body.events) {
                 if (event.type === 'message' && event.message.type === 'text') {
-                    if (detectPromptInjection(event.message.text)) {
+                    const messageText = event.message.text;
+                    
+                    // LLMプロンプトインジェクション
+                    if (detectPromptInjection(messageText)) {
                         return res.status(403).json({
                             error: 'Access denied',
                             reason: 'Prompt injection detected'
+                        });
+                    }
+                    
+                    // 新手攻撃の包括的検知
+                    if (detectModernThreats(messageText)) {
+                        return res.status(403).json({
+                            error: 'Access denied',
+                            reason: 'Modern threat detected'
                         });
                     }
                 }
@@ -680,5 +1046,13 @@ module.exports = {
     detectAPIAbuse,
     analyzeBehavior,
     geoFilter,
-    logSecurityEvent
+    logSecurityEvent,
+    // 新手攻撃検知関数
+    detectNoSQLInjection,
+    detectSSRF,
+    detectXXE,
+    detectTemplateInjection,
+    detectLDAPInjection,
+    detectXPathInjection,
+    detectModernThreats
 };
