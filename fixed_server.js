@@ -3660,30 +3660,62 @@ async function handleAudio(event) {
           
           audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
         } else {
-          // 通常の応答処理へフォールバック
-          replyMessage = await processMessage(userId, transcribedText);
-          
-          // replyMessageが空の場合のチェックを追加
-          if (!replyMessage) {
-            console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
-            replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
+          // 画像生成リクエストのチェック（音声設定変更処理内でも）
+          if (isDirectImageGenerationRequest(transcribedText)) {
+            console.log('音声設定変更処理内で画像生成リクエストを検出しました');
+            
+            // 画像生成処理を実行
+            const imageGenerationResult = await handleVisionExplanation(event, transcribedText);
+            
+            if (imageGenerationResult) {
+              console.log('音声設定変更処理内での画像生成処理が完了しました');
+              return; // 画像生成処理内でLINEへの返信も処理されるため、ここで終了
+            } else {
+              console.log('音声設定変更処理内での画像生成処理が失敗しました');
+              replyMessage = '申し訳ありません。画像生成中にエラーが発生しました。もう一度お試しください。';
+            }
+          } else {
+            // 通常の応答処理へフォールバック
+            replyMessage = await processMessage(userId, transcribedText);
+            
+            // replyMessageが空の場合のチェックを追加
+            if (!replyMessage) {
+              console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
+              replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
+            }
           }
           
           audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId);
         }
       } else {
-        // 通常のメッセージ処理
-        replyMessage = await processMessage(userId, transcribedText);
-        
-        // replyMessageが空の場合のチェックを追加
-        // processMessageの戻り値がオブジェクトの場合、テキストフィールドを抽出
-        if (replyMessage && typeof replyMessage === "object" && replyMessage.text) {
-          replyMessage = replyMessage.text;
-        }
-        // replyMessageが空の場合のチェックを追加
-        if (!replyMessage) {
-          console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
-          replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
+        // 画像生成リクエストのチェック（音声入力でも）
+        if (isDirectImageGenerationRequest(transcribedText)) {
+          console.log('音声入力で画像生成リクエストを検出しました');
+          
+          // 画像生成処理を実行
+          const imageGenerationResult = await handleVisionExplanation(event, transcribedText);
+          
+          if (imageGenerationResult) {
+            console.log('音声入力による画像生成処理が完了しました');
+            return; // 画像生成処理内でLINEへの返信も処理されるため、ここで終了
+          } else {
+            console.log('音声入力による画像生成処理が失敗しました');
+            replyMessage = '申し訳ありません。画像生成中にエラーが発生しました。もう一度お試しください。';
+          }
+        } else {
+          // 通常のメッセージ処理
+          replyMessage = await processMessage(userId, transcribedText);
+          
+          // replyMessageが空の場合のチェックを追加
+          // processMessageの戻り値がオブジェクトの場合、テキストフィールドを抽出
+          if (replyMessage && typeof replyMessage === "object" && replyMessage.text) {
+            replyMessage = replyMessage.text;
+          }
+          // replyMessageが空の場合のチェックを追加
+          if (!replyMessage) {
+            console.error('警告: 音声応答のreplyMessageが空です。デフォルトメッセージを使用します。');
+            replyMessage = "申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しいただけますか？";
+          }
         }
         
         // ユーザー設定を反映した音声応答生成
