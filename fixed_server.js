@@ -20,6 +20,9 @@ const crypto = require('crypto');
 // Next-Generation セキュリティシステムをインポート
 const nextGenSecurity = require('./nextGenSecuritySystem');
 
+// 機能実行監視システムをインポート
+const functionExecutionMonitor = require('./functionExecutionMonitor');
+
 // 画像生成モジュールをインポート
 const imageGenerator = require('./imageGenerator');
 
@@ -505,6 +508,36 @@ app.get('/security/stats', (req, res) => {
     security: stats,
     version: 'NextGen-2.0'
   });
+});
+
+// 機能実行監視統計エンドポイント（管理者用）
+app.get('/function-monitor/stats', (req, res) => {
+  try {
+    const monitorStats = functionExecutionMonitor.getStatistics();
+    
+    const report = {
+      timestamp: new Date().toISOString(),
+      overview: {
+        totalMonitoredRequests: monitorStats.totalRequests,
+        averageExecutionRate: `${monitorStats.averageExecutionRate}%`,
+        systemHealth: monitorStats.averageExecutionRate > 80 ? 'Good' : 
+                     monitorStats.averageExecutionRate > 60 ? 'Warning' : 'Critical'
+      },
+      commonGaps: monitorStats.commonGaps,
+      recommendations: monitorStats.commonGaps.length > 0 ? 
+        [`上位ギャップ「${monitorStats.commonGaps[0]?.functionName}」の改善を検討してください`] : 
+        ['現在、機能実行の問題は検出されていません'],
+      version: 'FunctionMonitor-1.0'
+    };
+    
+    res.json(report);
+  } catch (error) {
+    console.error('Error generating function monitor stats:', error);
+    res.status(500).json({ 
+      error: '機能監視統計の生成に失敗しました',
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -2691,6 +2724,10 @@ async function handleText(event) {
     const userId = event.source.userId;
     const text = event.message.text.trim();
     
+    // 機能実行監視を開始
+    const requestId = functionExecutionMonitor.startRequestMonitoring(userId, text);
+    console.log(`[FunctionMonitor] 監視開始: ${requestId} - "${text.substring(0, 50)}..."`);
+    
     // ユーザーセッションを初期化
     if (!sessions[userId]) {
       sessions[userId] = {
@@ -2822,14 +2859,35 @@ async function handleText(event) {
       if (isDirectImageGenerationRequest(text)) {
         console.log('画像生成リクエストを検出しました');
         
+        // 機能実行を記録
+        functionExecutionMonitor.recordFunctionExecution(requestId, 'handleVisionExplanation', {
+          trigger: 'text',
+          message: text.substring(0, 100)
+        });
+        
         // 画像生成処理を実行
         const imageGenerationResult = await handleVisionExplanation(event, text);
         
         if (imageGenerationResult) {
           console.log('画像生成処理が完了しました');
+          
+          // 成功を記録
+          functionExecutionMonitor.recordFunctionExecution(requestId, 'imageGeneration_success', {
+            success: true
+          });
+          
+          // 監視完了
+          functionExecutionMonitor.completeMonitoring(requestId);
           return; // 画像生成処理内でLINEへの返信も処理されるため、ここで終了
         } else {
           console.log('画像生成処理が失敗しました');
+          
+          // 失敗を記録
+          functionExecutionMonitor.recordFunctionExecution(requestId, 'imageGeneration_failed', {
+            success: false,
+            reason: 'handleVisionExplanation returned false'
+          });
+          
           replyMessage = '申し訳ありません。画像生成中にエラーが発生しました。もう一度お試しください。';
         }
       } else {
@@ -2962,6 +3020,36 @@ async function handleText(event) {
     updateUserStats(userId, 'audio_messages', 1);
     updateUserStats(userId, 'audio_responses', 1);
     
+    // 監視完了とギャップ分析
+    if (requestId) {
+      const gapAnalysis = functionExecutionMonitor.completeMonitoring(requestId);
+      
+      if (gapAnalysis && gapAnalysis.hasGap) {
+        console.log(`[FunctionMonitor] ギャップ検出: ${gapAnalysis.summary}`);
+        
+        // LLM用の説明文を生成
+        const llmExplanation = functionExecutionMonitor.generateLLMExplanation(gapAnalysis, text);
+        
+        if (llmExplanation) {
+          console.log(`[FunctionMonitor] LLM説明文生成: ${llmExplanation.substring(0, 100)}...`);
+          
+          // ギャップがある場合は、説明メッセージを追加送信
+          try {
+            await client.pushMessage(userId, {
+              type: 'text',
+              text: llmExplanation
+            });
+            
+            console.log(`[FunctionMonitor] ギャップ説明をユーザーに送信完了`);
+          } catch (pushError) {
+            console.error(`[FunctionMonitor] ギャップ説明送信エラー:`, pushError);
+          }
+        }
+      } else {
+        console.log(`[FunctionMonitor] 監視完了: 期待された機能がすべて実行されました`);
+      }
+    }
+    
   } catch (error) {
     console.error('音声メッセージ処理エラー:', error);
     
@@ -2972,6 +3060,14 @@ async function handleText(event) {
       });
     } catch (replyError) {
       console.error('エラー応答送信エラー:', replyError);
+    }
+    
+    // エラー時でも監視を完了
+    if (requestId) {
+      const gapAnalysis = functionExecutionMonitor.completeMonitoring(requestId);
+      if (gapAnalysis && gapAnalysis.hasGap) {
+        console.log(`[FunctionMonitor] エラー時ギャップ検出: ${gapAnalysis.summary}`);
+      }
     }
   }
 }
