@@ -304,15 +304,8 @@ const userPreferences = {
   }
 };
 
-const { intrusionDetectionMiddleware } = require('./intrusionDetector');
-
-const app = express();
-
 // Next-Generation セキュリティシステムを適用（最優先で実行）
 app.use(nextGenSecurity.nextGenSecurityMiddleware);
-
-// Intrusion Detection Middleware - should be one of the first to run
-app.use(intrusionDetectionMiddleware);
 
 app.set('trust proxy', 1);
 // セキュリティヘッダーの強化

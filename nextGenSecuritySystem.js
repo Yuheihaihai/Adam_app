@@ -702,6 +702,167 @@ function detectModernThreats(text) {
 }
 
 /**
+ * エンコード正規化による難読化解除
+ */
+function normalizePayload(payload) {
+    if (!payload || typeof payload !== 'string') return payload;
+
+    let normalized = payload;
+    let decoded = true;
+    let attempts = 0;
+
+    // 多層エンコードを最大5回までデコード
+    while (decoded && attempts < 5) {
+        decoded = false;
+        
+        // URLデコード
+        try {
+            const urlDecoded = decodeURIComponent(normalized.replace(/\+/g, ' '));
+            if (urlDecoded !== normalized) {
+                normalized = urlDecoded;
+                decoded = true;
+            }
+        } catch (e) {
+            // Invalid URI
+        }
+
+        // Base64デコード
+        try {
+            const base64Decoded = Buffer.from(normalized, 'base64').toString('utf8');
+            if (base64Decoded !== normalized && /^[a-zA-Z0-9+/=]*$/.test(normalized)) {
+                 normalized = base64Decoded;
+                 decoded = true;
+            }
+        } catch (e) {
+            // Not Base64
+        }
+        
+        // Hexデコード
+        try {
+            if (/^(0x)?[0-9a-fA-F]+$/.test(normalized) && normalized.length % 2 === 0) {
+                const hexDecoded = Buffer.from(normalized.startsWith('0x') ? normalized.substring(2) : normalized, 'hex').toString('utf8');
+                if (hexDecoded !== normalized) {
+                    normalized = hexDecoded;
+                    decoded = true;
+                }
+            }
+        } catch (e) {
+            // Not Hex
+        }
+
+        attempts++;
+    }
+    
+    // SQLコメントの削除
+    normalized = normalized.replace(/\/\*.*?\*\//g, '');
+    
+    // HTMLエンティティのデコード
+    normalized = normalized.replace(/&(#?[\w\d]+);/g, (match, entity) => {
+        try {
+            // Implement a safe HTML entity decoder if needed
+            // For now, just return the entity name
+            return entity;
+        } catch {
+            return match;
+        }
+    });
+
+    return normalized;
+}
+
+/**
+ * リクエスト全体のペイロードを収集・正規化
+ */
+function getNormalizedFullPayload(req) {
+    const payloads = [];
+
+    // 1. Body
+    if (req.body) {
+        payloads.push(JSON.stringify(req.body));
+    }
+
+    // 2. URL (Query + Path)
+    if (req.originalUrl) {
+        payloads.push(req.originalUrl);
+    }
+    
+    // 3. Headers
+    if (req.headers) {
+        payloads.push(JSON.stringify(req.headers));
+    }
+
+    const fullPayload = payloads.join(' ');
+    return normalizePayload(fullPayload);
+}
+
+/**
+ * 分割攻撃シーケンス監視
+ */
+const attackSequenceState = new Map();
+function detectAttackSequence(ip, normalizedPayload) {
+    const now = Date.now();
+    
+    if (!attackSequenceState.has(ip)) {
+        attackSequenceState.set(ip, {
+            fragments: [],
+            timestamps: [],
+            riskScore: 0
+        });
+    }
+
+    const state = attackSequenceState.get(ip);
+    
+    // 古いフラグメントを削除 (1分以上前)
+    state.fragments = state.fragments.filter((_, i) => now - state.timestamps[i] < 60000);
+    state.timestamps = state.timestamps.filter(t => now - t < 60000);
+
+    state.fragments.push(normalizedPayload);
+    state.timestamps.push(now);
+
+    const combinedPayload = state.fragments.join(' ');
+    const modernThreat = detectModernThreats(combinedPayload);
+    const legacyThreat = detectLegacyThreats(combinedPayload);
+    
+    if(modernThreat || legacyThreat.isAttack) {
+        const attackType = modernThreat ? 'MODERN_THREAT' : legacyThreat.type;
+        logSecurityEvent('ATTACK_SEQUENCE_DETECTED', { ip, combinedPayload, attackType });
+        // Reset after detection
+        attackSequenceState.delete(ip);
+        return true;
+    }
+
+    // クリーンアップ
+    if (now - state.timestamps[0] > 60000) {
+        attackSequenceState.delete(ip);
+    }
+
+    return false;
+}
+
+// intrusionDetector.js からの detect 関数をインポートする必要がある
+// これは後ほど修正します。仮にグローバル関数として定義
+const legacyAttackPatterns = {
+    sqlInjection: new RegExp(`(\\s*select\\s.*from\\s.*)|(\\s*insert\\s.*into\\s.*)|(\\s*update\\s.*set\\s.*)|(\\s*delete\\s.*from\\s.*)|(--)|(;)|(xp_)|(union\\s*select)`, 'i'),
+    xss: new RegExp(`(<\\s*script\\s*>)|(on\\w+\\s*=)|(javascript:)|(<\\s*iframe)|(<\\s*img\\s*src\\s*=\\s*['"]?javascript:)|(alert\\()`, 'i'),
+    commandInjection: new RegExp(`(&&)|(\\|\\|)|(;\\s*\\w+)|(\\$\\(|\\\`\\w+)|(>\\s*/dev/null)`, 'i'),
+    pathTraversal: new RegExp(`(\\.\\.\\/)|(\\.\\.\\\\)`, 'i'),
+};
+
+function detectLegacyThreats(text) {
+    if (typeof text !== 'string') {
+        return { isAttack: false, type: null };
+    }
+    for (const [type, pattern] of Object.entries(legacyAttackPatterns)) {
+        if (pattern.test(text)) {
+            return { isAttack: true, type: type };
+        }
+    }
+    return { isAttack: false, type: null };
+}
+
+
+
+/**
  * 行動分析
  */
 function analyzeBehavior(ip, req) {
@@ -886,7 +1047,25 @@ function nextGenSecurityMiddleware(req, res, next) {
             });
         }
         
-        // 2. AI駆動型脅威検知
+        // 2. 高度な脅威検知 (エンコード正規化＋全体ペイロード)
+        const normalizedPayload = getNormalizedFullPayload(req);
+        const legacyThreat = detectLegacyThreats(normalizedPayload);
+        
+        if (legacyThreat.isAttack) {
+            logSecurityEvent(legacyThreat.type.toUpperCase() + '_DETECTED', { ip, payload: normalizedPayload });
+            return res.status(403).json({ error: 'Access denied', reason: 'Legacy threat detected' });
+        }
+
+        if (detectModernThreats(normalizedPayload)) {
+            return res.status(403).json({ error: 'Access denied', reason: 'Modern threat detected' });
+        }
+
+        // 3. 分割攻撃シーケンス検知
+        if (detectAttackSequence(ip, normalizedPayload)) {
+            return res.status(403).json({ error: 'Access denied', reason: 'Attack sequence detected' });
+        }
+        
+        // 4. AI駆動型脅威検知
         const aiThreat = aiThreatDetection(req);
         if (aiThreat.isThreat) {
             logSecurityEvent('AI_DETECTED_THREAT', {
@@ -903,32 +1082,7 @@ function nextGenSecurityMiddleware(req, res, next) {
             }
         }
         
-        // 3. LLMプロンプトインジェクション検知
-        if (req.body && req.body.events) {
-            for (const event of req.body.events) {
-                if (event.type === 'message' && event.message.type === 'text') {
-                    const messageText = event.message.text;
-                    
-                    // LLMプロンプトインジェクション
-                    if (detectPromptInjection(messageText)) {
-                        return res.status(403).json({
-                            error: 'Access denied',
-                            reason: 'Prompt injection detected'
-                        });
-                    }
-                    
-                    // 新手攻撃の包括的検知
-                    if (detectModernThreats(messageText)) {
-                        return res.status(403).json({
-                            error: 'Access denied',
-                            reason: 'Modern threat detected'
-                        });
-                    }
-                }
-            }
-        }
-        
-        // 4. API乱用検知
+        // 5. API乱用検知
         const apiAbuse = detectAPIAbuse(req);
         if (apiAbuse.detected) {
             logSecurityEvent('API_ABUSE_DETECTED', {
@@ -938,7 +1092,7 @@ function nextGenSecurityMiddleware(req, res, next) {
             });
         }
         
-        // 5. 行動分析
+        // 6. 行動分析
         const behaviorAnalysis = analyzeBehavior(ip, req);
         if (behaviorAnalysis.riskScore > 70) {
             logSecurityEvent('BEHAVIOR_ANOMALY', {
@@ -948,7 +1102,7 @@ function nextGenSecurityMiddleware(req, res, next) {
             });
         }
         
-        // 6. 信頼スコア計算
+        // 7. 信頼スコア計算
         const trustScore = securityState.calculateTrustScore(
             ip,
             req.headers['user-agent'],

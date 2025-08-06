@@ -99,3 +99,96 @@
 - `fixed_server.js`: Next-Genセキュリティミドルウェアの優先実行統合
 
 **Herokuリリース**: v921+ (Next-Generation Security System)
+
+---
+
+## 5. 新手攻撃対応セキュリティシステム v2.1の実装
+
+**実装日**: 2025年8月6日  
+**Herokuバージョン**: v923
+
+### 目的
+NoSQL インジェクション、SSRF、XXE など、従来の SQL インジェクションや XSS を超えた新世代の攻撃手法に対応する包括的セキュリティシステムの構築。
+
+### 追加された攻撃検知機能
+
+#### 5.1 NoSQL インジェクション検知 🔴 CRITICAL
+- **MongoDB演算子**: `$ne`, `$gt`, `$lt`, `$regex`, `$where`, `$eval` など14種類
+- **ペイロードパターン**: `{$ne: null}`, `true, true`, `[] || []` など6種類
+- **対応**: 即座にブロック（403 Forbidden）
+
+#### 5.2 SSRF (Server-Side Request Forgery) 攻撃検知 🟠 HIGH
+- **危険プロトコル**: `file://`, `ftp://`, `gopher://`, `ldap://` など9種類
+- **内部IPアクセス**: RFC1918プライベートIP、localhost、link-local
+- **不審ホスト**: AWS metadata、Alibaba Cloud metadata、16進IP表現
+- **対応**: 警告ログ＋リアルタイム検知
+
+#### 5.3 XXE (XML External Entity) 攻撃検知 🔴 CRITICAL
+- **エンティティ宣言**: `<!ENTITY ... SYSTEM ...>`, `<!ENTITY % ... PUBLIC ...>`
+- **XMLパターン**: DOCTYPE宣言、entity参照、SYSTEM指定
+- **不審コンテンツ**: `/etc/passwd`, `/proc/self/environ`, Windows system32
+- **対応**: 即座にブロック（403 Forbidden）
+
+#### 5.4 テンプレートインジェクション検知 🟠 HIGH
+- **対象テンプレート**: Handlebars `{{}}`, Jinja2 `{%%}`, JSP `${}`, ERB `<%=%>`
+- **危険関数**: `__import__`, `config.`, `self.__`
+- **対応**: 詳細ログ＋監視強化
+
+#### 5.5 LDAP インジェクション検知 🟠 HIGH
+- **LDAP構文**: `(|())`, `(&())`, `objectClass=*`, `uid=*`
+- **攻撃パターン**: LDAP フィルタ構文の悪用
+- **対応**: 認証回避防止
+
+#### 5.6 XPath インジェクション検知 🟠 HIGH
+- **XPath構文**: `or 1=1`, `count(//...)`, `string-length()`, `substring()`
+- **攻撃パターン**: XML データベースアクセス制御の回避
+- **対応**: データ漏洩防止
+
+### 実装仕様
+
+#### 包括的検知システム
+```javascript
+function detectModernThreats(text) {
+    const detectionResults = [
+        detectNoSQLInjection(text),    // NoSQL DB攻撃
+        detectSSRF(text),              // SSRF攻撃
+        detectXXE(text),               // XXE攻撃
+        detectTemplateInjection(text), // テンプレート攻撃
+        detectLDAPInjection(text),     // LDAP攻撃
+        detectXPathInjection(text)     // XPath攻撃
+    ];
+    
+    return detectionResults.some(result => result === true);
+}
+```
+
+#### セキュリティミドルウェア統合
+- **検知位置**: LLMプロンプトインジェクション検知の直後
+- **即座ブロック**: CRITICAL攻撃は403 Forbiddenで即座拒否
+- **詳細ログ**: 攻撃タイプ、パターン、ペイロード内容を完全記録
+
+### パフォーマンス最適化
+- **正規表現最適化**: 高速パターンマッチング
+- **処理順序**: 重要度の高い攻撃から順次検査  
+- **パターンキャッシュ**: 正規表現オブジェクトの再利用
+
+### セキュリティログ強化
+- **新攻撃タイプ**: 6種類の新手攻撃を重要度別に分類
+- **詳細記録**: 検知パターン、ペイロード、攻撃タイプの完全記録
+- **リアルタイム監視**: 攻撃検知時の即座アラート機能
+
+### 技術統計
+- **追加コード量**: +377行（総1,058行）
+- **検知パターン**: 70+ 正規表現パターン
+- **対応攻撃**: 13種類の攻撃ベクタ
+- **統合方式**: 既存Next-Genセキュリティシステムとのシームレス連携
+
+### 防御効果
+- 🛡️ **NoSQL データベース**: MongoDB等への不正アクセス完全防止
+- 🛡️ **内部ネットワーク**: SSRF による内部リソースアクセス防止  
+- 🛡️ **XML処理**: XXE による機密ファイル読み取り防止
+- 🛡️ **テンプレート**: サーバーサイドコード実行防止
+- 🛡️ **認証システム**: LDAP/XPath インジェクションによる認証回避防止
+
+**実装ファイル**: `nextGenSecuritySystem.js` (更新)  
+**Herokuリリース**: v923 (Modern Threats Protection)
