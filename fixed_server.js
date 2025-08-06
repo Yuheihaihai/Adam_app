@@ -17,8 +17,8 @@ const xss = require('xss');
 const Tokens = require('csrf');
 const crypto = require('crypto');
 
-// 包括的なセキュリティシステムをインポート
-const advancedSecurity = require('./advancedSecuritySystem');
+// Next-Generation セキュリティシステムをインポート
+const nextGenSecurity = require('./nextGenSecuritySystem');
 
 // 画像生成モジュールをインポート
 const imageGenerator = require('./imageGenerator');
@@ -308,8 +308,8 @@ const { intrusionDetectionMiddleware } = require('./intrusionDetector');
 
 const app = express();
 
-// 包括的なセキュリティシステムを適用（侵入検知システムより先に実行）
-app.use(advancedSecurity.advancedSecurityMiddleware);
+// Next-Generation セキュリティシステムを適用（最優先で実行）
+app.use(nextGenSecurity.nextGenSecurityMiddleware);
 
 // Intrusion Detection Middleware - should be one of the first to run
 app.use(intrusionDetectionMiddleware);
@@ -504,12 +504,13 @@ app.get('/test-feedback', (req, res) => {
   });
 });
 
-// セキュリティ統計エンドポイント（管理者用）
+// Next-Generation セキュリティ統計エンドポイント（管理者用）
 app.get('/security/stats', (req, res) => {
-  const stats = advancedSecurity.getSecurityStats();
+  const stats = nextGenSecurity.getAdvancedSecurityStats();
   res.json({
     timestamp: new Date().toISOString(),
-    security: stats
+    security: stats,
+    version: 'NextGen-2.0'
   });
 });
 
