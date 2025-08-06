@@ -132,7 +132,7 @@ class PostgreSQLLocalML {
         // 最近のデータのみ取得（パフォーマンス向上）
         const query = `
           SELECT user_id_hash, mode, analysis_data_encrypted, created_at, zk_proof
-          FROM user_ml_analysis 
+          FROM user_ml_analysis_pre_encryption_backup 
           WHERE created_at > NOW() - INTERVAL '30 days'
           ORDER BY created_at DESC
           LIMIT 10000
@@ -256,7 +256,7 @@ class PostgreSQLLocalML {
       try {
         const query = `
           SELECT analysis_data_encrypted, created_at, zk_proof
-          FROM user_ml_analysis
+          FROM user_ml_analysis_pre_encryption_backup
           WHERE user_id_hash = $1 AND mode = $2
           ORDER BY created_at DESC
           LIMIT 1
@@ -325,7 +325,7 @@ class PostgreSQLLocalML {
         
         // PostgreSQL挿入
         const query = `
-          INSERT INTO user_ml_analysis 
+          INSERT INTO user_ml_analysis_pre_encryption_backup 
           (user_id_hash, mode, analysis_data_encrypted, zk_proof, privacy_level)
           VALUES ($1, $2, $3, $4, $5)
           ON CONFLICT (user_id_hash, mode, created_at) DO UPDATE SET
@@ -844,7 +844,7 @@ class PostgreSQLLocalML {
       try {
         const query = `
           SELECT analysis_data_encrypted, created_at, data_version, zk_proof
-          FROM user_ml_analysis 
+          FROM user_ml_analysis_pre_encryption_backup 
           WHERE user_id_hash = $1 AND mode = $2
           ORDER BY created_at DESC
           LIMIT 1
@@ -905,7 +905,7 @@ class PostgreSQLLocalML {
       try {
         // 既存データの確認・更新または新規作成
         const existingQuery = `
-          SELECT id FROM user_ml_analysis 
+          SELECT id FROM user_ml_analysis_pre_encryption_backup 
           WHERE user_id_hash = $1 AND mode = $2
         `;
         
@@ -914,7 +914,7 @@ class PostgreSQLLocalML {
         if (existingResult.rows.length > 0) {
           // 更新
           const updateQuery = `
-            UPDATE user_ml_analysis 
+            UPDATE user_ml_analysis_pre_encryption_backup 
             SET analysis_data_encrypted = $1, updated_at = NOW(), zk_proof = $2, data_version = '1.0'
             WHERE user_id_hash = $3 AND mode = $4
           `;
@@ -924,7 +924,7 @@ class PostgreSQLLocalML {
         } else {
           // 新規作成
           const insertQuery = `
-            INSERT INTO user_ml_analysis 
+            INSERT INTO user_ml_analysis_pre_encryption_backup 
             (user_id_hash, mode, analysis_data_encrypted, created_at, updated_at, data_version, privacy_level, zk_proof, deletion_scheduled_at)
             VALUES ($1, $2, $3, NOW(), NOW(), '1.0', 3, $4, NOW() + INTERVAL '180 days')
           `;
