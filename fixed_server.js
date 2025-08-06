@@ -20,8 +20,8 @@ const crypto = require('crypto');
 // Next-Generation セキュリティシステムをインポート
 const nextGenSecurity = require('./nextGenSecuritySystem');
 
-// 機能実行監視システムをインポート
-const functionExecutionMonitor = require('./functionExecutionMonitor');
+// セキュリティ強化版機能実行監視システムをインポート
+const securedFunctionExecutionMonitor = require('./securedFunctionExecutionMonitor');
 
 // 画像生成モジュールをインポート
 const imageGenerator = require('./imageGenerator');
@@ -510,31 +510,53 @@ app.get('/security/stats', (req, res) => {
   });
 });
 
-// 機能実行監視統計エンドポイント（管理者用）
+// セキュリティ強化版機能実行監視統計エンドポイント（認証付き管理者用）
 app.get('/function-monitor/stats', (req, res) => {
   try {
-    const monitorStats = functionExecutionMonitor.getStatistics();
+    // 認証ヘッダーの確認
+    const authToken = req.headers['x-admin-token'] || req.query.token;
+    
+    if (!authToken) {
+      return res.status(401).json({ 
+        error: '認証トークンが必要です',
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    const securityStats = securedFunctionExecutionMonitor.getSecurityStatistics(authToken);
     
     const report = {
       timestamp: new Date().toISOString(),
-      overview: {
-        totalMonitoredRequests: monitorStats.totalRequests,
-        averageExecutionRate: `${monitorStats.averageExecutionRate}%`,
-        systemHealth: monitorStats.averageExecutionRate > 80 ? 'Good' : 
-                     monitorStats.averageExecutionRate > 60 ? 'Warning' : 'Critical'
+      security: {
+        totalRequests: securityStats.totalRequests,
+        securityEvents: securityStats.securityEvents,
+        systemHealth: securityStats.systemHealth,
+        threatsByType: securityStats.threatsByType,
+        riskDistribution: securityStats.riskDistribution
       },
-      commonGaps: monitorStats.commonGaps,
-      recommendations: monitorStats.commonGaps.length > 0 ? 
-        [`上位ギャップ「${monitorStats.commonGaps[0]?.functionName}」の改善を検討してください`] : 
-        ['現在、機能実行の問題は検出されていません'],
-      version: 'FunctionMonitor-1.0'
+      recommendations: [
+        securityStats.systemHealth === 'Critical' ? 
+          '緊急: システムに重大なセキュリティ脅威が検出されています' :
+        securityStats.systemHealth === 'Warning' ? 
+          '警告: セキュリティイベントが増加しています' :
+          '正常: セキュリティ状態は良好です'
+      ],
+      version: 'SecuredFunctionMonitor-2.0'
     };
     
     res.json(report);
   } catch (error) {
-    console.error('Error generating function monitor stats:', error);
+    console.error('Error generating secured function monitor stats:', error);
+    
+    if (error.message.includes('不正なアクセス')) {
+      return res.status(403).json({ 
+        error: '管理者権限が必要です',
+        timestamp: new Date().toISOString()
+      });
+    }
+    
     res.status(500).json({ 
-      error: '機能監視統計の生成に失敗しました',
+      error: 'セキュアな機能監視統計の生成に失敗しました',
       timestamp: new Date().toISOString()
     });
   }
@@ -2724,9 +2746,23 @@ async function handleText(event) {
     const userId = event.source.userId;
     const text = event.message.text.trim();
     
-    // 機能実行監視を開始
-    const requestId = functionExecutionMonitor.startRequestMonitoring(userId, text);
-    console.log(`[FunctionMonitor] 監視開始: ${requestId} - "${text.substring(0, 50)}..."`);
+    // セキュアな機能実行監視を開始
+    let requestId = null;
+    try {
+      requestId = securedFunctionExecutionMonitor.startRequestMonitoring(userId, text);
+      console.log(`[SecuredFunctionMonitor] 監視開始: ${requestId} - セキュア監視モード`);
+    } catch (monitorError) {
+      console.error(`[SecuredFunctionMonitor] 監視開始エラー: ${monitorError.message}`);
+      
+      // セキュリティ脅威の場合は処理を中止
+      if (monitorError.message.includes('セキュリティ脅威') || monitorError.message.includes('レート制限')) {
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: 'セキュリティ上の理由によりリクエストを処理できません。しばらくしてからお試しください。'
+        });
+        return;
+      }
+    }
     
     // ユーザーセッションを初期化
     if (!sessions[userId]) {
@@ -2859,11 +2895,13 @@ async function handleText(event) {
       if (isDirectImageGenerationRequest(text)) {
         console.log('画像生成リクエストを検出しました');
         
-        // 機能実行を記録
-        functionExecutionMonitor.recordFunctionExecution(requestId, 'handleVisionExplanation', {
-          trigger: 'text',
-          message: text.substring(0, 100)
-        });
+        // セキュアな機能実行を記録
+        if (requestId) {
+          securedFunctionExecutionMonitor.recordFunctionExecution(requestId, 'handleVisionExplanation', {
+            trigger: 'text',
+            success: true
+          });
+        }
         
         // 画像生成処理を実行
         const imageGenerationResult = await handleVisionExplanation(event, text);
@@ -2872,21 +2910,25 @@ async function handleText(event) {
           console.log('画像生成処理が完了しました');
           
           // 成功を記録
-          functionExecutionMonitor.recordFunctionExecution(requestId, 'imageGeneration_success', {
-            success: true
-          });
-          
-          // 監視完了
-          functionExecutionMonitor.completeMonitoring(requestId);
+          if (requestId) {
+            securedFunctionExecutionMonitor.recordFunctionExecution(requestId, 'imageGeneration_success', {
+              success: true
+            });
+            
+            // 監視完了
+            securedFunctionExecutionMonitor.completeMonitoring(requestId);
+          }
           return; // 画像生成処理内でLINEへの返信も処理されるため、ここで終了
         } else {
           console.log('画像生成処理が失敗しました');
           
           // 失敗を記録
-          functionExecutionMonitor.recordFunctionExecution(requestId, 'imageGeneration_failed', {
-            success: false,
-            reason: 'handleVisionExplanation returned false'
-          });
+          if (requestId) {
+            securedFunctionExecutionMonitor.recordFunctionExecution(requestId, 'imageGeneration_failed', {
+              success: false,
+              reason: 'handleVisionExplanation returned false'
+            });
+          }
           
           replyMessage = '申し訳ありません。画像生成中にエラーが発生しました。もう一度お試しください。';
         }
@@ -3020,18 +3062,18 @@ async function handleText(event) {
     updateUserStats(userId, 'audio_messages', 1);
     updateUserStats(userId, 'audio_responses', 1);
     
-    // 監視完了とギャップ分析
+    // セキュアな監視完了とギャップ分析
     if (requestId) {
-      const gapAnalysis = functionExecutionMonitor.completeMonitoring(requestId);
+      const gapAnalysis = securedFunctionExecutionMonitor.completeMonitoring(requestId);
       
       if (gapAnalysis && gapAnalysis.hasGap) {
-        console.log(`[FunctionMonitor] ギャップ検出: ${gapAnalysis.summary}`);
+        console.log(`[SecuredFunctionMonitor] ギャップ検出: ${gapAnalysis.summary} (リスクレベル: ${gapAnalysis.overallRisk})`);
         
-        // LLM用の説明文を生成
-        const llmExplanation = functionExecutionMonitor.generateLLMExplanation(gapAnalysis, text);
+        // セキュアなLLM説明文を生成
+        const llmExplanation = securedFunctionExecutionMonitor.generateLLMExplanation(gapAnalysis, text);
         
         if (llmExplanation) {
-          console.log(`[FunctionMonitor] LLM説明文生成: ${llmExplanation.substring(0, 100)}...`);
+          console.log(`[SecuredFunctionMonitor] セキュアなLLM説明文生成完了`);
           
           // ギャップがある場合は、説明メッセージを追加送信
           try {
@@ -3040,13 +3082,13 @@ async function handleText(event) {
               text: llmExplanation
             });
             
-            console.log(`[FunctionMonitor] ギャップ説明をユーザーに送信完了`);
+            console.log(`[SecuredFunctionMonitor] セキュアなギャップ説明をユーザーに送信完了`);
           } catch (pushError) {
-            console.error(`[FunctionMonitor] ギャップ説明送信エラー:`, pushError);
+            console.error(`[SecuredFunctionMonitor] ギャップ説明送信エラー:`, pushError);
           }
         }
       } else {
-        console.log(`[FunctionMonitor] 監視完了: 期待された機能がすべて実行されました`);
+        console.log(`[SecuredFunctionMonitor] 監視完了: 期待された機能がすべて実行されました (リスクレベル: ${gapAnalysis?.overallRisk || 'unknown'})`);
       }
     }
     
@@ -3062,11 +3104,11 @@ async function handleText(event) {
       console.error('エラー応答送信エラー:', replyError);
     }
     
-    // エラー時でも監視を完了
+    // エラー時でもセキュアな監視を完了
     if (requestId) {
-      const gapAnalysis = functionExecutionMonitor.completeMonitoring(requestId);
+      const gapAnalysis = securedFunctionExecutionMonitor.completeMonitoring(requestId);
       if (gapAnalysis && gapAnalysis.hasGap) {
-        console.log(`[FunctionMonitor] エラー時ギャップ検出: ${gapAnalysis.summary}`);
+        console.log(`[SecuredFunctionMonitor] エラー時ギャップ検出: ${gapAnalysis.summary} (リスクレベル: ${gapAnalysis.overallRisk})`);
       }
     }
   }
