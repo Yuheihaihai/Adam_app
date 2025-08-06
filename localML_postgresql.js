@@ -328,7 +328,7 @@ class PostgreSQLLocalML {
           INSERT INTO user_ml_analysis_pre_encryption_backup 
           (user_id_hash, mode, analysis_data_encrypted, zk_proof, privacy_level)
           VALUES ($1, $2, $3, $4, $5)
-          ON CONFLICT (user_id_hash, mode, created_at) DO UPDATE SET
+          ON CONFLICT (user_id_hash, mode) DO UPDATE SET
           analysis_data_encrypted = EXCLUDED.analysis_data_encrypted,
           updated_at = CURRENT_TIMESTAMP
         `;
