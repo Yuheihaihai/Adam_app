@@ -1,1 +1,1 @@
-web: node fixed_server.js
+web: node server.js
