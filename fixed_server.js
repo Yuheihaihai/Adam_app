@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
 const line = require('@line/bot-sdk');
-const Airtable = require('airtable');
+// const Airtable = require('airtable'); // 削除済み: PostgreSQL移行完了のため不要
 const { OpenAI } = require('openai');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const timeout = require('connect-timeout');
@@ -30,7 +30,7 @@ const imageGenerator = require('./imageGenerator');
 const sessions = {};
 
 // 音声メッセージレート制限
-const voiceRateLimiter = require('./rateLimit');
+const voiceRateLimiter = require('./rateLimit').middleware;
 
 // 新機能モジュールのインポート
 const insightsService = require('./insightsService');
@@ -93,19 +93,13 @@ const ServiceRecommender = require('./serviceRecommender');
 // Import ML Hook for enhanced machine learning capabilities
 const { processMlData, analyzeResponseWithMl } = require('./mlHook');
 
-// グローバル変数としてairtableBaseを初期化
-let airtableBase = null;
-if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
-  try {
-    airtableBase = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
-      .base(process.env.AIRTABLE_BASE_ID);
-    console.log('Airtable接続が初期化されました');
-  } catch (error) {
-    console.error('Airtable接続の初期化に失敗しました:', error);
-  }
-} else {
-  console.warn('Airtable認証情報が不足しているため、履歴機能は制限されます');
-}
+// Airtable削除済み: PostgreSQL移行完了のため不要
+// let airtableBase = null;
+// PostgreSQLのみを使用します
+console.log('PostgreSQL接続のみを使用します（Airtable削除済み）');
+
+// Express アプリケーション初期化
+const app = express();
 
 // User Preferences Module
 const userPreferences = {
@@ -572,7 +566,7 @@ const INTERACTIONS_TABLE = 'ConversationHistory';
 
 // Initialize service hub components
 const userNeedsAnalyzer = new UserNeedsAnalyzer(process.env.OPENAI_API_KEY);
-const serviceRecommender = new ServiceRecommender(airtableBase); // baseをairtableBaseに変更
+const serviceRecommender = new ServiceRecommender(null); // Airtable削除済み、PostgreSQLのみ使用
 // Load enhanced features
 require('./loadEnhancements')(serviceRecommender);
 

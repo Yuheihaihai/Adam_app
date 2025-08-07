@@ -22,12 +22,26 @@ class SecuredFunctionExecutionMonitor {
   }
 
   /**
-   * 暗号化キーの取得または生成
+   * 暗号化キーの取得（必須チェック強化版）
    */
   getOrCreateEncryptionKey() {
-    // 環境変数から取得、なければ新規生成（本番では必ず環境変数設定）
-    return process.env.FUNCTION_MONITOR_ENCRYPTION_KEY || 
-           crypto.randomBytes(32).toString('hex');
+    const envKey = process.env.FUNCTION_MONITOR_ENCRYPTION_KEY;
+    
+    // 本番環境では必須チェック
+    if (!envKey) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('FUNCTION_MONITOR_ENCRYPTION_KEY is required in production environment');
+      }
+      console.warn('[SecuredFunctionMonitor] WARNING: Using temporary encryption key. Set FUNCTION_MONITOR_ENCRYPTION_KEY in production!');
+      return crypto.randomBytes(32).toString('hex');
+    }
+    
+    // 鍵の長さチェック（最低32バイト）
+    if (envKey.length < 64) { // hex文字列なので32バイト = 64文字
+      throw new Error('FUNCTION_MONITOR_ENCRYPTION_KEY must be at least 32 bytes (64 hex characters)');
+    }
+    
+    return envKey;
   }
 
   /**
@@ -99,41 +113,65 @@ class SecuredFunctionExecutionMonitor {
   }
 
   /**
-   * セキュアなデータ暗号化
+   * セキュアなデータ暗号化（AES-256-GCM正式実装）
    */
   encryptData(data) {
     try {
+      // 32バイトの鍵をバイナリに変換
+      const key = Buffer.from(this.encryptionKey, 'hex');
+      
+      // 16バイトのランダムIV生成
       const iv = crypto.randomBytes(16);
-      const cipher = crypto.createCipher('aes-256-gcm', this.encryptionKey);
-      let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
+      
+      // AES-256-GCMで暗号化
+      const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+      
+      const dataString = JSON.stringify(data);
+      let encrypted = cipher.update(dataString, 'utf8', 'hex');
       encrypted += cipher.final('hex');
+      
+      // 認証タグを取得
       const authTag = cipher.getAuthTag();
       
       return {
         encrypted,
         iv: iv.toString('hex'),
-        authTag: authTag.toString('hex')
+        authTag: authTag.toString('hex'),
+        algorithm: 'aes-256-gcm'
       };
     } catch (error) {
-      console.error('[SecuredFunctionMonitor] 暗号化エラー:', error);
+      console.error('[SecuredFunctionMonitor] 暗号化エラー:', error.message);
       throw new Error('データ暗号化に失敗しました');
     }
   }
 
   /**
-   * セキュアなデータ復号化
+   * セキュアなデータ復号化（AES-256-GCM正式実装）
    */
   decryptData(encryptedData) {
     try {
-      const decipher = crypto.createDecipher('aes-256-gcm', this.encryptionKey);
-      decipher.setAuthTag(Buffer.from(encryptedData.authTag, 'hex'));
+      // 必要なフィールドの存在チェック
+      if (!encryptedData || !encryptedData.encrypted || !encryptedData.iv || !encryptedData.authTag) {
+        throw new Error('暗号化データの形式が不正です');
+      }
+      
+      // 32バイトの鍵をバイナリに変換
+      const key = Buffer.from(this.encryptionKey, 'hex');
+      
+      // IVと認証タグをバイナリに変換
+      const iv = Buffer.from(encryptedData.iv, 'hex');
+      const authTag = Buffer.from(encryptedData.authTag, 'hex');
+      
+      // AES-256-GCMで復号化
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      decipher.setAuthTag(authTag);
       
       let decrypted = decipher.update(encryptedData.encrypted, 'hex', 'utf8');
       decrypted += decipher.final('utf8');
       
       return JSON.parse(decrypted);
     } catch (error) {
-      console.error('[SecuredFunctionMonitor] 復号化エラー:', error);
+      console.error('[SecuredFunctionMonitor] 復号化エラー:', error.message);
       throw new Error('データ復号化に失敗しました');
     }
   }
@@ -177,47 +215,167 @@ class SecuredFunctionExecutionMonitor {
   }
 
   /**
-   * レート制限チェック
+   * レート制限チェック（複合化・DoS対策強化版）
    */
-  checkRateLimit(userId) {
+  checkRateLimit(userId, clientIP = null) {
     const hashedUserId = this.hashUserId(userId);
     const now = Date.now();
-    const windowMs = 60 * 1000; // 1分
-    const maxRequests = 10; // 1分間に10リクエスト
-
+    
+    // 複数の制限レベル
+    const limits = {
+      perUser: { windowMs: 60 * 1000, maxRequests: 10 }, // ユーザー単位: 1分間に10リクエスト
+      perIP: { windowMs: 60 * 1000, maxRequests: 20 },   // IP単位: 1分間に20リクエスト
+      global: { windowMs: 60 * 1000, maxRequests: 100 }  // グローバル: 1分間に100リクエスト
+    };
+    
+    // ユーザー単位制限
     if (!this.rateLimiter.has(hashedUserId)) {
       this.rateLimiter.set(hashedUserId, []);
     }
-
-    const requests = this.rateLimiter.get(hashedUserId);
+    
+    const userRequests = this.rateLimiter.get(hashedUserId);
     
     // 古いリクエストを削除
-    while (requests.length > 0 && now - requests[0] > windowMs) {
-      requests.shift();
+    while (userRequests.length > 0 && now - userRequests[0] > limits.perUser.windowMs) {
+      userRequests.shift();
     }
-
-    if (requests.length >= maxRequests) {
+    
+    // DoS対策：配列サイズ制限
+    if (userRequests.length > 100) {
+      userRequests.splice(0, userRequests.length - 50); // 半分に削減
+    }
+    
+    if (userRequests.length >= limits.perUser.maxRequests) {
       this.logSecurityEvent('rate_limit_exceeded', {
         userId: hashedUserId,
-        requestCount: requests.length,
-        timeWindow: windowMs
+        limitType: 'per_user',
+        requestCount: userRequests.length,
+        timeWindow: limits.perUser.windowMs
       });
       return false;
     }
-
-    requests.push(now);
+    
+    // IP単位制限（提供されている場合）
+    if (clientIP) {
+      const hashedIP = this.hashUserId(clientIP); // 同じハッシュ関数を使用
+      
+      if (!this.rateLimiter.has(`ip_${hashedIP}`)) {
+        this.rateLimiter.set(`ip_${hashedIP}`, []);
+      }
+      
+      const ipRequests = this.rateLimiter.get(`ip_${hashedIP}`);
+      
+      // 古いリクエストを削除
+      while (ipRequests.length > 0 && now - ipRequests[0] > limits.perIP.windowMs) {
+        ipRequests.shift();
+      }
+      
+      // DoS対策：配列サイズ制限
+      if (ipRequests.length > 100) {
+        ipRequests.splice(0, ipRequests.length - 50);
+      }
+      
+      if (ipRequests.length >= limits.perIP.maxRequests) {
+        this.logSecurityEvent('rate_limit_exceeded', {
+          clientIP: hashedIP,
+          limitType: 'per_ip',
+          requestCount: ipRequests.length,
+          timeWindow: limits.perIP.windowMs
+        });
+        return false;
+      }
+      
+      ipRequests.push(now);
+    }
+    
+    // Map肥大化防止（定期クリーンアップ）
+    if (Math.random() < 0.01) { // 1%の確率で実行
+      this.cleanupRateLimiter();
+    }
+    
+    userRequests.push(now);
     return true;
+  }
+  
+  /**
+   * レートリミッターのクリーンアップ（メモリDoS防止）
+   */
+  cleanupRateLimiter() {
+    const now = Date.now();
+    const maxAge = 5 * 60 * 1000; // 5分より古いエントリを削除
+    
+    for (const [key, requests] of this.rateLimiter.entries()) {
+      if (requests.length === 0 || now - requests[requests.length - 1] > maxAge) {
+        this.rateLimiter.delete(key);
+      }
+    }
+    
+    // 最大サイズ制限
+    if (this.rateLimiter.size > 5000) {
+      const entries = Array.from(this.rateLimiter.entries());
+      // 古いものから削除
+      entries.sort((a, b) => (b[1][b[1].length - 1] || 0) - (a[1][a[1].length - 1] || 0));
+      
+      for (let i = 2500; i < entries.length; i++) {
+        this.rateLimiter.delete(entries[i][0]);
+      }
+    }
   }
 
   /**
-   * セキュリティイベントのログ記録
+   * PIIマスキング関数
+   */
+  maskSensitiveData(data) {
+    if (typeof data === 'string') {
+      // LINEユーザーIDマスキング
+      data = data.replace(/U[a-f0-9]{32}/g, 'U****[MASKED]');
+      // メールアドレスマスキング
+      data = data.replace(/([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '***@$2');
+      // 電話番号マスキング
+      data = data.replace(/(\d{3})-?(\d{4})-?(\d{4})/g, '$1-****-****');
+      // APIキー・トークンマスキング
+      data = data.replace(/[a-zA-Z0-9]{20,}/g, (match) => {
+        if (match.length > 8) {
+          return match.substring(0, 4) + '****[MASKED]';
+        }
+        return match;
+      });
+      // 攻撃ペイロード制限
+      if (data.length > 100) {
+        data = data.substring(0, 100) + '...[TRUNCATED]';
+      }
+    } else if (typeof data === 'object' && data !== null) {
+      const masked = {};
+      for (const [key, value] of Object.entries(data)) {
+        // 機密性の高いフィールドをマスキング
+        if (['message', 'content', 'payload', 'userMessage', 'pattern'].includes(key)) {
+          masked[key] = this.maskSensitiveData(value);
+        } else if (['userId', 'email', 'phone', 'token', 'key'].includes(key)) {
+          masked[key] = this.maskSensitiveData(value);
+        } else if (key === 'error' && typeof value === 'string') {
+          // エラーメッセージも制限
+          masked[key] = value.substring(0, 50) + '...[ERROR_TRUNCATED]';
+        } else {
+          masked[key] = value;
+        }
+      }
+      return masked;
+    }
+    return data;
+  }
+
+  /**
+   * セキュリティイベントのログ記録（PIIマスキング強化版）
    */
   logSecurityEvent(eventType, details) {
+    // 機密情報をマスキング
+    const maskedDetails = this.maskSensitiveData(details);
+    
     const event = {
       timestamp: new Date().toISOString(),
       eventType,
-      details,
-      severity: details.severity || 'medium'
+      details: maskedDetails,
+      severity: maskedDetails.severity || 'medium'
     };
 
     this.securityAuditLog.push(event);
@@ -227,7 +385,15 @@ class SecuredFunctionExecutionMonitor {
       this.securityAuditLog.shift();
     }
 
-    console.log(`[SecuredFunctionMonitor] セキュリティイベント: ${eventType}`, details);
+    // ダイジェスト情報のみでログ出力（詳細は避ける）
+    const logSummary = {
+      eventType,
+      severity: event.severity,
+      userId: maskedDetails.userId || 'unknown',
+      timestamp: event.timestamp
+    };
+
+    console.log(`[SecuredFunctionMonitor] セキュリティイベント: ${eventType}`, logSummary);
   }
 
   /**
@@ -237,7 +403,12 @@ class SecuredFunctionExecutionMonitor {
     try {
       // レート制限チェック
       if (!this.checkRateLimit(userId)) {
-        throw new Error('レート制限に達しました');
+        this.logSecurityEvent('monitoring_denied', {
+          userId: this.hashUserId(userId),
+          reason: 'rate_limit',
+          severity: 'medium'
+        });
+        throw new Error('リクエスト制限に達しました');
       }
 
       // 悪意のある入力の検出
@@ -249,10 +420,16 @@ class SecuredFunctionExecutionMonitor {
           messageLength: userMessage.length
         });
         
-        // 高リスクの場合は監視を拒否
+        // 高リスクの場合は監視を拒否（fail-close）
         const highRiskFindings = suspiciousFindings.filter(f => f.severity === 'high');
         if (highRiskFindings.length > 0) {
-          throw new Error('セキュリティ脅威を検出したため、監視を開始できません');
+          this.logSecurityEvent('monitoring_denied', {
+            userId: this.hashUserId(userId),
+            reason: 'high_risk_input',
+            severity: 'high',
+            riskCount: highRiskFindings.length
+          });
+          throw new Error('セキュリティ要件により処理できません');
         }
       }
 
@@ -289,26 +466,88 @@ class SecuredFunctionExecutionMonitor {
       
       return requestId;
     } catch (error) {
+      // エラー詳細は内部ログのみ・外部には最小限の情報
       this.logSecurityEvent('monitoring_start_failed', {
         userId: this.hashUserId(userId),
-        error: error.message
+        error: 'システムエラー', // 詳細なエラーメッセージは隠蔽
+        severity: 'high'
       });
-      throw error;
+      
+      // fail-close: セキュリティエラー時は必ず拒否
+      throw new Error('監視システムを開始できません');
     }
   }
 
   /**
-   * メッセージのサニタイズ
+   * メッセージのサニタイズ（XSS対策強化版）
    */
   sanitizeMessage(message) {
-    // XSS防止
-    const sanitized = message
-      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '[SCRIPT_REMOVED]')
-      .replace(/javascript:/gi, '[JAVASCRIPT_REMOVED]')
-      .replace(/on\w+\s*=/gi, '[EVENT_HANDLER_REMOVED]');
+    if (!message || typeof message !== 'string') {
+      return '';
+    }
     
-    // 長さ制限（プライバシー保護）
-    return sanitized.substring(0, 100); // 200文字から100文字に削減
+    let sanitized = message;
+    
+    // 1. HTMLタグの完全除去・無害化
+    sanitized = sanitized
+      // スクリプトタグ（複数行対応）
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gis, '[SCRIPT_REMOVED]')
+      // iframe、object、embed、applet
+      .replace(/<(iframe|object|embed|applet)\b[^>]*>.*?<\/\1>/gis, '[OBJECT_REMOVED]')
+      // style タグ
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gis, '[STYLE_REMOVED]')
+      // link rel="stylesheet"
+      .replace(/<link\b[^>]*rel\s*=\s*["']?stylesheet["']?[^>]*>/gi, '[LINK_REMOVED]')
+      // meta refresh
+      .replace(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi, '[META_REMOVED]')
+      // form タグ
+      .replace(/<form\b[^>]*>.*?<\/form>/gis, '[FORM_REMOVED]');
+    
+    // 2. イベントハンドラーの除去（包括的）
+    const eventHandlers = [
+      'onload', 'onerror', 'onclick', 'onmouseover', 'onmouseout', 
+      'onkeydown', 'onkeyup', 'onkeypress', 'onfocus', 'onblur',
+      'onsubmit', 'onchange', 'onselect', 'onresize', 'onscroll',
+      'ondblclick', 'onmousedown', 'onmouseup', 'onmousemove',
+      'oncontextmenu', 'ondrag', 'ondrop', 'ontouchstart', 'ontouchend'
+    ];
+    
+    for (const handler of eventHandlers) {
+      const regex = new RegExp(`\\s*${handler}\\s*=\\s*["'][^"']*["']`, 'gi');
+      sanitized = sanitized.replace(regex, '');
+      const regex2 = new RegExp(`\\s*${handler}\\s*=\\s*[^\\s>]*`, 'gi');
+      sanitized = sanitized.replace(regex2, '');
+    }
+    
+    // 3. javascript: プロトコルの除去
+    sanitized = sanitized
+      .replace(/javascript:/gi, '[JAVASCRIPT_REMOVED]')
+      .replace(/data:\s*text\/html/gi, '[DATA_HTML_REMOVED]')
+      .replace(/vbscript:/gi, '[VBSCRIPT_REMOVED]');
+    
+    // 4. 危険な属性の除去
+    sanitized = sanitized
+      .replace(/\s*(src|href|action|formaction|background|cite|longdesc)\s*=\s*["']?\s*javascript:/gi, ' $1="[BLOCKED]"')
+      .replace(/expression\s*\(/gi, '[EXPRESSION_REMOVED](');
+    
+    // 5. HTMLエンティティエンコード（XSS防止）
+    sanitized = sanitized
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;')
+      .replace(/\//g, '&#x2F;');
+    
+    // 6. 制御文字の除去
+    sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
+    
+    // 7. 長さ制限（プライバシー保護・DoS防止）
+    if (sanitized.length > 100) {
+      sanitized = sanitized.substring(0, 100) + '...[TRUNCATED]';
+    }
+    
+    return sanitized;
   }
 
   /**
@@ -515,12 +754,98 @@ class SecuredFunctionExecutionMonitor {
   }
 
   /**
-   * 簡易管理者認証
+   * 管理者認証（強化版・JWT相当機能）
    */
   validateAdminAuth(authToken) {
-    // 本番では適切なJWT認証などを実装
-    const validToken = process.env.ADMIN_AUTH_TOKEN || 'secure_admin_token_2024';
-    return authToken === validToken;
+    if (!authToken || typeof authToken !== 'string') {
+      return false;
+    }
+    
+    try {
+      // トークン形式: timestamp:nonce:hmac
+      const parts = authToken.split(':');
+      if (parts.length !== 3) {
+        return false;
+      }
+      
+      const [timestamp, nonce, providedHmac] = parts;
+      const tokenTimestamp = parseInt(timestamp);
+      const now = Date.now();
+      
+      // タイムスタンプ検証（5分以内）
+      if (now - tokenTimestamp > 5 * 60 * 1000) {
+        console.warn('[SecuredFunctionMonitor] 期限切れトークン');
+        return false;
+      }
+      
+      // HMAC検証
+      const secretKey = process.env.ADMIN_AUTH_SECRET || 'change_this_secret_key_in_production';
+      const payload = `${timestamp}:${nonce}`;
+      const expectedHmac = crypto.createHmac('sha256', secretKey)
+        .update(payload)
+        .digest('hex');
+      
+      // タイミング攻撃対策のための固定時間比較
+      if (providedHmac.length !== expectedHmac.length) {
+        return false;
+      }
+      
+      let isValid = true;
+      for (let i = 0; i < expectedHmac.length; i++) {
+        if (providedHmac[i] !== expectedHmac[i]) {
+          isValid = false;
+        }
+      }
+      
+      if (!isValid) {
+        this.logSecurityEvent('admin_auth_failed', {
+          reason: 'invalid_hmac',
+          timestamp: tokenTimestamp
+        });
+        return false;
+      }
+      
+      // nonce重複チェック（簡易版・本番ではRedis等を使用）
+      if (this.usedNonces && this.usedNonces.has(nonce)) {
+        this.logSecurityEvent('admin_auth_failed', {
+          reason: 'nonce_reuse',
+          nonce
+        });
+        return false;
+      }
+      
+      // nonceを記録（メモリDoS対策で最大1000件）
+      if (!this.usedNonces) {
+        this.usedNonces = new Set();
+      }
+      if (this.usedNonces.size >= 1000) {
+        this.usedNonces.clear(); // 簡易的なクリア
+      }
+      this.usedNonces.add(nonce);
+      
+      return true;
+      
+    } catch (error) {
+      this.logSecurityEvent('admin_auth_error', {
+        error: 'システムエラー' // 詳細は隠蔽
+      });
+      return false;
+    }
+  }
+  
+  /**
+   * 管理用トークン生成ヘルパー（開発・テスト用）
+   */
+  generateAdminToken() {
+    const timestamp = Date.now();
+    const nonce = crypto.randomBytes(16).toString('hex');
+    const secretKey = process.env.ADMIN_AUTH_SECRET || 'change_this_secret_key_in_production';
+    const payload = `${timestamp}:${nonce}`;
+    const hmac = crypto.createHmac('sha256', secretKey)
+      .update(payload)
+      .digest('hex');
+    
+    return `${timestamp}:${nonce}:${hmac}`;
   }
 
   /**

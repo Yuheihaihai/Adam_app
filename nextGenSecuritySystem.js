@@ -2,6 +2,76 @@ const crypto = require('crypto');
 const logger = require('./logger');
 
 /**
+ * LRUキャッシュ実装（TTL付き）
+ * メモリDoS攻撃対策としてサイズ制限とTTLを実装
+ */
+class LRUCache {
+    constructor(maxSize = 1000, ttlMs = 60000) {
+        this.maxSize = maxSize;
+        this.ttlMs = ttlMs;
+        this.cache = new Map();
+    }
+    
+    set(key, value) {
+        const now = Date.now();
+        const entry = { value, timestamp: now };
+        
+        // 既存のエントリがあれば削除（LRU更新のため）
+        if (this.cache.has(key)) {
+            this.cache.delete(key);
+        }
+        
+        // サイズ制限チェック
+        if (this.cache.size >= this.maxSize) {
+            // 最も古いエントリを削除
+            const firstKey = this.cache.keys().next().value;
+            this.cache.delete(firstKey);
+        }
+        
+        this.cache.set(key, entry);
+    }
+    
+    get(key) {
+        const entry = this.cache.get(key);
+        if (!entry) return null;
+        
+        const now = Date.now();
+        // TTLチェック
+        if (now - entry.timestamp > this.ttlMs) {
+            this.cache.delete(key);
+            return null;
+        }
+        
+        // LRU更新（再挿入）
+        this.cache.delete(key);
+        this.cache.set(key, entry);
+        
+        return entry.value;
+    }
+    
+    has(key) {
+        return this.get(key) !== null;
+    }
+    
+    delete(key) {
+        this.cache.delete(key);
+    }
+    
+    cleanup() {
+        const now = Date.now();
+        for (const [key, entry] of this.cache.entries()) {
+            if (now - entry.timestamp > this.ttlMs) {
+                this.cache.delete(key);
+            }
+        }
+    }
+    
+    size() {
+        return this.cache.size;
+    }
+}
+
+/**
  * Next-Generation Security System
  * - AI-powered threat detection
  * - Real-time behavioral analysis
@@ -268,15 +338,29 @@ const SECURITY_CONFIG = {
     }
 };
 
-// 高度なセキュリティ状態管理（Redis互換設計）
+// 高度なセキュリティ状態管理（LRU・TTL強化版）
 class AdvancedSecurityState {
     constructor() {
-        this.threats = new Map();
-        this.trustScores = new Map();
-        this.behaviorProfiles = new Map();
-        this.aptIndicators = new Map();
-        this.geoData = new Map();
+        // LRUキャッシュで各種データを管理（メモリDoS対策）
+        this.threats = new LRUCache(1000, 24 * 60 * 60 * 1000); // 1000件、24時間
+        this.trustScores = new LRUCache(2000, 12 * 60 * 60 * 1000); // 2000件、12時間
+        this.behaviorProfiles = new LRUCache(1500, 6 * 60 * 60 * 1000); // 1500件、6時間
+        this.aptIndicators = new LRUCache(500, 48 * 60 * 60 * 1000); // 500件、48時間
+        this.geoData = new LRUCache(1000, 24 * 60 * 60 * 1000); // 1000件、24時間
         this.aiModel = this.initializeAIModel();
+        
+        // 定期クリーンアップ（5分ごと）
+        setInterval(() => {
+            this.performCleanup();
+        }, 5 * 60 * 1000);
+    }
+    
+    performCleanup() {
+        this.threats.cleanup();
+        this.trustScores.cleanup();
+        this.behaviorProfiles.cleanup();
+        this.aptIndicators.cleanup();
+        this.geoData.cleanup();
     }
     
     initializeAIModel() {
@@ -702,122 +786,224 @@ function detectModernThreats(text) {
 }
 
 /**
- * エンコード正規化による難読化解除
+ * エンコード正規化による難読化解除（DoS対策強化版）
  */
 function normalizePayload(payload) {
     if (!payload || typeof payload !== 'string') return payload;
 
+    // サイズ制限（1MB = 1024 * 1024）
+    if (payload.length > 1048576) {
+        console.warn('[NextGenSecurity] Payload too large, truncating');
+        payload = payload.substring(0, 1048576);
+    }
+
     let normalized = payload;
     let decoded = true;
     let attempts = 0;
+    const maxAttempts = 3; // decode回数を3回に制限（DoS対策）
+    const maxLength = 65536; // 各デコード後の最大長（64KB）
 
-    // 多層エンコードを最大5回までデコード
-    while (decoded && attempts < 5) {
+    // 多層エンコードを最大3回まで（強化された制限）
+    while (decoded && attempts < maxAttempts) {
         decoded = false;
+        
+        // 長さチェック（各ステップで）
+        if (normalized.length > maxLength) {
+            console.warn('[NextGenSecurity] Normalized payload too large during decoding');
+            break;
+        }
         
         // URLデコード
         try {
             const urlDecoded = decodeURIComponent(normalized.replace(/\+/g, ' '));
-            if (urlDecoded !== normalized) {
+            if (urlDecoded !== normalized && urlDecoded.length <= maxLength) {
                 normalized = urlDecoded;
                 decoded = true;
             }
         } catch (e) {
-            // Invalid URI
+            // Invalid URI - continue to next decode method
         }
 
-        // Base64デコード
+        // Base64デコード（より厳密な検証）
         try {
-            const base64Decoded = Buffer.from(normalized, 'base64').toString('utf8');
-            if (base64Decoded !== normalized && /^[a-zA-Z0-9+/=]*$/.test(normalized)) {
-                 normalized = base64Decoded;
-                 decoded = true;
+            if (/^[a-zA-Z0-9+/=]+$/.test(normalized) && normalized.length % 4 === 0) {
+                const base64Decoded = Buffer.from(normalized, 'base64').toString('utf8');
+                if (base64Decoded !== normalized && base64Decoded.length <= maxLength) {
+                    normalized = base64Decoded;
+                    decoded = true;
+                }
             }
         } catch (e) {
-            // Not Base64
+            // Not valid Base64
         }
         
-        // Hexデコード
+        // Hexデコード（長さ制限追加）
         try {
-            if (/^(0x)?[0-9a-fA-F]+$/.test(normalized) && normalized.length % 2 === 0) {
-                const hexDecoded = Buffer.from(normalized.startsWith('0x') ? normalized.substring(2) : normalized, 'hex').toString('utf8');
-                if (hexDecoded !== normalized) {
+            if (/^(0x)?[0-9a-fA-F]+$/.test(normalized) && 
+                normalized.length % 2 === 0 && 
+                normalized.length <= 8192) { // hex長制限
+                const hexString = normalized.startsWith('0x') ? normalized.substring(2) : normalized;
+                const hexDecoded = Buffer.from(hexString, 'hex').toString('utf8');
+                if (hexDecoded !== normalized && hexDecoded.length <= maxLength) {
                     normalized = hexDecoded;
                     decoded = true;
                 }
             }
         } catch (e) {
-            // Not Hex
+            // Not valid Hex
         }
 
         attempts++;
     }
     
-    // SQLコメントの削除
-    normalized = normalized.replace(/\/\*.*?\*\//g, '');
+    // SQLコメントの削除（より包括的）
+    normalized = normalized.replace(/\/\*.*?\*\//gs, ''); // s flag for multiline
+    normalized = normalized.replace(/--[^\r\n]*/g, ''); // SQL line comments
     
-    // HTMLエンティティのデコード
-    normalized = normalized.replace(/&(#?[\w\d]+);/g, (match, entity) => {
-        try {
-            // Implement a safe HTML entity decoder if needed
-            // For now, just return the entity name
-            return entity;
-        } catch {
-            return match;
-        }
+    // 正規化強化：空白・改行・タブの統一
+    normalized = normalized.replace(/\s+/g, ' '); // 複数空白を1つに
+    normalized = normalized.replace(/[\r\n\t]/g, ' '); // 改行・タブを空白に
+    
+    // 全角・半角の統一（主要な攻撃パターン）
+    normalized = normalized.replace(/[Ａ-Ｚａ-ｚ０-９]/g, (char) => {
+        return String.fromCharCode(char.charCodeAt(0) - 0xFEE0);
     });
+
+    // 最終長チェック
+    if (normalized.length > maxLength) {
+        normalized = normalized.substring(0, maxLength);
+    }
 
     return normalized;
 }
 
 /**
- * リクエスト全体のペイロードを収集・正規化
+ * リクエスト全体のペイロードを収集・正規化（サイズ制限強化版）
  */
 function getNormalizedFullPayload(req) {
     const payloads = [];
+    const maxIndividualSize = 32768; // 32KB per section
+    const maxTotalSize = 65536; // 64KB total
 
-    // 1. Body
+    // 1. Body（サイズ・深度制限）
     if (req.body) {
-        payloads.push(JSON.stringify(req.body));
+        try {
+            let bodyStr = '';
+            if (typeof req.body === 'object') {
+                // オブジェクトの場合、深度制限をかけて文字列化
+                bodyStr = JSON.stringify(req.body, null, 0, 2); // 深度2まで
+            } else {
+                bodyStr = String(req.body);
+            }
+            
+            if (bodyStr.length > maxIndividualSize) {
+                bodyStr = bodyStr.substring(0, maxIndividualSize);
+                console.warn('[NextGenSecurity] Body truncated due to size limit');
+            }
+            payloads.push(bodyStr);
+        } catch (e) {
+            // JSON.stringify失敗時は空文字列
+            payloads.push('');
+        }
     }
 
-    // 2. URL (Query + Path)
+    // 2. URL (Query + Path)（長さ制限）
     if (req.originalUrl) {
-        payloads.push(req.originalUrl);
+        let url = String(req.originalUrl);
+        if (url.length > 2048) { // URL長制限
+            url = url.substring(0, 2048);
+            console.warn('[NextGenSecurity] URL truncated due to size limit');
+        }
+        payloads.push(url);
     }
     
-    // 3. Headers
+    // 3. Headers（選択的取得・サイズ制限）
     if (req.headers) {
-        payloads.push(JSON.stringify(req.headers));
+        try {
+            // 危険性の低いヘッダーのみ抽出
+            const safeHeaders = {};
+            const allowedHeaders = [
+                'user-agent', 'accept', 'accept-language', 'content-type',
+                'accept-encoding', 'referer', 'x-forwarded-for'
+            ];
+            
+            for (const header of allowedHeaders) {
+                if (req.headers[header]) {
+                    const value = String(req.headers[header]);
+                    safeHeaders[header] = value.length > 512 ? value.substring(0, 512) : value;
+                }
+            }
+            
+            const headersStr = JSON.stringify(safeHeaders);
+            if (headersStr.length > maxIndividualSize) {
+                payloads.push(headersStr.substring(0, maxIndividualSize));
+            } else {
+                payloads.push(headersStr);
+            }
+        } catch (e) {
+            // JSON.stringify失敗時は空文字列
+            payloads.push('');
+        }
     }
 
-    const fullPayload = payloads.join(' ');
+    let fullPayload = payloads.join(' ');
+    
+    // 全体サイズ制限
+    if (fullPayload.length > maxTotalSize) {
+        fullPayload = fullPayload.substring(0, maxTotalSize);
+        console.warn('[NextGenSecurity] Full payload truncated due to size limit');
+    }
+    
     return normalizePayload(fullPayload);
 }
 
+
+
 /**
- * 分割攻撃シーケンス監視
+ * 分割攻撃シーケンス監視（LRU・TTL強化版）
  */
-const attackSequenceState = new Map();
+const attackSequenceCache = new LRUCache(500, 60000); // 最大500IP、60秒TTL
+
 function detectAttackSequence(ip, normalizedPayload) {
     const now = Date.now();
     
-    if (!attackSequenceState.has(ip)) {
-        attackSequenceState.set(ip, {
+    // TTLによる自動クリーンアップ実行（10%の確率で）
+    if (Math.random() < 0.1) {
+        attackSequenceCache.cleanup();
+    }
+    
+    let state = attackSequenceCache.get(ip);
+    if (!state) {
+        state = {
             fragments: [],
             timestamps: [],
             riskScore: 0
-        });
+        };
     }
-
-    const state = attackSequenceState.get(ip);
     
     // 古いフラグメントを削除 (1分以上前)
-    state.fragments = state.fragments.filter((_, i) => now - state.timestamps[i] < 60000);
-    state.timestamps = state.timestamps.filter(t => now - t < 60000);
-
-    state.fragments.push(normalizedPayload);
+    const validIndices = [];
+    for (let i = 0; i < state.timestamps.length; i++) {
+        if (now - state.timestamps[i] < 60000) {
+            validIndices.push(i);
+        }
+    }
+    
+    state.fragments = validIndices.map(i => state.fragments[i]);
+    state.timestamps = validIndices.map(i => state.timestamps[i]);
+    
+    // フラグメント数制限（DoS対策）
+    if (state.fragments.length >= 10) {
+        // 古いものから削除
+        state.fragments = state.fragments.slice(-5);
+        state.timestamps = state.timestamps.slice(-5);
+    }
+    
+    state.fragments.push(normalizedPayload.substring(0, 500)); // 長さ制限
     state.timestamps.push(now);
+
+    // キャッシュに保存
+    attackSequenceCache.set(ip, state);
 
     const combinedPayload = state.fragments.join(' ');
     const modernThreat = detectModernThreats(combinedPayload);
@@ -825,15 +1011,14 @@ function detectAttackSequence(ip, normalizedPayload) {
     
     if(modernThreat || legacyThreat.isAttack) {
         const attackType = modernThreat ? 'MODERN_THREAT' : legacyThreat.type;
-        logSecurityEvent('ATTACK_SEQUENCE_DETECTED', { ip, combinedPayload, attackType });
+        logSecurityEvent('ATTACK_SEQUENCE_DETECTED', { 
+            ip, 
+            combinedPayload: combinedPayload.substring(0, 200), // ログ制限
+            attackType 
+        });
         // Reset after detection
-        attackSequenceState.delete(ip);
+        attackSequenceCache.delete(ip);
         return true;
-    }
-
-    // クリーンアップ
-    if (now - state.timestamps[0] > 60000) {
-        attackSequenceState.delete(ip);
     }
 
     return false;
@@ -988,22 +1173,65 @@ function isPrivateIP(ip) {
 }
 
 /**
- * セキュリティログ記録
+ * PIIマスキング関数
+ */
+function maskSensitiveData(data) {
+    if (typeof data === 'string') {
+        // LINEユーザーIDマスキング
+        data = data.replace(/U[a-f0-9]{32}/g, 'U****[MASKED]');
+        // メールアドレスマスキング
+        data = data.replace(/([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '***@$2');
+        // IPアドレス部分マスキング
+        data = data.replace(/(\d+\.\d+\.\d+\.)\d+/g, '$1***');
+        // 長いペイロードを制限
+        if (data.length > 200) {
+            data = data.substring(0, 200) + '...[TRUNCATED]';
+        }
+    } else if (typeof data === 'object' && data !== null) {
+        const masked = {};
+        for (const [key, value] of Object.entries(data)) {
+            if (['text', 'payload', 'pattern', 'content', 'message'].includes(key)) {
+                masked[key] = maskSensitiveData(value);
+            } else if (['ip', 'userId', 'email'].includes(key)) {
+                masked[key] = maskSensitiveData(value);
+            } else {
+                masked[key] = value;
+            }
+        }
+        return masked;
+    }
+    return data;
+}
+
+/**
+ * セキュリティログ記録（PIIマスキング強化版）
  */
 function logSecurityEvent(type, details) {
     const timestamp = new Date().toISOString();
+    
+    // 機密情報をマスキング
+    const maskedDetails = maskSensitiveData(details);
+    
     const logEntry = {
         timestamp,
         type,
-        details,
+        details: maskedDetails,
         severity: getSeverityLevel(type),
         version: '2.0' // Next-gen security system
     };
     
-    console.warn(`🚨 [NEXT-GEN-SECURITY] ${type}:`, JSON.stringify(details));
+    // ダイジェスト情報のみでログ出力（詳細は避ける）
+    const logSummary = {
+        type,
+        severity: logEntry.severity,
+        ip: maskedDetails.ip || 'unknown',
+        timestamp
+    };
+    
+    console.warn(`🚨 [NEXT-GEN-SECURITY] ${type}:`, JSON.stringify(logSummary));
     
     if (logger && logger.warn) {
-        logger.warn('NextGenSecurity', `${type} detected`, details);
+        logger.warn('NextGenSecurity', `${type} detected`, logSummary);
     }
 }
 
@@ -1127,11 +1355,19 @@ function nextGenSecurityMiddleware(req, res, next) {
             }
         }
         
-        // セキュリティヘッダーを追加
+        // セキュリティヘッダーを追加（内部環境のみ）
+        const isInternalRequest = isPrivateIP(ip) || process.env.NODE_ENV === 'development';
+        if (isInternalRequest) {
+            res.set({
+                'X-Security-Score': trustScore,
+                'X-AI-Confidence': aiThreat.confidence.toFixed(2),
+                'X-Processing-Time': `${Date.now() - startTime}ms`
+            });
+        }
+        // 外部リクエストには最小限のヘッダーのみ
         res.set({
-            'X-Security-Score': trustScore,
-            'X-AI-Confidence': aiThreat.confidence.toFixed(2),
-            'X-Processing-Time': `${Date.now() - startTime}ms`
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'DENY'
         });
         
         next();
@@ -1139,12 +1375,15 @@ function nextGenSecurityMiddleware(req, res, next) {
     } catch (error) {
         logSecurityEvent('SECURITY_SYSTEM_ERROR', {
             ip,
-            error: error.message,
-            stack: error.stack
+            error: error.message.substring(0, 100), // エラーメッセージを制限
+            // stack情報は削除（機密情報漏洩防止）
         });
         
-        // セキュリティシステムのエラーでもリクエストは通す（フェイルオープン）
-        next();
+        // セキュリティシステムエラー時はアクセス拒否（フェイルクローズ）
+        return res.status(503).json({
+            error: 'Security system unavailable',
+            message: 'Service temporarily unavailable due to security system maintenance'
+        });
     }
 }
 

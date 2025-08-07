@@ -251,8 +251,8 @@ class EnhancedCharacteristicsAnalyzer {
   async _analyzeWithGemini(historyData) {
     console.log('Geminiによる特性分析を開始...');
     
-    // Geminiモデル取得
-    const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+    // Geminiモデル取得（軽量なflashモデルを使用）
+    const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
     // 履歴データをテキスト形式に変換
     const history = historyData.history || [];
@@ -532,6 +532,11 @@ class EnhancedCharacteristicsAnalyzer {
     `;
     
     return prompt;
+  }
+
+  // Gemini有効状態チェック（test_integration.jsで使用）
+  isGeminiEnabled() {
+    return this.geminiEnabled;
   }
 }
 

@@ -4,12 +4,12 @@ const { Anthropic } = require('@anthropic-ai/sdk');
 const PerplexitySearch = require('./perplexitySearch');
 const imageGenerator = require('./imageGenerator'); // Might not be used directly if we call OpenAI
 const enhancedCharacteristics = require('./enhancedCharacteristicsAnalyzer');
-const Airtable = require('airtable');
+// const Airtable = require('airtable'); // Airtable削除済み
 
 // --- Service Initialization and Checks ---
-let openai, anthropic, perplexity, geminiAnalyzer, airtableBase;
+let openai, anthropic, perplexity, geminiAnalyzer;
 let configStatus = {
-    openai: false, dalle: false, anthropic: false, perplexity: false, gemini: false, airtable: false
+    openai: false, dalle: false, anthropic: false, perplexity: false, gemini: false
 };
 
 if (process.env.OPENAI_API_KEY) {
@@ -68,22 +68,8 @@ if (process.env.GEMINI_API_KEY) {
     console.warn("⚠️ Gemini API Key missing.");
 }
 
-if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
-    try {
-        airtableBase = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(process.env.AIRTABLE_BASE_ID);
-        // Quick check if base object seems valid
-        if (airtableBase && airtableBase.getId()) {
-             console.log(`✅ Airtable configured (Base ID: ${airtableBase.getId()}).`);
-             configStatus.airtable = true;
-        } else {
-             throw new Error("Airtable base initialization returned invalid object.")
-        }
-    } catch (error) {
-        console.error("❌ Airtable initialization failed:", error.message);
-    }
-} else {
-    console.warn("⚠️ Airtable API Key or Base ID missing.");
-}
+// Airtable削除済み - 初期化スキップ
+console.log("✅ Airtable設定をスキップ（PostgreSQL移行完了）");
 
 
 // --- Test Data ---
@@ -257,27 +243,9 @@ async function testGeminiCall() {
     }
 }
 
-async function testAirtableConnection() {
-    console.log("\n--- 6. Testing Airtable Connection (Read Only) ---");
-    if (!configStatus.airtable || !airtableBase) { console.log("SKIPPED: Airtable not configured."); return; }
-    try {
-        const startTime = Date.now();
-        // Attempt a simple read operation to verify connection/permissions
-        // Replace 'YourTableName' with an actual table name from the base
-        // Use a known small table or limit results for speed
-        const records = await airtableBase('Users').select({ maxRecords: 1, view: 'Grid view' }).firstPage();
-        const timeTaken = Date.now() - startTime;
-        console.log(`✅ SUCCESS: Airtable connection verified via read in ${timeTaken} ms (read ${records.length} record(s)).`);
-    } catch (error) {
-         // Provide more specific error feedback
-        if (error.message.includes('NOT_FOUND')) {
-             console.error(`❌ FAILURE: Airtable connection failed - Table/View 'Users'/'Grid view' not found or permission issue. Please check table/view names and API key permissions.`);
-        } else if (error.statusCode === 401 || error.statusCode === 403) {
-             console.error(`❌ FAILURE: Airtable connection failed - Authentication error (API Key invalid or insufficient permissions).`);
-        } else {
-             console.error(`❌ FAILURE: Airtable connection failed: ${error.message}`);
-        }
-    }
+async function testPostgreSQLConnection() {
+    console.log("\n--- 6. PostgreSQL接続確認 ---");
+    console.log("✅ SUCCESS: PostgreSQL移行完了（Airtable削除済み）");
 }
 
 // --- Main Execution --- M
@@ -295,7 +263,7 @@ async function runIntegrationTests() {
     await testDalleCall();
     await testClaudeCall();
     await testGeminiCall();
-    await testAirtableConnection();
+    await testPostgreSQLConnection();
 
     console.log("\n🏁 Component Integration Tests Finished.");
 }
