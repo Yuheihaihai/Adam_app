@@ -75,9 +75,9 @@ if (missingEnvVars.length > 0) {
 // 任意環境変数の検証（あれば使用、なければログを出力）
 const optionalEnvVars = [
   'ANTHROPIC_API_KEY',
-  'PERPLEXITY_API_KEY',
-  'AIRTABLE_API_KEY',
-  'AIRTABLE_BASE_ID'
+  'PERPLEXITY_API_KEY'
+  // 'AIRTABLE_API_KEY', // 削除済み: PostgreSQL移行完了
+  // 'AIRTABLE_BASE_ID'  // 削除済み: PostgreSQL移行完了
 ];
 
 optionalEnvVars.forEach(varName => {
