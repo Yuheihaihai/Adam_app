@@ -1289,6 +1289,18 @@ function nextGenSecurityMiddleware(req, res, next) {
         if (p === '/healthz' || p === '/ready') {
             return next();
         }
+        // Safe public endpoints (explicit allow) - downstream still enforces CSRF/Auth as needed
+        const method = (req.method || 'GET').toUpperCase();
+        const safeAllows = [
+            { rx: /^\/$/, methods: ['GET'] },
+            { rx: /^\/csrf$/, methods: ['GET'] },
+            { rx: /^\/api\/intent\/categories$/, methods: ['GET'] },
+            { rx: /^\/api\/intent\/detect$/, methods: ['POST'] },
+            { rx: /^\/security\/stats$/, methods: ['GET'] } // app側で404/認可処理
+        ];
+        if (safeAllows.some(e => e.rx.test(p) && e.methods.includes(method))) {
+            return next();
+        }
     } catch (_) {}
     
     try {
