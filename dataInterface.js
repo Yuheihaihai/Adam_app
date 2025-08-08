@@ -21,16 +21,35 @@ class DataInterface {
         }
       }
       
-      // セキュアなメソッドを使用してユーザーのメッセージ履歴を取得
-      const messages = await this.dbConnection.fetchSecureUserHistory(userId, limit);
+      // セキュアなメソッドを使用してユーザーのメッセージ履歴を取得（メイン + バックアップを統合）
+      const primary = await this.dbConnection.fetchSecureUserHistory(userId, limit);
+      let merged = primary;
+      if (Array.isArray(primary) && primary.length < limit && typeof this.dbConnection.fetchSecureUserHistoryFromBackup === 'function') {
+        const remaining = Math.max(0, limit - primary.length);
+        const backup = await this.dbConnection.fetchSecureUserHistoryFromBackup(userId, remaining);
+        // 重複排除（message_id優先）しつつ時系列統合
+        const seenIds = new Set(primary.map(m => m.message_id || m.id));
+        const dedupedBackup = (backup || []).filter(m => {
+          const key = m.message_id || m.id;
+          if (!key) return true;
+          if (seenIds.has(key)) return false;
+          seenIds.add(key);
+          return true;
+        });
+        merged = [...primary, ...dedupedBackup];
+        // 新しい順に整列
+        merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        // limit件に切り詰め
+        merged = merged.slice(0, limit);
+      }
       
       // キャッシュに保存
       this.messageCache.set(cacheKey, {
         timestamp: Date.now(),
-        data: messages
+        data: merged
       });
       
-      return messages;
+      return merged;
     } catch (error) {
       console.error('Error fetching user history:', error);
       throw error;

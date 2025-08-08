@@ -458,6 +458,46 @@ async function fetchSecureUserHistory(userId, limit = 30) {
   }
 }
 
+// バックアップテーブルからのセキュア履歴取得（読み取り専用）
+async function fetchSecureUserHistoryFromBackup(userId, limit = 30) {
+  try {
+    await userIsolationGuard.verifyUserIdIntegrity(userId, 'fetch_user_history_backup', { limit });
+
+    const privacyAssessment = appleSecurityStandards.assessPrivacyImpact('fetch_history');
+    console.log(`[PRIVACY] Backup history fetch risk: ${privacyAssessment.riskLevel}`);
+
+    const hashedUserId = userIsolationGuard.generateSecureHashedUserId(userId);
+
+    const result = await userIsolationGuard.executeSecureQuery(
+      pool,
+      `SELECT * FROM user_messages_pre_encryption_backup
+       WHERE user_id = $1
+       ORDER BY timestamp DESC
+       LIMIT $2`,
+      [hashedUserId, limit],
+      userId,
+      'fetch_user_history_backup'
+    );
+
+    const encryptedPattern = /^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}:.+/; // iv:authTag:cipherHex
+    const decryptedHistory = result.rows.map(row => {
+      const isEncrypted = typeof row.content === 'string' && encryptedPattern.test(row.content);
+      const maybeDecrypted = isEncrypted ? encryptionService.decrypt(row.content) : null;
+      return {
+        ...row,
+        content: maybeDecrypted || row.content,
+        user_id: userId
+      };
+    });
+
+    console.log(`🔐 [ULTRA-SECURE] Retrieved ${decryptedHistory.length} backup messages for user ${userId.substring(0, 8)}...`);
+    return decryptedHistory;
+  } catch (error) {
+    console.error('🚨 [ULTRA-SECURE] Error fetching backup history:', error.message);
+    return [];
+  }
+}
+
 // セキュリティ監査ログ
 async function logSecurityEvent(eventType, userId, details) {
   try {
@@ -577,6 +617,7 @@ module.exports = {
   initializeTables,
   storeSecureUserMessage,
   fetchSecureUserHistory,
+  fetchSecureUserHistoryFromBackup,
   logSecurityEvent,
   deleteUserDataWithCertificate,
   executeScheduledDeletions
