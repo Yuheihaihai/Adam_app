@@ -560,8 +560,16 @@ function detectPromptInjection(text) {
  */
 function detectAPIAbuse(req) {
     const ip = req.ip;
-    const url = req.originalUrl;
-    const body = JSON.stringify(req.body);
+    const url = req.originalUrl || req.url || '';
+    let body = '';
+    try {
+        if (req.body == null) body = '';
+        else if (typeof req.body === 'string') body = req.body;
+        else if (typeof req.body === 'object') body = JSON.stringify(req.body) || '';
+        else body = String(req.body);
+    } catch (_) {
+        body = '';
+    }
     
     // 異常なエンドポイントアクセス
     const unusualEndpoints = SECURITY_CONFIG.modernThreats.apiAbuse.unusualEndpoints;
