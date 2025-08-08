@@ -1710,8 +1710,8 @@ async function extractConversationContext(history, userMessage) {
     const contextSize = isContextDependent ? 20 : 10;
     const recentMessages = history.slice(-contextSize);
     
-    // Geminiによる文脈理解強化（文脈依存の場合のみ）
-    if (isContextDependent && process.env.GEMINI_API_KEY) {
+    // Geminiによる文脈理解強化（APIキーがあれば常時）
+    if (process.env.GEMINI_API_KEY) {
       try {
         console.log('🤖 Geminiによる文脈理解を実行中...');
         const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -1744,7 +1744,7 @@ ${userMessage}
         
         console.log('🤖 Gemini文脈分析完了');
         
-        // Gemini分析結果を含めた強化された文脈を返す
+        // Gemini分析結果を含めた強化された文脈を返す（常時）
         const enhancedMessages = [
           `[Gemini文脈分析] ${contextAnalysis}`,
           '---',
