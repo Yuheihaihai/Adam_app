@@ -481,16 +481,12 @@ async function fetchSecureUserHistoryFromBackup(userId, limit = 30) {
     );
 
     // 厳格判定: iv(16B)=32hex, authTag(16B)=32hex, cipherはhexの偶数桁のみ
-    const encryptedPattern = /^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}:(?:[0-9a-fA-F]{2})+$/; // iv:authTag:cipherHex
-    const decryptedHistory = result.rows.map(row => {
-      const isEncrypted = typeof row.content === 'string' && encryptedPattern.test(row.content);
-      const maybeDecrypted = isEncrypted ? encryptionService.decrypt(row.content) : null;
-      return {
-        ...row,
-        content: maybeDecrypted || row.content,
-        user_id: userId
-      };
-    });
+    // バックアップは原則プレーンテキスト想定。復号は行わず、そのまま返す（ログ氾濫防止）。
+    const decryptedHistory = result.rows.map(row => ({
+      ...row,
+      content: row.content,
+      user_id: userId
+    }));
 
     console.log(`🔐 [ULTRA-SECURE] Retrieved ${decryptedHistory.length} backup messages for user ${userId.substring(0, 8)}...`);
     return decryptedHistory;
