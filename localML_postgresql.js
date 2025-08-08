@@ -508,8 +508,8 @@ class PostgreSQLLocalML {
       // メモリから暗号化データ取得
       const existingAnalysis = await this._getSecureAnalysisFromMemory(userId, mode);
       
-      // 会話履歴取得
-      const conversationHistory = await getUserConversationHistory(userId, 200);
+      // 会話履歴取得（PSQL優先）
+      const conversationHistory = await this._fetchConversationHistory(userId, 200);
       
       if (!conversationHistory || conversationHistory.length === 0) {
         await this._ensureMinimumDelay(startTime, minDelay);
@@ -575,6 +575,32 @@ class PostgreSQLLocalML {
   }
 
   /**
+   * 会話履歴の取得（PSQL優先、必要時のみメモリ/Airtable）
+   */
+  async _fetchConversationHistory(userId, limit = 200) {
+    try {
+      // PostgreSQL からのセキュア履歴取得
+      if (db && db.fetchSecureUserHistory) {
+        const rows = await db.fetchSecureUserHistory(userId, Math.max(1, Math.min(limit, 500)));
+        if (Array.isArray(rows) && rows.length > 0) {
+          // fixed_server/db.js の戻りを role/content に正規化
+          return rows.map(row => ({ role: row.role, message: row.content || '' }));
+        }
+      }
+    } catch (e) {
+      console.warn('[PostgreSQL-LocalML] PSQL history fetch failed, falling back to in-memory/Airtable:', this._maskSensitiveData(e.message));
+    }
+    // フォールバック: メモリ/Airtable（会話モジュール）
+    try {
+      const memHist = await getUserConversationHistory(userId, limit);
+      if (Array.isArray(memHist) && memHist.length > 0) {
+        return memHist.map(item => ({ role: item.role, message: item.content || item.message || '' }));
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  /**
    * 暗号データが欠落/復号不可のときに、履歴から再分析して暗号テーブルに再保存
    * クールダウン中はスキップ
    */
@@ -589,8 +615,8 @@ class PostgreSQLLocalML {
         return null;
       }
 
-      // 履歴取得
-      const history = await getUserConversationHistory(userId, 200);
+      // 履歴取得（PSQL優先）
+      const history = await this._fetchConversationHistory(userId, 200);
       if (!Array.isArray(history) || history.length === 0) {
         return null;
       }
