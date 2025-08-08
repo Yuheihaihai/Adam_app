@@ -1140,6 +1140,9 @@ function getSystemPromptForMode(mode) {
   }
 }
 
+const DataInterface = require('./dataInterface');
+const dataInterface = new DataInterface();
+
 async function storeInteraction(userId, role, content) {
   try {
     console.log(
@@ -1149,52 +1152,13 @@ async function storeInteraction(userId, role, content) {
     // 一意のメッセージIDを生成
     const messageId = Date.now().toString();
     
-    // ConversationHistoryテーブルに保存
-    if (airtableBase) {
-      try {
-        await airtableBase('ConversationHistory').create([
-          {
-            fields: {
-              UserID: userId,
-              Role: role,
-              Content: content,
-              Timestamp: new Date().toISOString(),
-              Mode: 'general', // デフォルトのモードを追加
-              MessageType: 'text', // デフォルトのメッセージタイプを追加
-            },
-          },
-        ]);
-        
-        console.log(`会話履歴の保存成功 => ユーザー: ${userId}, タイプ: ${role}, 長さ: ${content.length}文字`);
-        return true;
-      } catch (airtableErr) {
-        console.error('Error storing to ConversationHistory:', airtableErr);
-        console.error(`ConversationHistory保存エラー => ユーザー: ${userId}`);
-        console.error(`エラータイプ: ${airtableErr.name || 'Unknown'}`);
-        console.error(`エラーメッセージ: ${airtableErr.message || 'No message'}`);
-        
-        // ConversationHistoryに保存できない場合は、元のINTERACTIONS_TABLEにフォールバック
-        if (airtableBase) {
-          await airtableBase(INTERACTIONS_TABLE).create([
-            {
-              fields: {
-                UserID: userId,
-                Role: role,
-                Content: content,
-                Timestamp: new Date().toISOString(),
-                // フォールバックテーブルには追加のフィールドは含めない（エラーの原因になる可能性あり）
-              },
-            },
-          ]);
-          console.log(`会話履歴のフォールバック保存成功 => INTERACTIONS_TABLEに保存`);
-          return true;
-        } else {
-          console.error('Airtable接続が設定されていないため、フォールバック保存もできませんでした');
-          return false;
-        }
-      }
-    } else {
-      console.warn('Airtable接続が初期化されていないため、会話履歴を保存できません');
+    // PostgreSQLへセキュア保存（標準経路）
+    try {
+      await dataInterface.storeUserMessage(userId, String(content), role, 'general', 'text');
+      console.log(`会話履歴の保存成功(PSQL) => ユーザー: ${userId}, タイプ: ${role}, 長さ: ${String(content).length}文字`);
+      return true;
+    } catch (dbErr) {
+      console.error('PostgreSQL保存エラー:', dbErr.message);
       return false;
     }
   } catch (err) {
@@ -1221,27 +1185,16 @@ async function fetchUserHistory(userId, limit) {
       insufficientReason: null
     };
     
-    if (!airtableBase) {
-      console.error('Airtable接続が初期化されていないため、履歴を取得できません');
-      historyMetadata.insufficientReason = 'airtable_not_initialized';
+    try {
+      const rows = await dataInterface.getUserHistory(userId, Number(limit) || 30);
+      historyMetadata.totalRecords = rows.length;
+      const history = rows.map(r => ({ role: r.role || 'user', content: r.content || '' }));
+      return { history, metadata: historyMetadata };
+    } catch (dbErr) {
+      console.error('PostgreSQL履歴取得エラー:', dbErr.message);
+      historyMetadata.insufficientReason = 'psql_error';
       return { history: [], metadata: historyMetadata };
     }
-    
-    // PostgreSQL移行完了: Airtableからの履歴取得ロジックを削除
-    // 現在はdataInterface.jsとPostgreSQLのみを使用
-    console.log(`[LEGACY REMOVED] Airtable ConversationHistory取得ロジックは削除されました`);
-          
-      // [LEGACY REMOVED] Airtable ConversationHistory 呼び出しを削除
-      console.log(`[INFO] PostgreSQL経由でのみ履歴を取得します`);
-            
-          // [LEGACY REMOVED] conversationRecordsブロック削除開始
-    // [LEGACY REMOVED] Airtable処理ブロック完全削除完了
-    
-    // PostgreSQL移行完了: 空の履歴を返す（後でPostgreSQL処理に置き換え予定）
-    // [LEGACY REMOVED] 削除完了: 全Airtable UserAnalysis処理ブロック
-    
-    // どちらのテーブルからも取得できなかった場合は空配列を返す
-    return { history: [], metadata: historyMetadata };
   } catch (err) {
     console.error(`Error fetching user history: ${err.message}`);
     return { history: [], metadata: { totalRecords: 0, insufficientReason: 'error' } };
@@ -3330,7 +3283,7 @@ async function restorePendingImageRequests() {
     console.log('Attempting to restore pending image generation requests...');
     
     // PostgreSQL移行版: データベース接続チェック
-    if (!pool) {
+    if (!pool || typeof pool.query !== 'function') {
       console.error('PostgreSQL connection not available. Cannot restore pending image requests.');
       return;
     }
