@@ -1282,7 +1282,14 @@ function getSeverityLevel(attackType) {
  */
 function nextGenSecurityMiddleware(req, res, next) {
     const startTime = Date.now();
-    const ip = req.ip;
+    const ip = req.ip || '';
+    // Allow liveness/readiness probes unconditionally
+    try {
+        const p = req.path || req.originalUrl || '';
+        if (p === '/healthz' || p === '/ready') {
+            return next();
+        }
+    } catch (_) {}
     
     try {
         // 1. 地理的フィルタリング
