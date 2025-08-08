@@ -3284,7 +3284,7 @@ async function restorePendingImageRequests() {
     console.log('Attempting to restore pending image generation requests...');
     
     // PostgreSQL移行版: データベース接続チェック
-    if (!pool || typeof pool.query !== 'function') {
+    if (!db || !db.pool || typeof db.pool.query !== 'function') {
       console.error('PostgreSQL connection not available. Cannot restore pending image requests.');
       return;
     }
@@ -3294,7 +3294,7 @@ async function restorePendingImageRequests() {
     const cutoffTimeStr = cutoffTime.toISOString();
     
     // PostgreSQL版: 過去30分以内の画像生成提案を検索
-    const pendingProposals = await pool.query(`
+    const pendingProposals = await db.pool.query(`
       SELECT user_id, content, timestamp, id
       FROM user_messages 
       WHERE content LIKE '%[画像生成提案]%' 
@@ -3318,7 +3318,7 @@ async function restorePendingImageRequests() {
       }
       
       // PostgreSQL版: 提案後のユーザー応答を確認
-      const userResponses = await pool.query(`
+      const userResponses = await db.pool.query(`
         SELECT * FROM user_messages 
         WHERE user_id = $1 
           AND role = 'user' 
@@ -3333,7 +3333,7 @@ async function restorePendingImageRequests() {
         console.log(`[DEBUG-RESTORE] Restoring pending image proposal for user ${userId} - no responses found after proposal`);
         
         // PostgreSQL版: 提案以前の最後のアシスタントメッセージを取得
-        const lastMessages = await pool.query(`
+        const lastMessages = await db.pool.query(`
           SELECT * FROM user_messages 
           WHERE user_id = $1 
             AND role = 'assistant' 
