@@ -439,7 +439,8 @@ async function fetchSecureUserHistory(userId, limit = 30) {
     );
     
     // 復号化して返却（該当ユーザーのデータのみ）
-    const encryptedPattern = /^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}:.+/; // iv:authTag:cipherHex 形式
+    // 厳格判定: iv(16B)=32hex, authTag(16B)=32hex, cipherはhexの偶数桁のみ
+    const encryptedPattern = /^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}:(?:[0-9a-fA-F]{2})+$/; // iv:authTag:cipherHex 形式
     const decryptedHistory = result.rows.map(row => {
       const isEncrypted = typeof row.content === 'string' && encryptedPattern.test(row.content);
       const maybeDecrypted = isEncrypted ? encryptionService.decrypt(row.content) : null;
@@ -479,7 +480,8 @@ async function fetchSecureUserHistoryFromBackup(userId, limit = 30) {
       'fetch_user_history_backup'
     );
 
-    const encryptedPattern = /^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}:.+/; // iv:authTag:cipherHex
+    // 厳格判定: iv(16B)=32hex, authTag(16B)=32hex, cipherはhexの偶数桁のみ
+    const encryptedPattern = /^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}:(?:[0-9a-fA-F]{2})+$/; // iv:authTag:cipherHex
     const decryptedHistory = result.rows.map(row => {
       const isEncrypted = typeof row.content === 'string' && encryptedPattern.test(row.content);
       const maybeDecrypted = isEncrypted ? encryptionService.decrypt(row.content) : null;
