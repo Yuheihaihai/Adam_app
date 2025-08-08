@@ -1412,7 +1412,18 @@ async function callClaudeModel(messages) {
 async function tryPrimaryThenBackup(gptOptions) {
   try {
     console.log('Attempting primary model (OpenAI):', gptOptions.model);
-    return await callPrimaryModel(gptOptions);
+    const primary = await callPrimaryModel(gptOptions);
+    // 空応答はエラー相当としてバックアップへフォールバック
+    if (typeof primary !== 'string' || primary.trim() === '') {
+      console.warn('Primary model returned empty response. Falling back to Claude...');
+      try {
+        return await callClaudeModel(gptOptions.messages);
+      } catch (claudeErr) {
+        console.error('Claude also failed:', claudeErr);
+        return '';
+      }
+    }
+    return primary;
   } catch (err) {
     console.error('OpenAI error:', err);
     console.log('Attempting Claude fallback...');
