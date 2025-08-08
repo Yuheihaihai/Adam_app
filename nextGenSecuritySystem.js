@@ -1297,6 +1297,10 @@ function nextGenSecurityMiddleware(req, res, next) {
             { rx: /^\/api\/intent\/categories$/, methods: ['GET'] },
             { rx: /^\/api\/intent\/detect$/, methods: ['POST'] },
             { rx: /^\/security\/stats$/, methods: ['GET'] }, // app側で404/認可処理
+            // 静的配信（音声・画像など）。GET のみ許可し、他メソッドはブロック
+            { rx: /^\/temp\/[\w\-.]+$/, methods: ['GET'] },
+            { rx: /^\/public\/?(.*)$/, methods: ['GET'] },
+            { rx: /^\/favicon\.ico$/, methods: ['GET'] },
             // Webhook: 署名検証は route 側の line.middleware で実施されるため、ここでは通過を許可
             { rx: /^\/webhook$/, methods: ['POST'] }
         ];
