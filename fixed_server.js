@@ -2415,14 +2415,17 @@ async function processMessage(userId, messageText) {
     
     // AIを使用して応答を生成
     const resultRaw = await processWithAI(systemPrompt, sanitizedMessage, historyData, mode, validatedUserId);
-    const result = typeof resultRaw === 'string' ? resultRaw : (resultRaw?.text || resultRaw?.content || JSON.stringify(resultRaw));
-    console.log(`AI応答生成完了: "${String(result).substring(0, 50)}${String(result).length > 50 ? '...' : ''}"`);
+    const resultText =
+      typeof resultRaw === 'string'
+        ? resultRaw
+        : (resultRaw?.response || resultRaw?.text || resultRaw?.content || JSON.stringify(resultRaw));
+    console.log(`AI応答生成完了: "${String(resultText).substring(0, 50)}${String(resultText).length > 50 ? '...' : ''}"`);
     
     // 会話履歴を保存
     await storeInteraction(validatedUserId, 'user', sanitizedMessage);
-    await storeInteraction(validatedUserId, 'assistant', String(result));
+    await storeInteraction(validatedUserId, 'assistant', String(resultText));
     
-    return String(result);
+    return String(resultText);
   } catch (error) {
     console.error(`メッセージ処理エラー: ${error.message}`);
     console.error(error.stack);
