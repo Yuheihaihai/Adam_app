@@ -2576,11 +2576,7 @@ async function handleImage(event) {
     // 洞察機能用のトラッキング
     insightsService.trackImageRequest(userId, `画像分析 (ID: ${messageId})`);
 
-    // 処理中であることを通知
-    await client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '画像を分析しています。少々お待ちください...'
-    });
+    // 処理中の通知は送らず、AI解析結果のみをユーザーに返す方針
 
     try {
       console.log(`Using image message ID: ${messageId} for analysis`);
@@ -2637,11 +2633,12 @@ async function handleImage(event) {
       const analysis = response.choices[0].message.content;
       console.log(`Image analysis completed for user ${userId}`);
       
-      // ユーザーに分析結果を送信
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: analysis
-      });
+      // ユーザーへはAI解析結果のみ返信（まずreplyで試行、失敗時pushにフォールバック）
+      try {
+        await client.replyMessage(event.replyToken, { type: 'text', text: analysis });
+      } catch (e) {
+        await client.pushMessage(userId, { type: 'text', text: analysis });
+      }
       
       // 分析のサマリーを生成（最初の30文字を抽出）
       const analysisPreview = analysis.substring(0, 30) + (analysis.length > 30 ? '...' : '');
@@ -2652,24 +2649,20 @@ async function handleImage(event) {
     } catch (analysisError) {
       console.error('Error in image analysis:', analysisError);
       
-      // エラーメッセージを送信
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: '申し訳ありません。画像の分析中にエラーが発生しました: ' + analysisError.message
-      });
+      // エラーメッセージ（AI以外）だが、例外時のみ短文を返信
+      try {
+        await client.replyMessage(event.replyToken, { type: 'text', text: '申し訳ありません。画像の分析中にエラーが発生しました。' });
+      } catch (_) {
+        await client.pushMessage(userId, { type: 'text', text: '申し訳ありません。画像の分析中にエラーが発生しました。' });
+      }
     }
 
     return Promise.resolve();
   } catch (error) {
     console.error(`Error handling image: ${error}`);
     
-    // エラーが発生した場合でもユーザーに通知
-    await client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '申し訳ありません、画像の処理中にエラーが発生しました。しばらくしてからもう一度お試しください。'
-    }).catch(replyError => {
-      console.error(`Failed to send error message: ${replyError}`);
-    });
+    // エラー時のみ通知
+    await client.replyMessage(event.replyToken, { type: 'text', text: '申し訳ありません、画像の処理中にエラーが発生しました。' }).catch(() => {});
     
     return Promise.resolve();
   }
