@@ -11,6 +11,8 @@ const db = require('./db');
 // 暗号テーブルのみ使用するモード（既定: 有効）
 // LOCALML_ENCRYPTED_ONLY !== 'false' の場合は平文テーブルへのフォールバックを行わない
 const ENCRYPTED_ONLY = process.env.LOCALML_ENCRYPTED_ONLY !== 'false';
+const AUTO_CREATE_ON_MISS = process.env.LOCALML_AUTO_CREATE_ON_MISS !== 'false';
+const RECONSTRUCT_COOLDOWN_MIN = parseInt(process.env.LOCALML_RECONSTRUCT_COOLDOWN_MIN || '360', 10); // 6h 既定
 
 // セキュリティ設定
 const SECURITY_CONFIG = {
@@ -256,7 +258,15 @@ class PostgreSQLLocalML {
       
       if (!encryptedData) {
         // メモリにない場合、PostgreSQLから取得
-        return await this._fetchFromPostgreSQL(userIdHash, mode);
+        const fetched = await this._fetchFromPostgreSQL(userIdHash, mode);
+        if (fetched) return fetched;
+
+        // 暗号データが存在しない or 復号不可: 自動作成（新規 or 再構築）
+        if (AUTO_CREATE_ON_MISS) {
+          const reconstructed = await this._reconstructAndSaveEncrypted(userId, mode);
+          return reconstructed;
+        }
+        return null;
       }
       
       // 復号化
@@ -268,6 +278,11 @@ class PostgreSQLLocalML {
       // 期限チェック
       if (Date.now() - data.timestamp > SECURITY_CONFIG.MAX_USER_ANALYSIS_AGE) {
         this.encryptedUserAnalysis.delete(key);
+        // 期限切れ。必要なら再構築
+        if (AUTO_CREATE_ON_MISS) {
+          const reconstructed = await this._reconstructAndSaveEncrypted(userId, mode);
+          return reconstructed;
+        }
         return null;
       }
       
@@ -555,6 +570,49 @@ class PostgreSQLLocalML {
       
     } catch (error) {
       console.error('[PostgreSQL-LocalML] 分析エラー:', this._maskSensitiveData(error.message));
+      return null;
+    }
+  }
+
+  /**
+   * 暗号データが欠落/復号不可のときに、履歴から再分析して暗号テーブルに再保存
+   * クールダウン中はスキップ
+   */
+  async _reconstructAndSaveEncrypted(userId, mode) {
+    try {
+      // クールダウン判定（メモリ内に簡易トークン）
+      this._reconstructTokens = this._reconstructTokens || new Map();
+      const tokenKey = `${userId}:${mode}`;
+      const last = this._reconstructTokens.get(tokenKey) || 0;
+      const now = Date.now();
+      if (now - last < RECONSTRUCT_COOLDOWN_MIN * 60 * 1000) {
+        return null;
+      }
+
+      // 履歴取得
+      const history = await getUserConversationHistory(userId, 200);
+      if (!Array.isArray(history) || history.length === 0) {
+        return null;
+      }
+
+      // 履歴をフォーマットして再分析
+      const formattedHistory = history.map(item => ({
+        role: item.role,
+        message: this._maskSensitiveData(item.content || '')
+      }));
+      const seedMessage = formattedHistory.slice(-1)[0]?.message || '';
+      const rebuilt = await this.analyzeUserMessageSecure(seedMessage, formattedHistory);
+      if (!rebuilt) return null;
+
+      // 暗号テーブルへ保存
+      await this._saveUserAnalysisToPostgreSQL(userId, mode, rebuilt);
+
+      // クールダウン更新
+      this._reconstructTokens.set(tokenKey, now);
+
+      return rebuilt;
+    } catch (e) {
+      console.error('[PostgreSQL-LocalML] reconstruct error:', this._maskSensitiveData(e.message));
       return null;
     }
   }
