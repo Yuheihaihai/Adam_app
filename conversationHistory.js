@@ -7,15 +7,24 @@
 
 // In-memory storage for conversation history
 const conversationStore = {};
-const Airtable = require('airtable');
+// Airtable はオプショナル依存。存在しない場合でも起動を継続する
+let Airtable = null;
+try {
+  // 環境変数がなければ読み込まない最適化
+  if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
+    Airtable = require('airtable');
+  }
+} catch (e) {
+  Airtable = null;
+}
 
 // Airtable設定
 let airtableBase = null;
-if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
+if (Airtable && process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
   airtableBase = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
     .base(process.env.AIRTABLE_BASE_ID);
 } else {
-  console.warn('Airtable credentials not found. Conversation history persistence disabled.');
+  console.warn('Airtable not configured or package unavailable. Conversation history persistence disabled.');
 }
 
 /**
