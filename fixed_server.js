@@ -2034,7 +2034,7 @@ ${additionalPromptData.jobTrends.analysis}`;
     }
     console.log(`===== 会話履歴の状態確認終了 =====\n`);
     
-    const messages = [
+    let messages = [
       { role: 'system', content: updatedSystemPrompt }
     ];
     
