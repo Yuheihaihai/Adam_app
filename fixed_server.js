@@ -1728,7 +1728,7 @@ async function checkEngagementWithLLM(userMessage, history) {
  * @param {string} userMessage - The current user message
  * @returns {Object} - The extracted context, including relevant history
  */
-function extractConversationContext(history, userMessage) {
+async function extractConversationContext(history, userMessage) {
   try {
     console.log(`📊 Extracting conversation context from ${history.length} messages...`);
     
@@ -1753,6 +1753,63 @@ function extractConversationContext(history, userMessage) {
     // 文脈依存の場合は最新20件、通常は10件を取得
     const contextSize = isContextDependent ? 20 : 10;
     const recentMessages = history.slice(-contextSize);
+    
+    // Geminiによる文脈理解強化（文脈依存の場合のみ）
+    if (isContextDependent && process.env.GEMINI_API_KEY) {
+      try {
+        console.log('🤖 Geminiによる文脈理解を実行中...');
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        
+        // 会話履歴をテキスト形式に変換
+        const historyText = recentMessages.map((msg, idx) => 
+          `[${idx + 1}] ${msg.role === 'user' ? 'ユーザー' : 'アシスタント'}: ${msg.content}`
+        ).join('\n');
+        
+        const prompt = `
+以下の会話履歴と現在のユーザーメッセージを分析し、文脈を理解して要約してください。
+特に「それ」「これ」などの指示語が何を指しているか明確にしてください。
+
+会話履歴:
+${historyText}
+
+現在のユーザーメッセージ:
+${userMessage}
+
+以下の形式で文脈を明確化した要約を出力してください:
+1. 指示語の解釈: （「それ」「これ」などが何を指しているか）
+2. 文脈の要約: （会話の流れと現在の話題）
+3. 重要な情報: （名前、日時、場所など具体的な情報）
+`;
+        
+        const result = await model.generateContent(prompt);
+        const contextAnalysis = result.response.text();
+        
+        console.log('🤖 Gemini文脈分析完了');
+        
+        // Gemini分析結果を含めた強化された文脈を返す
+        const enhancedMessages = [
+          `[Gemini文脈分析] ${contextAnalysis}`,
+          '---',
+          ...recentMessages.map((msg, index) => {
+            const role = msg.role || 'unknown';
+            return `[${index + 1}] ${role}: ${msg.content}`;
+          })
+        ];
+        
+        return { 
+          relevantHistory: enhancedMessages,
+          geminiAnalysis: contextAnalysis,
+          isEnhanced: true
+        };
+        
+      } catch (geminiError) {
+        console.error('Gemini文脈分析エラー:', geminiError.message);
+        console.log('通常の文脈抽出にフォールバック');
+        // Geminiエラー時は通常処理を継続
+      }
+    }
     
     // Format them for readability - 文脈依存の場合は切り詰めない
     const formattedMessages = recentMessages.map((msg, index) => {
@@ -1840,11 +1897,11 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
         return userNeeds;
       })(),
       
-      // Extract conversation context
+      // Extract conversation context (now async with Gemini)
       (async () => {
         console.log('\n🔍 [1B] CONVERSATION CONTEXT EXTRACTION - Starting');
         const contextStartTime = Date.now();
-        const conversationContext = extractConversationContext(history, userMessage);
+        const conversationContext = await extractConversationContext(history, userMessage);
         console.log(`🔍 [1B] CONVERSATION CONTEXT EXTRACTION - Completed in ${Date.now() - contextStartTime}ms`);
         return conversationContext;
       })(),
