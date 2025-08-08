@@ -441,6 +441,9 @@ app.use('/session', express.json());
 // 静的ファイルを提供する際に使用（実際のアプリで使用している場合）
 app.use(express.static(path.join(__dirname, 'public')));
 
+// セキュアモニタのギャップ説明をユーザーに送るかどうか（本番は既定で送らない）
+const SECURED_GAP_PUSH_ENABLED = process.env.SECURED_GAP_PUSH_ENABLED === 'true';
+
 // 音声ファイル用のtempディレクトリを静的に提供
 app.use('/temp', express.static(path.join(__dirname, 'temp')));
 
@@ -2977,7 +2980,7 @@ async function handleText(event) {
     }
     
     // 音声使用状況の追加メッセージ（毎回は表示せず、特定の閾値に達した場合のみ）
-    if (audioResponse && audioResponse.limitInfo && audioResponse.limitInfo.dailyCount >= Math.floor(audioResponse.limitInfo.dailyLimit * 0.7)) {
+    if (SECURED_GAP_PUSH_ENABLED && audioResponse && audioResponse.limitInfo && audioResponse.limitInfo.dailyCount >= Math.floor(audioResponse.limitInfo.dailyLimit * 0.7)) {
       // 残り回数が少なくなった場合（例: 70%以上使用）に警告を送信
       const usageMessage = audioHandler.generateUsageLimitMessage(audioResponse.limitInfo);
       await client.pushMessage(userId, {
@@ -2996,7 +2999,7 @@ async function handleText(event) {
     if (requestId) {
       const gapAnalysis = securedFunctionExecutionMonitor.completeMonitoring(requestId);
       
-      if (gapAnalysis && gapAnalysis.hasGap) {
+      if (gapAnalysis && gapAnalysis.hasGap && SECURED_GAP_PUSH_ENABLED) {
         console.log(`[SecuredFunctionMonitor] ギャップ検出: ${gapAnalysis.summary} (リスクレベル: ${gapAnalysis.overallRisk})`);
         
         // セキュアなLLM説明文を生成
