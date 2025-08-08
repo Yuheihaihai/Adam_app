@@ -468,11 +468,23 @@ function aiThreatDetection(req) {
  * リクエストから特徴量を抽出
  */
 function extractFeatures(req) {
-    const ip = req.ip;
+    const ip = req.ip || '';
     const userAgent = req.headers['user-agent'] || '';
     const url = req.originalUrl || req.url;
     const method = req.method;
     const contentLength = parseInt(req.headers['content-length']) || 0;
+    // JSON.stringify(undefined) は undefined を返すため length アクセスで例外になる。
+    // fail-close 時の不必要な503回避のため安全に長さを計算する。
+    const bodyString = (() => {
+      try {
+        if (req.body == null) return '';
+        if (typeof req.body === 'string') return req.body;
+        if (typeof req.body === 'object') return JSON.stringify(req.body) || '';
+        return String(req.body);
+      } catch (_) {
+        return '';
+      }
+    })();
     
     return {
         ipEntropy: calculateEntropy(ip),
@@ -480,9 +492,9 @@ function extractFeatures(req) {
         urlLength: url.length,
         methodType: method === 'POST' ? 1 : 0,
         contentLength: contentLength,
-        hasSpecialChars: /[<>'"&]/.test(url + JSON.stringify(req.body)),
+        hasSpecialChars: /[<>'"&]/.test(url + bodyString),
         timeOfDay: new Date().getHours(),
-        requestSize: JSON.stringify(req.body).length
+        requestSize: bodyString.length
     };
 }
 
@@ -1356,7 +1368,7 @@ function nextGenSecurityMiddleware(req, res, next) {
         }
         
         // セキュリティヘッダーを追加（内部環境のみ）
-        const isInternalRequest = isPrivateIP(ip) || process.env.NODE_ENV === 'development';
+        const isInternalRequest = (ip && isPrivateIP(ip)) || process.env.NODE_ENV === 'development';
         if (isInternalRequest) {
             res.set({
                 'X-Security-Score': trustScore,

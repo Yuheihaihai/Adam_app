@@ -38,6 +38,7 @@ const voiceRateLimiter = require('./rateLimit').middleware;
 const insightsService = require('./insightsService');
 const enhancedCharacteristics = require('./enhancedCharacteristicsAnalyzer');
 const audioHandler = require('./audioHandler');
+const db = require('./db');
 
 // Embedding拡張機能のインポート - 既存コードを壊さないよう追加のみ
 let embeddingFeatures;
@@ -366,6 +367,22 @@ const apiLimiter = expressRateLimit({
 
 // APIルートにレートリミットを適用
 app.use('/api', apiLimiter);
+
+// ヘルスチェック: ライブ
+app.get('/healthz', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
+// レディネス: DB疎通を簡易確認
+app.get('/ready', async (req, res) => {
+  try {
+    const ok = await db.testConnection();
+    if (ok) return res.status(200).json({ ready: true });
+    return res.status(503).json({ ready: false });
+  } catch (_) {
+    return res.status(503).json({ ready: false });
+  }
+});
 
 // 音声メッセージAPIにレート制限を適用
 app.use('/api/audio', voiceRateLimiter);
