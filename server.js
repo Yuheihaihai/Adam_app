@@ -351,7 +351,7 @@ app.use('/api', (req, res, next) => {
 });
 
 // レートリミットの設定
-const apiLimiter = rateLimit({
+const apiLimiter = expressRateLimit({
   windowMs: 15 * 60 * 1000, // 15分間
   max: 100, // 15分間で最大100リクエスト
   standardHeaders: true,
