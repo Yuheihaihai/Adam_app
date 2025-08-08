@@ -6,14 +6,18 @@ const path = require('path');
  * セキュア設定検証関数
  */
 function validateSecurityConfig() {
+  const usingHerokuUrl = !!process.env.DATABASE_URL;
   // IP制限の厳格チェック
   if (!process.env.ALLOWED_IPS) {
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === 'production' && !usingHerokuUrl) {
       throw new Error('[DBSecurity] FATAL: ALLOWED_IPS環境変数が未設定です。本番環境では必須設定です。');
-    } else {
-      console.warn('[DBSecurity] WARNING: ALLOWED_IPSが未設定。開発環境ではlocalhostのみ許可します。');
-      return ['127.0.0.1', '::1']; // ローカルホストのみ
     }
+    if (usingHerokuUrl) {
+      console.warn('[DBSecurity] WARNING: ALLOWED_IPSが未設定ですが、DATABASE_URL が設定されているため起動を継続します（Heroku/マネージドDB想定）');
+      return [];
+    }
+    console.warn('[DBSecurity] WARNING: ALLOWED_IPSが未設定。開発環境ではlocalhostのみ許可します。');
+    return ['127.0.0.1', '::1']; // ローカルホストのみ
   }
   
   const allowedIPs = process.env.ALLOWED_IPS.split(',').map(ip => ip.trim());
@@ -46,6 +50,7 @@ function isValidIP(ip) {
  * 証明書ファイル検証
  */
 function validateCertificateFiles() {
+  const usingHerokuUrl = !!process.env.DATABASE_URL;
   const certFiles = {
     ca: process.env.DATABASE_CA_CERT,
     key: process.env.DATABASE_CLIENT_KEY,
@@ -56,9 +61,11 @@ function validateCertificateFiles() {
   
   for (const [type, filePath] of Object.entries(certFiles)) {
     if (!filePath) {
-      if (process.env.NODE_ENV === 'production') {
+      const certsOptional = process.env.DB_CERTS_OPTIONAL === 'true';
+      if (process.env.NODE_ENV === 'production' && !usingHerokuUrl && !certsOptional) {
         throw new Error(`[DBSecurity] FATAL: DATABASE_${type.toUpperCase()}_CERT環境変数が未設定です。`);
       }
+      console.warn(`[DBSecurity] WARNING: DATABASE_${type.toUpperCase()}_CERTが未設定です。${usingHerokuUrl ? 'DATABASE_URL 構成のため起動を継続します。' : '開発/互換モードで起動を継続します。'}`);
       continue;
     }
     
