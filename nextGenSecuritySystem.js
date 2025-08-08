@@ -1298,7 +1298,10 @@ function nextGenSecurityMiddleware(req, res, next) {
             { rx: /^\/api\/intent\/detect$/, methods: ['POST'] },
             { rx: /^\/security\/stats$/, methods: ['GET'] }, // app側で404/認可処理
             // Webhook: 署名検証は route 側の line.middleware で実施されるため、ここでは通過を許可
-            { rx: /^\/webhook$/, methods: ['POST'] }
+            { rx: /^\/webhook$/, methods: ['POST'] },
+            // Static/public assets and temp media (e.g., TTS files)
+            { rx: /^\/temp\//, methods: ['GET'] },
+            { rx: /^\/public\//, methods: ['GET'] }
         ];
         if (safeAllows.some(e => e.rx.test(p) && e.methods.includes(method))) {
             return next();
