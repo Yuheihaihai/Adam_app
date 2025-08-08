@@ -2371,10 +2371,17 @@ async function processMessage(userId, messageText) {
     
     // AIを使用して応答を生成
     const resultRaw = await processWithAI(systemPrompt, sanitizedMessage, historyData, mode, validatedUserId);
-    const resultText =
-      typeof resultRaw === 'string'
-        ? resultRaw
-        : (resultRaw?.response || resultRaw?.text || resultRaw?.content || JSON.stringify(resultRaw));
+    let resultText = '';
+    if (typeof resultRaw === 'string') {
+      resultText = resultRaw;
+    } else if (resultRaw && typeof resultRaw === 'object') {
+      const candidates = [resultRaw.response, resultRaw.text, resultRaw.content];
+      resultText = candidates.find(v => typeof v === 'string' && v.trim() !== '') || '';
+    }
+    if (!resultText || resultText.trim() === '') {
+      // 空の応答はJSON文字列にフォールバックせず、安全な定型文に置換
+      resultText = '申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。';
+    }
     console.log(`AI応答生成完了: "${String(resultText).substring(0, 50)}${String(resultText).length > 50 ? '...' : ''}"`);
     
     // 会話履歴を保存
