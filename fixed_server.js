@@ -1738,23 +1738,41 @@ function extractConversationContext(history, userMessage) {
       return { relevantHistory: [] };
     }
     
-    // Get the last 10 messages as the most relevant context
-    const recentMessages = history.slice(-10);
+    // 文脈依存の発言を検出するパターン
+    const contextDependentPatterns = [
+      'それ', 'これ', 'あれ', 'その', 'この', 'あの',
+      '同じ', '前の', 'さっきの', '今の', '例の',
+      'そう', 'ああ', 'こう', 'どう'
+    ];
     
-    // Format them for readability
+    // 現在のメッセージが文脈依存かチェック
+    const isContextDependent = contextDependentPatterns.some(pattern => 
+      userMessage.includes(pattern)
+    );
+    
+    // 文脈依存の場合は最新20件、通常は10件を取得
+    const contextSize = isContextDependent ? 20 : 10;
+    const recentMessages = history.slice(-contextSize);
+    
+    // Format them for readability - 文脈依存の場合は切り詰めない
     const formattedMessages = recentMessages.map((msg, index) => {
       const role = msg.role || 'unknown';
       let content = msg.content || '';
       
-      // Trim extremely long messages
-      if (content.length > 200) {
+      // 文脈依存でない場合のみ長いメッセージを切り詰める
+      if (!isContextDependent && content.length > 200) {
         content = content.substring(0, 200) + '...';
       }
       
       return `[${index + 1}] ${role}: ${content}`;
     });
     
-    console.log(`📊 Extracted ${formattedMessages.length} relevant conversation elements for context`);
+    if (isContextDependent) {
+      console.log(`📊 Context-dependent message detected. Extracted ${formattedMessages.length} messages with full content`);
+    } else {
+      console.log(`📊 Extracted ${formattedMessages.length} relevant conversation elements for context`);
+    }
+    
     return { relevantHistory: formattedMessages };
   } catch (error) {
     console.error('Error extracting conversation context:', error);
