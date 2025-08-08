@@ -1296,7 +1296,9 @@ function nextGenSecurityMiddleware(req, res, next) {
             { rx: /^\/csrf$/, methods: ['GET'] },
             { rx: /^\/api\/intent\/categories$/, methods: ['GET'] },
             { rx: /^\/api\/intent\/detect$/, methods: ['POST'] },
-            { rx: /^\/security\/stats$/, methods: ['GET'] } // app側で404/認可処理
+            { rx: /^\/security\/stats$/, methods: ['GET'] }, // app側で404/認可処理
+            // Webhook: 署名検証は route 側の line.middleware で実施されるため、ここでは通過を許可
+            { rx: /^\/webhook$/, methods: ['POST'] }
         ];
         if (safeAllows.some(e => e.rx.test(p) && e.methods.includes(method))) {
             return next();
