@@ -1402,13 +1402,27 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// callPrimaryModel関数を元のシンプルな実装に戻す
-async function callPrimaryModel(gptOptions) {
-  const safeOptions = { ...gptOptions };
-  if (typeof safeOptions.max_tokens !== 'undefined') {
-    safeOptions.max_completion_tokens = safeOptions.max_tokens;
-    delete safeOptions.max_tokens;
+// gpt-5 など最新モデル向けのパラメータ互換層
+function sanitizeOpenAIChatOptions(options) {
+  const safe = { ...options };
+  const modelName = typeof safe.model === 'string' ? safe.model : '';
+  // gpt-5 系は temperature のカスタム値を受け付けない（デフォルトのみ）。
+  if (modelName.startsWith('gpt-5')) {
+    if (typeof safe.temperature !== 'undefined' && safe.temperature !== 1) {
+      delete safe.temperature;
+    }
+    // 一部SDKでは max_completion_tokens を要求
+    if (typeof safe.max_tokens !== 'undefined') {
+      safe.max_completion_tokens = safe.max_tokens;
+      delete safe.max_tokens;
+    }
   }
+  return safe;
+}
+
+// callPrimaryModel関数を元のシンプルな実装に戻す（互換層を適用）
+async function callPrimaryModel(gptOptions) {
+  const safeOptions = sanitizeOpenAIChatOptions(gptOptions);
   const resp = await openai.chat.completions.create(safeOptions);
   return resp?.choices?.[0]?.message?.content ?? '';
 }
@@ -1691,7 +1705,7 @@ async function checkEngagementWithLLM(userMessage, history) {
       apiKey: process.env.OPENAI_API_KEY
     });
     
-    const response = await openai.chat.completions.create({
+    const response = await openai.chat.completions.create(sanitizeOpenAIChatOptions({
       model: "gpt-3.5-turbo",
       messages: [
         { role: "system", content: "あなたはユーザーの意図を正確に判断するAIです。yes/noのみで回答してください。" },
@@ -1699,7 +1713,7 @@ async function checkEngagementWithLLM(userMessage, history) {
       ],
       temperature: 0.1,
       max_tokens: 10
-    });
+    }));
     
     const result = response.choices[0].message.content.trim().toLowerCase();
     console.log(`LLM engagement check result: ${result}`);
@@ -2150,7 +2164,7 @@ ${additionalPromptData.jobTrends.analysis}`;
       model: model,
       messages: messages,
       temperature: temperature,
-      max_completion_tokens: maxTokens,
+      max_tokens: maxTokens,
             top_p: 1,
       frequency_penalty: 0,
       presence_penalty: 0,
@@ -2400,14 +2414,15 @@ async function processMessage(userId, messageText) {
     const systemPrompt = getSystemPromptForMode(mode);
     
     // AIを使用して応答を生成
-    const result = await processWithAI(systemPrompt, sanitizedMessage, historyData, mode, validatedUserId);
-    console.log(`AI応答生成完了: "${result.substring(0, 50)}${result.length > 50 ? '...' : ''}"`);
+    const resultRaw = await processWithAI(systemPrompt, sanitizedMessage, historyData, mode, validatedUserId);
+    const result = typeof resultRaw === 'string' ? resultRaw : (resultRaw?.text || resultRaw?.content || JSON.stringify(resultRaw));
+    console.log(`AI応答生成完了: "${String(result).substring(0, 50)}${String(result).length > 50 ? '...' : ''}"`);
     
     // 会話履歴を保存
     await storeInteraction(validatedUserId, 'user', sanitizedMessage);
-    await storeInteraction(validatedUserId, 'assistant', result);
+    await storeInteraction(validatedUserId, 'assistant', String(result));
     
-    return result;
+    return String(result);
   } catch (error) {
     console.error(`メッセージ処理エラー: ${error.message}`);
     console.error(error.stack);
@@ -2431,7 +2446,7 @@ async function buildClarificationReply(userMessage) {
 ${userMessage}
 """`;
 
-    const response = await openai.chat.completions.create({
+    const response = await openai.chat.completions.create(sanitizeOpenAIChatOptions({
       model: 'gpt-5',
       temperature: 0.3,
       max_tokens: 200,
@@ -2439,7 +2454,7 @@ ${userMessage}
         { role: 'system', content: '出力は必ず3行。追加の説明は書かない。' },
         { role: 'user', content: prompt }
       ]
-    });
+    }));
     const text = response.choices?.[0]?.message?.content?.trim();
     if (text) return text;
   } catch (err) {
@@ -2633,8 +2648,8 @@ async function handleImage(event) {
         apiKey: process.env.OPENAI_API_KEY
       });
       
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o",
+    const response = await openai.chat.completions.create(sanitizeOpenAIChatOptions({
+      model: "gpt-4o",
         messages: [
           {
             role: "user",
@@ -2649,8 +2664,8 @@ async function handleImage(event) {
             ]
           }
         ],
-        max_tokens: 500
-      });
+      max_tokens: 500
+    }));
       
       const analysis = response.choices[0].message.content;
       console.log(`Image analysis completed for user ${userId}`);
@@ -3180,8 +3195,8 @@ async function generateHistoryResponse(history) {
       // OpenAI APIを使用して特性分析を実行
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
       
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o",
+    const response = await openai.chat.completions.create(sanitizeOpenAIChatOptions({
+      model: "gpt-4o",
         messages: [
           {
             role: "system",
@@ -3226,8 +3241,8 @@ async function generateHistoryResponse(history) {
 ${userMessages.join('\n\n')}`
           }
         ],
-        max_tokens: 500
-      });
+      max_tokens: 500
+    }));
       
       console.log(`→ OpenAI API応答受信: ${response.choices[0].message.content.substring(0, 50)}...`);
       console.log(`→ レスポンスが「過去の記録がない」を含むか: ${response.choices[0].message.content.includes('過去の記録がない') || response.choices[0].message.content.includes('会話履歴がない')}`);
@@ -3434,7 +3449,7 @@ async function detectAdviceRequestWithLLM(userMessage, history) {
       apiKey: process.env.OPENAI_API_KEY
     });
     
-    const response = await openai.chat.completions.create({
+    const response = await openai.chat.completions.create(sanitizeOpenAIChatOptions({
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: "あなたはユーザーの意図を正確に判断するAIです。yes/noのみで回答してください。" },
@@ -3442,7 +3457,7 @@ async function detectAdviceRequestWithLLM(userMessage, history) {
       ],
       temperature: 0.1,
       max_tokens: 10
-    });
+    }));
     
     const result = response.choices[0].message.content.trim().toLowerCase();
     
@@ -3576,7 +3591,7 @@ async function checkImageSafety(base64Image) {
       apiKey: process.env.OPENAI_API_KEY
     });
     
-    const response = await openai.chat.completions.create({
+    const response = await openai.chat.completions.create(sanitizeOpenAIChatOptions({
       model: "gpt-4o-mini",
       messages: [
         {
@@ -3597,7 +3612,7 @@ async function checkImageSafety(base64Image) {
       ],
       max_tokens: 150,
       temperature: 0
-    });
+    }));
     
     const moderationResult = response.choices[0].message.content;
     console.log(`Image safety check (4o-mini): ${moderationResult}`);
