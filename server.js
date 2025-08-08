@@ -12,11 +12,10 @@ const axios = require('axios');
 const servicesData = require('./services');
 const { explicitAdvicePatterns } = require('./advice_patterns');
 // セキュリティ強化のための追加モジュール
-const rateLimit = require('express-rate-limit');
+const expressRateLimit = require('express-rate-limit');
 const xss = require('xss');
 const Tokens = require('csrf');
 const cors = require('cors');
-const rateLimit = require('./rateLimit');
 const crypto = require('crypto');
 
 // 画像生成モジュールをインポート
@@ -26,7 +25,7 @@ const imageGenerator = require('./imageGenerator');
 const sessions = {};
 
 // 音声メッセージレート制限
-const voiceRateLimiter = require('./rateLimit');
+const { middleware: voiceRateLimiter } = require('./rateLimit');
 
 // 新機能モジュールのインポート
 const insightsService = require('./insightsService');
