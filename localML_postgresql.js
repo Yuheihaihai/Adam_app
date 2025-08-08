@@ -130,20 +130,21 @@ class PostgreSQLLocalML {
       
       try {
         // 最近のデータのみ取得（パフォーマンス向上）
-        const query = `
-          SELECT user_id_hash, mode, analysis_data_encrypted, created_at, zk_proof
-          FROM user_ml_analysis_pre_encryption_backup 
-          WHERE created_at > NOW() - INTERVAL '30 days'
-          ORDER BY created_at DESC
-          LIMIT 10000
-        `;
+         // まず暗号バックアップテーブルを優先
+         const query = `
+           SELECT user_id_hash, mode, analysis_data_encrypted, created_at, zk_proof
+           FROM user_ml_analysis_pre_encryption_backup 
+           WHERE created_at > NOW() - INTERVAL '30 days'
+           ORDER BY created_at DESC
+           LIMIT 10000
+         `;
         
         const result = await client.query(query);
         
         let loadCount = 0;
         let errorCount = 0;
         
-        for (const row of result.rows) {
+         for (const row of result.rows) {
           try {
             // データ復号化
             const decryptedData = encryptionService.decrypt(row.analysis_data_encrypted);
@@ -174,6 +175,30 @@ class PostgreSQLLocalML {
         }
         
         console.log(`[PostgreSQL-LocalML] 読み込み完了: ${loadCount}件成功, ${errorCount}件エラー`);
+         
+         // 暗号データが全く読み込めなかった場合は、既存の平文テーブルにフォールバック
+         if (loadCount === 0) {
+           try {
+             console.log('[PostgreSQL-LocalML] 暗号バックアップからの復号に失敗。平文テーブル user_ml_analysis へフォールバックを試行');
+             const fallback = await client.query(`
+               SELECT user_id, 'general' as mode, analysis_data as analysis_data_json, created_at
+               FROM user_ml_analysis
+               ORDER BY created_at DESC
+               LIMIT 10000
+             `);
+             let fbCount = 0;
+             for (const row of fallback.rows) {
+               try {
+                 const userIdHash = crypto.createHash('sha256').update(row.user_id).digest('hex');
+                 await this._storeSecureAnalysisInMemory(userIdHash, row.mode, row.analysis_data_json);
+                 fbCount++;
+               } catch (_) {}
+             }
+             console.log(`[PostgreSQL-LocalML] フォールバック読み込み完了: ${fbCount}件`);
+           } catch (fbErr) {
+             console.warn('[PostgreSQL-LocalML] フォールバック読み込みエラー:', this._maskSensitiveData(fbErr.message));
+           }
+         }
         
       } finally {
         client.release();
@@ -264,7 +289,22 @@ class PostgreSQLLocalML {
         
         const result = await client.query(query, [userIdHash, mode]);
         
-        if (result.rows.length === 0) return null;
+        if (result.rows.length === 0) {
+          // 暗号バックアップに無い場合は平文テーブルへフォールバック
+          try {
+            const fb = await client.query(
+              `SELECT analysis_data FROM user_ml_analysis WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1`,
+              [userIdHash]
+            );
+            if (fb.rows.length === 0) return null;
+            const analysisData = fb.rows[0].analysis_data;
+            await this._storeSecureAnalysisInMemory(userIdHash, mode, analysisData);
+            return analysisData;
+          } catch (fbErr) {
+            console.warn('[PostgreSQL-LocalML] フォールバック取得エラー:', this._maskSensitiveData(fbErr.message));
+            return null;
+          }
+        }
         
         const row = result.rows[0];
         const decryptedData = encryptionService.decrypt(row.analysis_data_encrypted);

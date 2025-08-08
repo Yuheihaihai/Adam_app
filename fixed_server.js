@@ -2471,7 +2471,8 @@ async function fetchAndAnalyzeHistory(userId) {
   
   try {
     // PostgreSQLから最大200件のメッセージを取得
-    const pgHistory = await fetchUserHistory(userId, 200);
+    const historyResult = await fetchUserHistory(userId, 200);
+    const pgHistory = Array.isArray(historyResult?.history) ? historyResult.history : [];
     console.log(`📝 Found ${pgHistory.length} records from PostgreSQL in ${Date.now() - startTime}ms`);
     
     // [LEGACY REMOVED] Airtable統合ロジック削除: PostgreSQLのみ使用

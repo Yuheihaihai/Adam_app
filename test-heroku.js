@@ -71,7 +71,7 @@ async function main() {
 
     // 3) /session （CSRF保護のため外部からは403想定）
     const r3 = await request('POST', '/session', {});
-    const ok3 = r3.status === 403 || r3.status === 404; // 本番で不可視化されている場合も許容
+    const ok3 = r3.status === 403 || r3.status === 404 || r3.status === 401; // 本番で不可視化/未認証ブロックも許容
     results.push(ok3);
     log('POST /session (expect 403)', ok3, `status=${r3.status}`);
 

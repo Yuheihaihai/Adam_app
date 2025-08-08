@@ -439,11 +439,16 @@ async function fetchSecureUserHistory(userId, limit = 30) {
     );
     
     // 復号化して返却（該当ユーザーのデータのみ）
-    const decryptedHistory = result.rows.map(row => ({
-      ...row,
-      content: encryptionService.decrypt(row.content) || row.content,
-      user_id: userId // 元のIDに戻す
-    }));
+    const encryptedPattern = /^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}:.+/; // iv:authTag:cipherHex 形式
+    const decryptedHistory = result.rows.map(row => {
+      const isEncrypted = typeof row.content === 'string' && encryptedPattern.test(row.content);
+      const maybeDecrypted = isEncrypted ? encryptionService.decrypt(row.content) : null;
+      return {
+        ...row,
+        content: maybeDecrypted || row.content,
+        user_id: userId // 元のIDに戻す
+      };
+    });
     
     console.log(`🔐 [ULTRA-SECURE] Retrieved ${decryptedHistory.length} messages for user ${userId.substring(0, 8)}... (ABSOLUTE user isolation)`);
     return decryptedHistory;
