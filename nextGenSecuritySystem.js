@@ -92,7 +92,7 @@ const SECURITY_CONFIG = {
     // ゼロトラスト設定
     zeroTrust: {
         enabled: true,
-        defaultDeny: true, // デフォルトで全てを拒否
+        defaultDeny: false, // デフォルト拒否はオフ（スコアで制御）
         trustScoreThreshold: 70, // 70点以上で許可
         trustDecayRate: 0.1 // 信頼度の減衰率
     },
