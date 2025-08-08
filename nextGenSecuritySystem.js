@@ -1286,7 +1286,7 @@ function nextGenSecurityMiddleware(req, res, next) {
     
     try {
         // 1. 地理的フィルタリング
-        const geoCheck = geoFilter(ip);
+        const geoCheck = geoFilter(ip || '127.0.0.1');
         if (!geoCheck.allowed) {
             logSecurityEvent('GEO_BLOCKED', { ip, reason: geoCheck.reason });
             return res.status(403).json({
@@ -1341,7 +1341,7 @@ function nextGenSecurityMiddleware(req, res, next) {
         }
         
         // 6. 行動分析
-        const behaviorAnalysis = analyzeBehavior(ip, req);
+        const behaviorAnalysis = analyzeBehavior(ip || '127.0.0.1', req);
         if (behaviorAnalysis.riskScore > 70) {
             logSecurityEvent('BEHAVIOR_ANOMALY', {
                 ip,
