@@ -1413,32 +1413,50 @@ async function tryPrimaryThenBackup(gptOptions) {
   try {
     console.log('Attempting primary model (OpenAI):', gptOptions.model);
     const primary = await callPrimaryModel(gptOptions);
-    // 空応答はエラー相当としてバックアップへフォールバック
-    if (typeof primary !== 'string' || primary.trim() === '') {
-      console.warn('Primary model returned empty response. Falling back to Claude...');
-      try {
-        return await callClaudeModel(gptOptions.messages);
-      } catch (claudeErr) {
-        console.error('Claude also failed:', claudeErr);
-        return '';
-      }
+    if (typeof primary === 'string' && primary.trim() !== '') {
+      return primary;
     }
-    return primary;
+    console.warn('[AI Fallback] Primary model returned empty content. Trying Claude...');
+    // fall through to Claude
   } catch (err) {
     console.error('OpenAI error:', err);
     console.log('Attempting Claude fallback...');
-    try {
-      return await callClaudeModel(gptOptions.messages);
-    } catch (claudeErr) {
-      console.error('Claude also failed:', claudeErr);
-      if (err.code === 'rate_limit_exceeded' || claudeErr.code === 'rate_limit_exceeded') {
-        return 'アクセスが集中しています。しばらく待ってから試してください。';
-      } else if (err.code === 'context_length_exceeded' || claudeErr.code === 'context_length_exceeded') {
-        return 'メッセージが長すぎます。短く分けて送信してください。';
-      }
-      return '申し訳ありません。AIサービスが一時的に利用できません。しばらく経ってからお試しください。';
+  }
+  // Claude fallback path (also used when primary result is empty)
+  try {
+    const claude = await callClaudeModel(gptOptions.messages);
+    if (typeof claude === 'string' && claude.trim() !== '') {
+      return claude;
+    }
+    console.warn('[AI Fallback] Claude returned empty content. Trying reduced OpenAI request...');
+  } catch (claudeErr) {
+    console.error('Claude also failed:', claudeErr);
+    if (claudeErr?.code === 'rate_limit_exceeded') {
+      return 'アクセスが集中しています。しばらく待ってから試してください。';
+    } else if (claudeErr?.code === 'context_length_exceeded') {
+      return 'メッセージが長すぎます。短く分けて送信してください。';
     }
   }
+
+  // Last resort: reduce context and retry OpenAI once
+  try {
+    const reduced = { ...gptOptions };
+    const msgs = Array.isArray(reduced.messages) ? reduced.messages : [];
+    reduced.messages = msgs.slice(-20); // keep the latest 20
+    if (typeof reduced.max_tokens === 'number') {
+      reduced.max_tokens = Math.min(reduced.max_tokens, 800);
+    } else {
+      reduced.max_tokens = 800;
+    }
+    const retry = await callPrimaryModel(reduced);
+    if (typeof retry === 'string' && retry.trim() !== '') {
+      return retry;
+    }
+  } catch (retryErr) {
+    console.error('[AI Fallback] Reduced OpenAI retry failed:', retryErr?.message || retryErr);
+  }
+
+  return '申し訳ありません、応答の生成に失敗しました。少し時間をおいてもう一度お試しください。';
 }
 
 function securityFilterPrompt(userMessage) {
