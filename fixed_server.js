@@ -2904,11 +2904,24 @@ async function handleText(event) {
     }
     
     if (!audioResponse || !audioResponse.buffer) {
-      // 音声生成に失敗した場合はテキストのみ返信
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: replyMessage
-      });
+      // 音声生成に失敗した場合はテキストのみ返信（失敗時はpushにフォールバック）
+      try {
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: replyMessage
+        });
+      } catch (error) {
+        const status = error?.status || error?.statusCode || error?.response?.status;
+        const data = error?.response?.data;
+        console.error('LINE返信エラー(text only):', status, data || error.message);
+        if (userId) {
+          try {
+            await client.pushMessage(userId, { type: 'text', text: replyMessage });
+          } catch (pushErr) {
+            console.error('LINE pushMessage エラー(text fallback):', pushErr?.response?.status, pushErr?.response?.data || pushErr.message);
+          }
+        }
+      }
       return;
     }
     
@@ -2952,17 +2965,22 @@ async function handleText(event) {
             originalContentUrl: audioUrl,
             duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
           }
-        ]).catch(error => {
-          console.error('LINE返信エラー:', error.message);
-          // 音声メッセージ送信に失敗した場合、テキストのみで再試行
-          if (error.message.includes('400') || error.code === 'ERR_BAD_REQUEST') {
-            console.log('音声メッセージ送信失敗、テキストのみで再試行します');
-            return client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: replyMessage
-            }).catch(retryError => {
-              console.error('テキストのみの再試行も失敗:', retryError.message);
-            });
+        ]).catch(async (error) => {
+          const status = error?.status || error?.statusCode || error?.response?.status;
+          const data = error?.response?.data;
+          console.error('LINE返信エラー(audio+text):', status, data || error.message);
+          // 音声メッセージ送信に失敗した場合、テキストのみで再試行（さらにpushにフォールバック）
+          try {
+            await client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
+          } catch (retryError) {
+            console.error('テキストのみの再試行も失敗:', retryError?.response?.status, retryError?.response?.data || retryError.message);
+            if (userId) {
+              try {
+                await client.pushMessage(userId, { type: 'text', text: replyMessage });
+              } catch (pushErr) {
+                console.error('LINE pushMessage エラー(audio fallback):', pushErr?.response?.status, pushErr?.response?.data || pushErr.message);
+              }
+            }
           }
         });
       } catch (replyError) {
