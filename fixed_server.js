@@ -2374,11 +2374,12 @@ async function processMessage(userId, messageText) {
       return await buildClarificationReply(sanitizedMessage);
     }
     
-    // 管理者コマンドのチェック
+    // 管理者コマンドのチェック（isCommand を厳密に確認）
     const adminCommand = checkAdminCommand(sanitizedMessage);
-    if (adminCommand) {
+    if (adminCommand && adminCommand.isCommand) {
       console.log('管理者コマンドを検出しました');
-      return adminCommand;
+      // ここではテキストを返す（上位の handleText で正式処理を実施）
+      return `管理者コマンド(${adminCommand.type})を受け付けました。`;
     }
     
     // モードと履歴制限を決定
