@@ -33,7 +33,7 @@ const { userIsolationGuard } = require(path.resolve(__dirname, '../user_isolatio
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const out = { batch: 100, limit: null, execute: false, forceInsert: false };
+  const out = { batch: 100, limit: null, execute: false, forceInsert: false, allowNonLineIds: false };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--batch') out.batch = parseInt(args[++i], 10);
@@ -41,6 +41,7 @@ function parseArgs() {
     else if (a === '--execute') out.execute = true;
     else if (a === '--dry-run') out.execute = false;
     else if (a === '--force-insert') out.forceInsert = true;
+    else if (a === '--allow-non-line-ids') out.allowNonLineIds = true;
   }
   return out;
 }
@@ -54,14 +55,24 @@ function assertEnv(name) {
 function normalizeRecordFields(fields) {
   // Flexible mapping: try common variants, fallback to undefined
   const pick = (keys) => keys.map(k => fields[k]).find(v => v !== undefined);
-  return {
-    userId: pick(['user_id', 'User ID', 'userId', 'line_user_id', 'lineUserId']),
+  const raw = {
+    userId: pick(['user_id', 'User ID', 'UserID', 'userId', 'line_user_id', 'lineUserId']),
     content: pick(['content', 'message', 'text', 'Content']),
     role: pick(['role', 'sender_role', 'Role']) || 'user',
     timestamp: pick(['timestamp', 'created_at', 'time', 'Timestamp']),
     mode: pick(['mode', 'Mode']) || 'general',
-    messageType: pick(['message_type', 'messageType', 'type']) || 'text',
-    messageId: pick(['message_id', 'messageId', 'Message ID']) || null,
+    messageType: pick(['message_type', 'messageType', 'MessageType', 'type']) || 'text',
+    messageId: pick(['message_id', 'messageId', 'Message ID', 'MessageID']) || null,
+  };
+  const trim = (v, n) => (v == null ? v : String(v).substring(0, n));
+  return {
+    userId: raw.userId,
+    content: raw.content,
+    role: trim(raw.role, 50),
+    timestamp: raw.timestamp,
+    mode: trim(raw.mode, 50),
+    messageType: trim(raw.messageType, 50),
+    messageId: trim(raw.messageId, 255)
   };
 }
 
@@ -116,7 +127,7 @@ async function fetchAirtableAll({ apiKey, baseId, table, view, filter, batch, li
 }
 
 async function main() {
-  const { batch, limit, execute, forceInsert } = parseArgs();
+  const { batch, limit, execute, forceInsert, allowNonLineIds } = parseArgs();
   const apiKey = assertEnv('AIRTABLE_API_KEY');
   const baseId = assertEnv('AIRTABLE_BASE_ID');
   const table = assertEnv('AIRTABLE_TABLE');
@@ -131,12 +142,28 @@ async function main() {
     const records = await fetchAirtableAll({ apiKey, baseId, table, view, filter, batch, limit });
     console.log(`[import] Retrieved ${records.length} records from Airtable`);
 
-    let toInsert = 0, inserted = 0, skipped = 0;
+    let toInsert = 0, inserted = 0, skipped = 0, skippedInvalidUser = 0;
     for (const rec of records) {
       const f = normalizeRecordFields(rec.fields || {});
       if (!f.userId || !f.content || !f.timestamp) { skipped++; continue; }
-      // Verify user id integrity
-      await userIsolationGuard.verifyUserIdIntegrity(f.userId, 'airtable_import', { messageId: f.messageId });
+      // Verify user id integrity (optionally synthesize LINE-like ID)
+      try {
+        await userIsolationGuard.verifyUserIdIntegrity(f.userId, 'airtable_import', { messageId: f.messageId });
+      } catch (e) {
+        if (allowNonLineIds) {
+          const pseudo = 'U' + sha256Hex(f.userId).substring(0, 32);
+          try {
+            await userIsolationGuard.verifyUserIdIntegrity(pseudo, 'airtable_import', { messageId: f.messageId });
+            f.userId = pseudo;
+          } catch (_) {
+            skippedInvalidUser++;
+            continue;
+          }
+        } else {
+          skippedInvalidUser++;
+          continue;
+        }
+      }
       const hashedUserId = userIsolationGuard.generateSecureHashedUserId(f.userId);
       const when = parseTimestampFlexible(f.timestamp, rec);
       if (isNaN(when.getTime())) { skipped++; continue; }
@@ -179,7 +206,7 @@ async function main() {
       }
     }
 
-    console.log(JSON.stringify({ source_records: records.length, candidate_inserts: toInsert, inserted, skipped }));
+    console.log(JSON.stringify({ source_records: records.length, candidate_inserts: toInsert, inserted, skipped, skipped_invalid_user: skippedInvalidUser }));
   } finally {
     client.release();
     await pool.end();
