@@ -2952,60 +2952,31 @@ async function handleText(event) {
       return;
     }
     
-    // テキストと音声の両方を返信（ファイルが存在する場合のみ）
+    // まずテキストのみを返信（replyTokenを確実に消費）
+    try {
+      await client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
+    } catch (textErr) {
+      const status = textErr?.status || textErr?.statusCode || textErr?.response?.status;
+      const data = textErr?.response?.data;
+      console.error('LINEテキスト返信エラー:', status, data || textErr.message);
+      // 返信に失敗した場合はpushにフォールバック
+      try {
+        await client.pushMessage(userId, { type: 'text', text: replyMessage });
+      } catch (pushErr) {
+        console.error('LINE pushMessage エラー(text fallback):', pushErr?.response?.status, pushErr?.response?.data || pushErr.message);
+      }
+    }
+
+    // 音声ファイルが存在する場合は、別送（push）で音声を送付（失敗しても致命ではない）
     if (audioFileExists) {
       try {
-        await client.replyMessage(event.replyToken, [
-          {
-            type: 'text',
-            text: replyMessage
-          },
-          {
-            type: 'audio',
-            originalContentUrl: audioUrl,
-            duration: 60000, // 適当な値（実際の長さを正確に計算するのは難しい）
-          }
-        ]).catch(async (error) => {
-          const status = error?.status || error?.statusCode || error?.response?.status;
-          const data = error?.response?.data;
-          console.error('LINE返信エラー(audio+text):', status, data || error.message);
-          // 音声メッセージ送信に失敗した場合、テキストのみで再試行（さらにpushにフォールバック）
-          try {
-            await client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
-          } catch (retryError) {
-            console.error('テキストのみの再試行も失敗:', retryError?.response?.status, retryError?.response?.data || retryError.message);
-            if (userId) {
-              try {
-                await client.pushMessage(userId, { type: 'text', text: replyMessage });
-              } catch (pushErr) {
-                console.error('LINE pushMessage エラー(audio fallback):', pushErr?.response?.status, pushErr?.response?.data || pushErr.message);
-              }
-            }
-          }
+        await client.pushMessage(userId, {
+          type: 'audio',
+          originalContentUrl: audioUrl,
+          duration: 60000,
         });
-      } catch (replyError) {
-        console.error('メッセージ送信エラー:', replyError);
-        // エラー時はテキストのみでの送信を試みる
-        try {
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: replyMessage
-          }).catch(e => console.error('テキスト送信も失敗:', e.message));
-        } catch (textError) {
-          console.error('テキストのみの送信も失敗:', textError);
-        }
-      }
-    } else {
-      // テキストのみ返信
-      try {
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: replyMessage
-        }).catch(error => {
-          console.error('テキスト送信エラー:', error.message);
-        });
-      } catch (textError) {
-        console.error('テキスト送信エラー:', textError);
+      } catch (audioPushErr) {
+        console.error('LINE pushMessage エラー(audio secondary):', audioPushErr?.response?.status, audioPushErr?.response?.data || audioPushErr.message);
       }
     }
     
