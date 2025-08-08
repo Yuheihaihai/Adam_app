@@ -2885,6 +2885,39 @@ async function handleText(event) {
         replyMessage = '申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。';
       }
     }
+    // テキスト入力はテキストのみを返信
+    try {
+      await client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
+    } catch (textErr) {
+      const status = textErr?.status || textErr?.statusCode || textErr?.response?.status;
+      const data = textErr?.response?.data;
+      console.error('LINEテキスト返信エラー:', status, data || textErr.message);
+      if (userId) {
+        try {
+          await client.pushMessage(userId, { type: 'text', text: replyMessage });
+        } catch (pushErr) {
+          console.error('LINE pushMessage エラー(text fallback):', pushErr?.response?.status, pushErr?.response?.data || pushErr.message);
+        }
+      }
+    }
+
+    // セキュアな監視完了とギャップ分析（pushは環境フラグで制御）
+    if (requestId) {
+      const gapAnalysis = securedFunctionExecutionMonitor.completeMonitoring(requestId);
+      if (gapAnalysis && gapAnalysis.hasGap && SECURED_GAP_PUSH_ENABLED) {
+        console.log(`[SecuredFunctionMonitor] ギャップ検出: ${gapAnalysis.summary} (リスクレベル: ${gapAnalysis.overallRisk})`);
+        const llmExplanation = securedFunctionExecutionMonitor.generateLLMExplanation(gapAnalysis, text);
+        if (llmExplanation) {
+          try {
+            await client.pushMessage(userId, { type: 'text', text: llmExplanation });
+            console.log(`[SecuredFunctionMonitor] セキュアなギャップ説明をユーザーに送信完了`);
+          } catch (pushError) {
+            console.error(`[SecuredFunctionMonitor] ギャップ説明送信エラー:`, pushError);
+          }
+        }
+      }
+    }
+    return;
 
     // 利用制限チェック（音声応答生成後）
     if (audioResponse && audioResponse.limitExceeded) {
@@ -2951,31 +2984,20 @@ async function handleText(event) {
       return;
     }
     
-    // まずテキストのみを返信（replyTokenを確実に消費）
-    try {
-      await client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
-    } catch (textErr) {
-      const status = textErr?.status || textErr?.statusCode || textErr?.response?.status;
-      const data = textErr?.response?.data;
-      console.error('LINEテキスト返信エラー:', status, data || textErr.message);
-      // 返信に失敗した場合はpushにフォールバック
-      try {
-        await client.pushMessage(userId, { type: 'text', text: replyMessage });
-      } catch (pushErr) {
-        console.error('LINE pushMessage エラー(text fallback):', pushErr?.response?.status, pushErr?.response?.data || pushErr.message);
-      }
-    }
-
-    // 音声ファイルが存在する場合は、別送（push）で音声を送付（失敗しても致命ではない）
+    // 音声入力は音声のみを返信（成功時）
     if (audioFileExists) {
       try {
-        await client.pushMessage(userId, {
+        await client.replyMessage(event.replyToken, {
           type: 'audio',
           originalContentUrl: audioUrl,
           duration: 60000,
         });
-      } catch (audioPushErr) {
-        console.error('LINE pushMessage エラー(audio secondary):', audioPushErr?.response?.status, audioPushErr?.response?.data || audioPushErr.message);
+      } catch (audioReplyErr) {
+        console.error('LINE返信エラー(audio):', audioReplyErr?.response?.status, audioReplyErr?.response?.data || audioReplyErr.message);
+        // フォールバックとしてテキストのみ返信
+        try {
+          await client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
+        } catch (_) {}
       }
     }
     
