@@ -1404,8 +1404,13 @@ const anthropic = new Anthropic({
 
 // callPrimaryModel関数を元のシンプルな実装に戻す
 async function callPrimaryModel(gptOptions) {
-  const resp = await openai.chat.completions.create(gptOptions);
-  return resp.choices && resp.choices[0] && resp.choices[0].message ? resp.choices[0].message.content : '';
+  const safeOptions = { ...gptOptions };
+  if (typeof safeOptions.max_tokens !== 'undefined') {
+    safeOptions.max_completion_tokens = safeOptions.max_tokens;
+    delete safeOptions.max_tokens;
+  }
+  const resp = await openai.chat.completions.create(safeOptions);
+  return resp?.choices?.[0]?.message?.content ?? '';
 }
 
 async function callClaudeModel(messages) {
@@ -2145,7 +2150,7 @@ ${additionalPromptData.jobTrends.analysis}`;
       model: model,
       messages: messages,
       temperature: temperature,
-      max_tokens: maxTokens,
+      max_completion_tokens: maxTokens,
             top_p: 1,
       frequency_penalty: 0,
       presence_penalty: 0,
@@ -2174,15 +2179,16 @@ ${additionalPromptData.jobTrends.analysis}`;
     const aiResponseTime = Date.now() - aiResponseStartTime;
     console.log(`├─ AI response generated in ${aiResponseTime}ms`);
     
-    // Extract the content of the response
+    // Extract the content of the response (normalize to string)
     let aiResponse = '';
-    
     if (typeof response === 'string') {
-      // 文字列形式の応答の場合はそのまま使用
       aiResponse = response;
-    } else if (response.choices && response.choices[0] && response.choices[0].message) {
-      // OpenAI API format
-      aiResponse = response.choices[0].message.content || '';
+    } else if (response && typeof response === 'object') {
+      const maybeText = response?.choices?.[0]?.message?.content
+        || response?.content
+        || response?.text
+        || '';
+      aiResponse = typeof maybeText === 'string' ? maybeText : JSON.stringify(maybeText);
     }
     
     // レスポンス構造を詳細にログに出力
@@ -2238,7 +2244,7 @@ ${additionalPromptData.jobTrends.analysis}`;
     }
     
     // 応答が空の場合のエラーログ
-    if (!aiResponse || aiResponse.trim() === '') {
+    if (!aiResponse || (typeof aiResponse === 'string' && aiResponse.trim() === '')) {
       console.error(`⚠⚠⚠ 重大な警告: AIから空の応答を受け取りました ⚠⚠⚠`);
       // エラーをスローせず、空の応答をそのまま返す（上位関数でフォールバックメッセージが適用される）
     }
@@ -2246,6 +2252,7 @@ ${additionalPromptData.jobTrends.analysis}`;
     // 【新規】AIレスポンスのデバッグログ
     console.log(`\n===== AIレスポンス詳細 =====`);
     console.log(`→ レスポンス取得時間: ${aiResponseTime}ms`);
+    aiResponse = String(aiResponse || '');
     console.log(`→ レスポンス長: ${aiResponse.length}文字`);
     console.log(`→ レスポンス冒頭: ${aiResponse.substring(0, 100)}...`);
     
