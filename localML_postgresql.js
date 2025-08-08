@@ -63,8 +63,12 @@ class PostgreSQLLocalML {
         console.warn('[PostgreSQL-LocalML] 埋め込みサービス初期化失敗 - フォールバック使用');
       }
       
-      // PostgreSQLからセキュアデータ読み込み
-      await this._loadAllUserAnalysisFromPostgreSQL();
+      // 起動時一括プレロードはデフォルト無効化（大量復号エラー抑制・今朝までの方針へ回帰）
+      if (process.env.LOCALML_PRELOAD === 'true') {
+        await this._loadAllUserAnalysisFromPostgreSQL();
+      } else {
+        console.log('[PostgreSQL-LocalML] 起動時プレロードは無効化（LOCALML_PRELOAD=true で有効化可能）');
+      }
       console.log('[PostgreSQL-LocalML] セキュア初期化完了');
       
       return true;
@@ -882,34 +886,66 @@ class PostgreSQLLocalML {
       const client = await db.pool.connect();
       
       try {
-        const query = `
+        // 1) 暗号バックアップ（推奨）
+        const encQuery = `
           SELECT analysis_data_encrypted, created_at, data_version, zk_proof
           FROM user_ml_analysis_pre_encryption_backup 
           WHERE user_id_hash = $1 AND mode = $2
           ORDER BY created_at DESC
           LIMIT 1
         `;
-        
-        const result = await client.query(query, [hashedUserId, mode]);
-        
-        if (result.rows.length === 0) {
-          console.log(`[PostgreSQL-LocalML] No analysis data found for user ${userId.substring(0, 8)}..., mode: ${mode}`);
-          return null;
+        const encResult = await client.query(encQuery, [hashedUserId, mode]);
+
+        if (encResult.rows.length > 0) {
+          const row = encResult.rows[0];
+          const decryptedData = encryptionService.decrypt(row.analysis_data_encrypted);
+          if (decryptedData) {
+            const analysisData = JSON.parse(decryptedData);
+            console.log(`[PostgreSQL-LocalML] Successfully retrieved (encrypted) analysis for ${userId.substring(0, 8)}..., mode: ${mode}`);
+            // メモリにも保存
+            await this._storeSecureAnalysisInMemory(hashedUserId, mode, analysisData.analysisData || analysisData);
+            return analysisData;
+          } else {
+            console.warn('[PostgreSQL-LocalML] Failed to decrypt analysis data. Fallback to plaintext table will be attempted.');
+          }
+        } else {
+          console.log(`[PostgreSQL-LocalML] No encrypted analysis found for ${userId.substring(0, 8)}..., trying plaintext fallback.`);
         }
-        
-        const row = result.rows[0];
-        
-        // データ復号化
-        const decryptedData = encryptionService.decrypt(row.analysis_data_encrypted);
-        if (!decryptedData) {
-          console.error('[PostgreSQL-LocalML] Failed to decrypt analysis data');
-          return null;
+
+        // 2) 平文テーブル（ハッシュID一致）
+        try {
+          const fbHashed = await client.query(
+            `SELECT analysis_data FROM user_ml_analysis WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1`,
+            [hashedUserId]
+          );
+          if (fbHashed.rows.length > 0) {
+            const analysisData = fbHashed.rows[0].analysis_data;
+            await this._storeSecureAnalysisInMemory(hashedUserId, mode, analysisData);
+            console.log(`[PostgreSQL-LocalML] Fallback (plaintext, hashed user_id) successful for ${userId.substring(0, 8)}..., mode: ${mode}`);
+            return analysisData;
+          }
+        } catch (e1) {
+          console.warn('[PostgreSQL-LocalML] Plaintext (hashed user_id) fallback error:', this._maskSensitiveData(e1.message));
         }
-        
-        const analysisData = JSON.parse(decryptedData);
-        console.log(`[PostgreSQL-LocalML] Successfully retrieved analysis data for user ${userId.substring(0, 8)}..., mode: ${mode}`);
-        
-        return analysisData;
+
+        // 3) 平文テーブル（生ID一致）
+        try {
+          const fbPlain = await client.query(
+            `SELECT analysis_data FROM user_ml_analysis WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1`,
+            [userId]
+          );
+          if (fbPlain.rows.length > 0) {
+            const analysisData = fbPlain.rows[0].analysis_data;
+            await this._storeSecureAnalysisInMemory(hashedUserId, mode, analysisData);
+            console.log(`[PostgreSQL-LocalML] Fallback (plaintext, plain user_id) successful for ${userId.substring(0, 8)}..., mode: ${mode}`);
+            return analysisData;
+          }
+        } catch (e2) {
+          console.warn('[PostgreSQL-LocalML] Plaintext (plain user_id) fallback error:', this._maskSensitiveData(e2.message));
+        }
+
+        console.log(`[PostgreSQL-LocalML] No analysis data available after all fallbacks for ${userId.substring(0, 8)}..., mode: ${mode}`);
+        return null;
         
       } finally {
         client.release();
