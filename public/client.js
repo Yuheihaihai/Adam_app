@@ -1,8 +1,21 @@
 async function init() {
     try {
-        const tokenResponse = await fetch("/session");
+        // Fetch CSRF token first
+        const csrfRes = await fetch('/csrf');
+        const csrfData = await csrfRes.json();
+        const csrfToken = csrfData.token;
+        // Mint ephemeral key via POST with CSRF token
+        const tokenResponse = await fetch('/session', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ _csrf: csrfToken })
+        });
         const data = await tokenResponse.json();
-        const EPHEMERAL_KEY = data.client_secret.value;
+        const EPHEMERAL_KEY = data.client_secret?.value;
+        if (!EPHEMERAL_KEY) throw new Error('Failed to mint ephemeral key');
 
         const pc = new RTCPeerConnection();
 
@@ -30,7 +43,7 @@ async function init() {
         await pc.setLocalDescription(offer);
 
         const baseUrl = "https://api.openai.com/v1/realtime";
-        const model = "gpt-4o-realtime-preview-2024-12-17";
+        const model = "gpt-5-realtime-preview";
         const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
             method: "POST",
             body: offer.sdp,

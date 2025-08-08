@@ -20,7 +20,7 @@ const enhancedConfusionDetector = require('./enhancedConfusionDetector');
  */
 async function shouldShowServiceRecommendations(userMessage, conversationHistory = []) {
   try {
-    // Use the enhanced recommendation trigger system
+    // Use the enhanced recommendation trigger system (LLM/MLベース)
     const analysis = await enhancedRecommendationTrigger.analyzeServiceNeed(userMessage, conversationHistory);
     
     // If the analysis returns a trigger recommendation with sufficient confidence
@@ -41,7 +41,7 @@ async function shouldShowServiceRecommendations(userMessage, conversationHistory
  */
 async function analyzeServiceNeed(userMessage, conversationHistory = []) {
   try {
-    // Use the enhanced recommendation trigger system's full analysis
+    // Use the enhanced recommendation trigger system's full analysis (LLM/ML)
     return await enhancedRecommendationTrigger.analyzeServiceNeed(userMessage, conversationHistory);
   } catch (error) {
     console.error('Error in enhanced service need analysis:', error);

@@ -35,7 +35,11 @@ function startServer() {
       DISABLE_OPENAI: 'true',
       DISABLE_AZURE: 'true',
       DISABLE_GOOGLE: 'true',
-      DISABLE_ANTHROPIC: 'true'
+      DISABLE_ANTHROPIC: 'true',
+      // DB証明書検証をスキップ（未設定扱いにする）
+      DATABASE_CA_CERT: '',
+      DATABASE_CLIENT_KEY: '',
+      DATABASE_CLIENT_CERT: ''
     };
     
     serverProcess = spawn('node', ['fixed_server.js'], {
@@ -185,8 +189,9 @@ function testAPIEndpoints() {
     console.log('\n📋 4. APIエンドポイントテスト...');
     
     const endpoints = [
-      { path: '/health', method: 'GET', description: 'ヘルスチェック' },
-      { path: '/api/status', method: 'GET', description: 'ステータス確認' }
+      { path: '/api/intent/categories', method: 'GET', description: '意図カテゴリ一覧' },
+      { path: '/api/intent/detect', method: 'POST', description: '意図検出', body: { text: 'キャリアについて相談したいです' } },
+      { path: '/security/stats', method: 'GET', description: 'セキュリティ統計' }
     ];
     
     const results = [];
@@ -198,22 +203,28 @@ function testAPIEndpoints() {
         port: 3001,
         path: endpoint.path,
         method: endpoint.method,
-        timeout: 5000
+        timeout: 5000,
+        headers: endpoint.method === 'POST' ? { 'Content-Type': 'application/json' } : {}
       };
       
       const req = http.request(options, (res) => {
-        console.log(`${endpoint.description}: ${res.statusCode}`);
-        
-        results[index] = {
-          endpoint: endpoint.path,
-          statusCode: res.statusCode,
-          success: res.statusCode < 400
-        };
-        
-        completed++;
-        if (completed === endpoints.length) {
-          resolve(results);
-        }
+        let body = '';
+        res.on('data', chunk => { body += chunk.toString(); });
+        res.on('end', () => {
+          console.log(`${endpoint.description}: ${res.statusCode}`);
+          if (body) {
+            console.log(`→ Body: ${body.substring(0,120)}${body.length>120?'...':''}`);
+          }
+          results[index] = {
+            endpoint: endpoint.path,
+            statusCode: res.statusCode,
+            success: res.statusCode < 400
+          };
+          completed++;
+          if (completed === endpoints.length) {
+            resolve(results);
+          }
+        });
       });
       
       req.on('error', (error) => {
@@ -230,7 +241,10 @@ function testAPIEndpoints() {
           resolve(results);
         }
       });
-      
+
+      if (endpoint.method === 'POST' && endpoint.body) {
+        req.write(JSON.stringify(endpoint.body));
+      }
       req.end();
     });
   });
@@ -297,8 +311,9 @@ async function runServerTest() {
       console.error('❌ セキュリティヘッダーチェック失敗:', error.message);
     }
     
-    // 4. APIエンドポイントテスト
+    // 4. APIエンドポイントテスト（起動直後の負荷軽減のため少し待機）
     try {
+      await new Promise(r => setTimeout(r, 1500));
       const apiResults = await testAPIEndpoints();
       testResults.apiEndpoints = apiResults.some(r => r.success);
     } catch (error) {

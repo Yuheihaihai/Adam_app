@@ -1,0 +1,26 @@
+[
+  {
+    "id": "kaien",
+    "name": "Kaien（カイエン）",
+    "url": "https://www.kaien-lab.com/",
+    "description": "発達障害のある方のためのIT・事務職に特化した就労支援サービス",
+    "criteria": {
+      "needs": [
+        "seeking_job",
+        "technology_interest",
+        "neurodivergent_traits"
+      ],
+      "topics": [
+        "employment",
+        "mental_health"
+      ]
+    },
+    "tags": [
+      "neurodivergent",
+      "employment",
+      "IT",
+      "training"
+    ],
+    "cooldown_days": 14
+  }
+]

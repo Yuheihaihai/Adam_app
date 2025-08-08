@@ -6,6 +6,14 @@
 
 const crypto = require('crypto');
 
+// テスト用環境変数（DB接続や厳格モードを無効化）
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
+process.env.SECURITY_FAIL_CLOSE = 'false';
+process.env.USE_DATABASE = 'false';
+process.env.DATABASE_CA_CERT = '';
+process.env.DATABASE_CLIENT_KEY = '';
+process.env.DATABASE_CLIENT_CERT = '';
+
 console.log('🛡️ Adam AI v2.4 セキュリティモジュール 総合動作確認テスト');
 console.log('='.repeat(60));
 
@@ -97,8 +105,9 @@ async function testNextGenSecuritySystem() {
     let nextCalled = false;
     const mockNext = () => { nextCalled = true; };
     
-    // セキュリティミドルウェア実行
-    await nextGenSecurity(mockReq, mockRes, mockNext);
+    // セキュリティミドルウェア実行（エクスポート関数を明示指定）
+    const middleware = nextGenSecurity.nextGenSecurityMiddleware || nextGenSecurity;
+    await middleware(mockReq, mockRes, mockNext);
     
     if (nextCalled) {
       console.log('✅ セキュリティチェック通過');

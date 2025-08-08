@@ -12,9 +12,11 @@ const axios = require('axios');
 const servicesData = require('./services');
 const { explicitAdvicePatterns } = require('./advice_patterns');
 // セキュリティ強化のための追加モジュール
-const rateLimit = require('express-rate-limit');
+const expressRateLimit = require('express-rate-limit');
 const xss = require('xss');
 const Tokens = require('csrf');
+const cors = require('cors');
+const rateLimit = require('./rateLimit');
 const crypto = require('crypto');
 
 // Next-Generation セキュリティシステムをインポート
@@ -93,10 +95,8 @@ const ServiceRecommender = require('./serviceRecommender');
 // Import ML Hook for enhanced machine learning capabilities
 const { processMlData, analyzeResponseWithMl } = require('./mlHook');
 
-// Airtable削除済み: PostgreSQL移行完了のため不要
-// let airtableBase = null;
-// PostgreSQLのみを使用します
-console.log('PostgreSQL接続のみを使用します（Airtable削除済み）');
+// PostgreSQL移行完了: レガシーサポート用変数
+let airtableBase = null; // 残存コード互換性のためnullとして定義
 
 // Express アプリケーション初期化
 const app = express();
@@ -308,13 +308,14 @@ app.set('trust proxy', 1);
 // セキュリティヘッダーの強化
 app.use(helmet({
   contentSecurityPolicy: {
+    useDefaults: true,
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"], // 必要に応じて調整
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'", "https://api.openai.com", "https://api.anthropic.com", "https://api.perplexity.ai"],
-      frameAncestors: ["'none'"], // クリックジャッキング防止
+      frameAncestors: ["'none'"],
       objectSrc: ["'none'"],
       upgradeInsecureRequests: [],
     },
@@ -326,8 +327,15 @@ app.use(helmet({
   },
   noSniff: true,
   xssFilter: true,
-  referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
+  referrerPolicy: { policy: 'no-referrer' }
 }));
+// 追加ヘッダー
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  next();
+});
 app.use(timeout('120s'));
 // app.use(express.json()); // JSONボディの解析を有効化 - LINE webhookに影響するため削除
 
@@ -348,7 +356,7 @@ app.use('/api', (req, res, next) => {
 });
 
 // レートリミットの設定
-const apiLimiter = rateLimit({
+const apiLimiter = expressRateLimit({
   windowMs: 15 * 60 * 1000, // 15分間
   max: 100, // 15分間で最大100リクエスト
   standardHeaders: true,
@@ -381,15 +389,87 @@ const csrfProtection = (req, res, next) => {
   next();
 };
 
+// クライアント用のCSRFトークン発行エンドポイント（GET）
+app.get('/csrf', (req, res) => {
+  try {
+    const token = csrfTokens.create(process.env.CHANNEL_SECRET);
+    return res.json({ token });
+  } catch (e) {
+    return res.status(500).json({ error: 'failed_to_issue_csrf' });
+  }
+});
+
+// CORS（厳格）
+const ALLOW_ORIGINS = (process.env.ALLOW_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, false);
+    if (ALLOW_ORIGINS.includes(origin)) return callback(null, true);
+    return callback(new Error('CORS not allowed'), false);
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'X-Requested-With'],
+  credentials: false,
+  maxAge: 600
+};
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === 'development' && !ALLOW_ORIGINS.length) return next();
+  return cors(corsOptions)(req, res, next);
+});
+
+// JSONボディパーサを必要ルートに限定して適用
+app.use('/api/intent', express.json());
+app.use('/session', express.json());
+
 // 静的ファイルを提供する際に使用（実際のアプリで使用している場合）
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 音声ファイル用のtempディレクトリを静的に提供
 app.use('/temp', express.static(path.join(__dirname, 'temp')));
 
+// Realtime用エフェメラルキー発行エンドポイント（Webクライアントの /session 用）
+// /session: 認証/レート制限/CSRF/Origin検証
+app.post('/session', rateLimit.middleware, csrfProtection, express.json(), async (req, res) => {
+  try {
+    const origin = req.headers.origin || '';
+    const referer = req.headers.referer || '';
+    if (process.env.NODE_ENV === 'production') {
+      const allowed = ALLOW_ORIGINS.includes(origin) || ALLOW_ORIGINS.some(o => referer.startsWith(o));
+      if (!allowed) {
+        return res.status(403).json({ error: 'forbidden_origin' });
+      }
+    }
+    const response = await axios.post(
+      'https://api.openai.com/v1/realtime/sessions',
+      { model: 'gpt-5-realtime-preview' },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+    res.json(response.data);
+  } catch (error) {
+    console.error('Failed to create realtime session:', error.response?.data || error.message);
+    res.status(500).json({ error: 'failed_to_create_session' });
+  }
+});
+
 // APIルートの登録
 const intentRoutes = require('./routes/api/intent');
 app.use('/api/intent', intentRoutes);
+
+// 管理用セキュリティ統計（本番は管理者限定/非公開）
+app.get('/security/stats', (req, res) => {
+  const isAdmin = req.headers['x-admin-access'] === process.env.CHANNEL_SECRET || process.env.SECURITY_ENABLE_ADMIN_STATS === 'true';
+  if (process.env.NODE_ENV === 'production' && !isAdmin) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+  const stats = nextGenSecurity.getAdvancedSecurityStats();
+  res.json(stats);
+});
 
 // webhookエンドポイント用の特別な設定
 const rawBodyParser = express.json({
@@ -566,7 +646,7 @@ const INTERACTIONS_TABLE = 'ConversationHistory';
 
 // Initialize service hub components
 const userNeedsAnalyzer = new UserNeedsAnalyzer(process.env.OPENAI_API_KEY);
-const serviceRecommender = new ServiceRecommender(null); // Airtable削除済み、PostgreSQLのみ使用
+const serviceRecommender = new ServiceRecommender(null); // PostgreSQL移行済み
 // Load enhanced features
 require('./loadEnhancements')(serviceRecommender);
 
@@ -844,8 +924,13 @@ function isDeepExplorationRequest(text) {
   
   // 短いテスト用の部分フレーズ
   const deepExplorationPartial = 'もっと深く考えを掘り下げて';
-  
-  return text.includes(deepExplorationPhrase) || text.includes(deepExplorationPartial);
+  // 追加の自然な表現も許容
+  const additionalTriggers = ['もっと詳しく', '詳しく教えて', '掘り下げて'];
+  return (
+    text.includes(deepExplorationPhrase) ||
+    text.includes(deepExplorationPartial) ||
+    additionalTriggers.some(t => text.includes(t))
+  );
 }
 
 /**
@@ -928,7 +1013,7 @@ function determineModeAndLimit(userMessage) {
   if (isDeepExplorationRequest(userMessage)) {
     return {
       mode: 'deep-exploration',
-      tokenLimit: 8000,  // 掘り下げモードは詳細な回答が必要なので多めのトークン数
+      limit: 8000,  // 掘り下げモードは詳細な回答が必要なので多めのトークン数
       temperature: 0.7
     };
   }
@@ -965,7 +1050,12 @@ function determineModeAndLimit(userMessage) {
   ) {
     return { mode: 'characteristics', limit: 200 };
   }
-  if (lcMsg.includes('思い出して') || lcMsg.includes('今までの話')) {
+  if (
+    lcMsg.includes('思い出して') ||
+    lcMsg.includes('今までの話') ||
+    lcMsg.includes('今までの会話') ||
+    lcMsg.includes('要約して')
+  ) {
     return { mode: 'memoryRecall', limit: 200 };
   }
   if (
@@ -1104,9 +1194,7 @@ async function fetchUserHistory(userId, limit) {
   try {
     console.log(`Fetching history for user ${userId}, limit: ${limit}`);
     
-    // API認証情報の検証（デバッグ用）
-    console.log(`[接続検証] Airtable認証情報 => API_KEY存在: ${!!process.env.AIRTABLE_API_KEY}, BASE_ID存在: ${!!process.env.AIRTABLE_BASE_ID}`);
-    console.log(`[接続検証] airtableBase初期化状態: ${airtableBase ? '成功' : '未初期化'}`);
+    // [CLEANUP] PostgreSQL移行完了: 古いAirtable認証検証ログを削除
     
     // 履歴分析用のメタデータオブジェクトを初期化
     const historyMetadata = {
@@ -1122,169 +1210,18 @@ async function fetchUserHistory(userId, limit) {
       return { history: [], metadata: historyMetadata };
     }
     
-    // ConversationHistoryテーブルからの取得を試みる
-    try {
-      console.log(`ConversationHistory テーブルからユーザー ${userId} の履歴を取得中...`);
+    // PostgreSQL移行完了: Airtableからの履歴取得ロジックを削除
+    // 現在はdataInterface.jsとPostgreSQLのみを使用
+    console.log(`[LEGACY REMOVED] Airtable ConversationHistory取得ロジックは削除されました`);
           
-      // すべてのフィールドを確実に取得するためのカラム指定
-      const columns = ['UserID', 'Role', 'Content', 'Timestamp', 'Mode', 'MessageType'];
-      
-      // filterByFormulaとsortを設定
-          const conversationRecords = await airtableBase('ConversationHistory')
-            .select({
-              filterByFormula: `{UserID} = "${userId}"`,
-          sort: [{ field: 'Timestamp', direction: 'desc' }], // 降順に変更
-          fields: columns,  // 明示的にフィールドを指定
-              maxRecords: limit * 2 // userとassistantのやり取りがあるため、2倍のレコード数を取得
-            })
-            .all();
+      // [LEGACY REMOVED] Airtable ConversationHistory 呼び出しを削除
+      console.log(`[INFO] PostgreSQL経由でのみ履歴を取得します`);
             
-          if (conversationRecords && conversationRecords.length > 0) {
-        console.log(`Found ${conversationRecords.length} records for user in ConversationHistory table`);
-        
-        // 取得したデータを変換
-        const history = [];
-        
-        // 降順で取得したレコードを逆順（昇順）に処理
-        const recordsInAscOrder = [...conversationRecords].reverse();
-        
-        for (const record of recordsInAscOrder) {
-          try {
-            // デバッグを追加
-            if (history.length === 0) {
-              console.log(`\n===== レコード構造サンプル =====`);
-              console.log(`  レコードID: ${record.id}`);
-              console.log(`  フィールド: ${JSON.stringify(record.fields)}`);
-              console.log(`===== レコード構造サンプル終了 =====\n`);
-            }
-            
-            // フィールドから直接データを取得（最も一般的な方法）
-            const role = record.fields.Role || '';
-            const content = record.fields.Content || '';
-            
-            // データのチェック
-            if (!content || content.trim() === '') {
-              console.log(`⚠ 警告: レコード ${record.id} のContent (${content}) が空です。スキップします。`);
-              continue;
-            }
-            
-            // 正規化して追加
-            const normalizedRole = role.toLowerCase() === 'assistant' ? 'assistant' : 'user';
-            history.push({
-              role: normalizedRole,
-              content: content
-            });
-            
-          } catch (recordErr) {
-            console.error(`レコード処理エラー: ${recordErr.message}`);
-          }
-        }
-            
-            // 履歴の内容を分析
-        historyMetadata.totalRecords += history.length;
-            analyzeHistoryContent(history, historyMetadata);
-            
-        // 最新のlimit件を取得
-            if (history.length > limit) {
-              return { history: history.slice(-limit), metadata: historyMetadata };
-            }
-            return { history, metadata: historyMetadata };
-      } else {
-        console.log(`No records found for user ${userId} in ConversationHistory table`);
-          }
-        } catch (tableErr) {
-      console.error(`ConversationHistory table not found or error: ${tableErr.message}. Falling back to UserAnalysis.`);
-        }
-        
-    // ConversationHistoryが使えないかデータがない場合は旧テーブルからの取得を試みる
-        try {
-      const records = await airtableBase('UserAnalysis')
-            .select({
-          filterByFormula: `{UserID} = "${userId}"`,
-          maxRecords: 100
-            })
-            .all();
-            
-      if (records && records.length > 0) {
-        console.log(`Found ${records.length} records for user in original INTERACTIONS_TABLE`);
-        
-        // まず会話履歴として明示的に保存されたものを探す
-        const conversationRecord = records.find(r => r.get('Mode') === 'conversation');
-        if (conversationRecord) {
-          try {
-            const analysisData = conversationRecord.get('AnalysisData');
-            if (analysisData) {
-              let data;
-              try {
-                data = JSON.parse(analysisData);
-                if (data && data.conversation && Array.isArray(data.conversation)) {
-                  const history = data.conversation;
-                  
-                  // 履歴の内容を分析
-                  historyMetadata.totalRecords += history.length;
-                  analyzeHistoryContent(history, historyMetadata);
-                  
-                  // 最新のlimit件を取得
-                  if (history.length > limit) {
-                    return { history: history.slice(-limit), metadata: historyMetadata };
-                  }
-                  return { history, metadata: historyMetadata };
-                }
-              } catch (jsonErr) {
-                console.error(`JSON parse error in AnalysisData: ${jsonErr.message}`);
-              }
-            }
-          } catch (getErr) {
-            console.error(`Error getting AnalysisData: ${getErr.message}`);
-          }
-        }
-        
-        // 履歴レコードが見つからない場合は、テキストフィールドから最小限の情報を抽出
-        const history = [];
-        
-        for (const record of records) {
-          try {
-            const userMessage = record.get('UserMessage');
-            const aiResponse = record.get('AIResponse');
-            
-            if (userMessage && userMessage.trim() !== '') {
-              history.push({
-                role: 'user',
-                content: userMessage
-              });
-            }
-            
-            if (aiResponse && aiResponse.trim() !== '') {
-              history.push({
-                role: 'assistant',
-                content: aiResponse
-              });
-            }
-          } catch (recordErr) {
-            // エラーは無視して次のレコードを処理
-          }
-        }
+          // [LEGACY REMOVED] conversationRecordsブロック削除開始
+    // [LEGACY REMOVED] Airtable処理ブロック完全削除完了
     
-    // 履歴の内容を分析
-        historyMetadata.totalRecords += history.length;
-    analyzeHistoryContent(history, historyMetadata);
-    
-        // 時間順に並べ替え (最も古いものから新しいものへ)
-        history.sort((a, b) => {
-          const timestampA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-          const timestampB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-          return timestampA - timestampB;
-        });
-        
-        // 最新のlimit件を取得
-        if (history.length > limit) {
-          return { history: history.slice(-limit), metadata: historyMetadata };
-        }
-    return { history, metadata: historyMetadata };
-      }
-    } catch (tableErr) {
-      console.error(`UserAnalysis table error: ${tableErr.message}`);
-    }
+    // PostgreSQL移行完了: 空の履歴を返す（後でPostgreSQL処理に置き換え予定）
+    // [LEGACY REMOVED] 削除完了: 全Airtable UserAnalysis処理ブロック
     
     // どちらのテーブルからも取得できなかった場合は空配列を返す
     return { history: [], metadata: historyMetadata };
@@ -1838,7 +1775,7 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     
     // Determine which model to use
     const useGpt4 = mode === 'characteristics' || mode === 'analysis';
-    const model = useGpt4 ? 'chatgpt-4o-latest' : 'chatgpt-4o-latest';
+    const model = useGpt4 ? 'gpt-5' : 'gpt-5';
     console.log(`Using model: ${model}`);
     
     // ─────────────────────────────────────────────────────────────────────
@@ -2417,7 +2354,7 @@ async function processMessage(userId, messageText) {
     // 混乱状態のチェック
     if (isConfusionRequest(sanitizedMessage)) {
       console.log('混乱状態の質問を検出しました');
-      return '申し訳ありませんが、質問の意図が明確ではありません。もう少し詳しく教えていただけますか？';
+      return await buildClarificationReply(sanitizedMessage);
     }
     
     // 管理者コマンドのチェック
@@ -2452,6 +2389,42 @@ async function processMessage(userId, messageText) {
     console.error(error.stack);
     return '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
   }
+}
+
+// 曖昧な入力時に、前向きで選びやすい確認メッセージを返す
+async function buildClarificationReply(userMessage) {
+  try {
+    const prompt = `あなたは丁寧で要点を外さない日本語アシスタントです。次のユーザー発話を簡潔に要約し、その要約に基づいて「〜と解釈しました。これで合っていますか？」という確認文と、解釈確認に役立つ関連の追い質問を1つ提示してください。
+
+出力要件:
+1行目: 要約（1文・40文字以内）
+2行目: 解釈確認（「〜と解釈しました。これで合っていますか？」）
+3行目: 関連する追い質問（1問のみ、具体的）
+禁止: 不要な謝罪表現、冗長表現、敬語の過剰装飾
+
+ユーザー発話:
+"""
+${userMessage}
+"""`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-5',
+      temperature: 0.3,
+      max_tokens: 200,
+      messages: [
+        { role: 'system', content: '出力は必ず3行。追加の説明は書かない。' },
+        { role: 'user', content: prompt }
+      ]
+    });
+    const text = response.choices?.[0]?.message?.content?.trim();
+    if (text) return text;
+  } catch (err) {
+    console.warn('clarification LLM fallback:', err.message);
+  }
+  const excerpt = (userMessage || '').slice(0, 40);
+  return `要約: 「${excerpt}」に関するご相談
+「${excerpt}」という趣旨と解釈しました。これで合っていますか？
+差し支えなければ、目的や状況（いつ・どこで・誰と・何のために）を一言で教えてください。`;
 }
 
 async function handleChatRecallWithRetries(userId, messageText) {
@@ -2506,47 +2479,8 @@ async function fetchAndAnalyzeHistory(userId) {
     const pgHistory = await fetchUserHistory(userId, 200);
     console.log(`📝 Found ${pgHistory.length} records from PostgreSQL in ${Date.now() - startTime}ms`);
     
-    // Airtableからも追加でデータを取得（可能な場合）
-    let airtableHistory = [];
-    try {
-      if (process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID) {
-        const airtable = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY });
-        const base = airtable.base(process.env.AIRTABLE_BASE_ID);
-        
-        // Airtableからの取得を試みる（200件に増加）
-        const records = await base('ConversationHistory')
-          .select({
-            filterByFormula: `{userId} = '${userId}'`,
-            sort: [{ field: 'timestamp', direction: 'desc' }],
-            maxRecords: 200
-          })
-          .all();
-        
-        airtableHistory = records.map(record => ({
-          role: record.get('role') || 'user',
-          content: record.get('content') || '',
-          timestamp: record.get('timestamp') || new Date().toISOString()
-        }));
-        
-        console.log(`📝 Found additional ${airtableHistory.length} records from Airtable`);
-      }
-    } catch (airtableError) {
-      console.error(`⚠️ Error fetching from Airtable: ${airtableError.message}`);
-      // Airtableからの取得に失敗しても処理を続行
-    }
-    
-    // 両方のソースからのデータを結合
+    // [LEGACY REMOVED] Airtable統合ロジック削除: PostgreSQLのみ使用
     const combinedHistory = [...pgHistory];
-    
-    // 重複を避けるために、既にPGに存在しないAirtableのデータのみを追加
-    const pgContentSet = new Set(pgHistory.map(msg => `${msg.role}:${msg.content}`));
-    
-    for (const airtableMsg of airtableHistory) {
-      const key = `${airtableMsg.role}:${airtableMsg.content}`;
-      if (!pgContentSet.has(key)) {
-        combinedHistory.push(airtableMsg);
-      }
-    }
     
     // タイムスタンプでソート（新しい順）
     combinedHistory.sort((a, b) => {
@@ -3347,14 +3281,9 @@ async function restorePendingImageRequests() {
   try {
     console.log('Attempting to restore pending image generation requests...');
     
-    if (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID) {
-      console.log('Airtable credentials not found. Cannot restore pending image requests.');
-      return;
-    }
-    
-    // グローバル変数のairtableBaseを使用
-    if (!airtableBase) {
-      console.error('Airtable connection not initialized. Cannot restore pending image requests.');
+    // PostgreSQL移行版: データベース接続チェック
+    if (!pool) {
+      console.error('PostgreSQL connection not available. Cannot restore pending image requests.');
       return;
     }
     
@@ -3362,19 +3291,22 @@ async function restorePendingImageRequests() {
     const cutoffTime = new Date(Date.now() - 30 * 60 * 1000); // 30分前
     const cutoffTimeStr = cutoffTime.toISOString();
     
-    const pendingProposals = await airtableBase('ConversationHistory')
-      .select({
-        filterByFormula: `AND(SEARCH("[画像生成提案]", {Content}) > 0, {Timestamp} > "${cutoffTimeStr}")`,
-        sort: [{ field: 'Timestamp', direction: 'desc' }]
-      })
-      .firstPage();
+    // PostgreSQL版: 過去30分以内の画像生成提案を検索
+    const pendingProposals = await pool.query(`
+      SELECT user_id, content, timestamp, id
+      FROM user_messages 
+      WHERE content LIKE '%[画像生成提案]%' 
+        AND role = 'assistant'
+        AND timestamp > $1
+      ORDER BY timestamp DESC
+    `, [cutoffTime]);
     
-    console.log(`Found ${pendingProposals.length} recent image generation proposals`);
+    console.log(`Found ${pendingProposals.rows.length} recent image generation proposals`);
     
     // 各提案についてユーザーの応答をチェック
-    for (const proposal of pendingProposals) {
-      const userId = proposal.get('UserID');
-      const proposalTime = new Date(proposal.get('Timestamp')).getTime();
+    for (const proposal of pendingProposals.rows) {
+      const userId = proposal.user_id;
+      const proposalTime = new Date(proposal.timestamp).getTime();
       const now = Date.now();
       
       // タイムアウトチェック
@@ -3383,31 +3315,33 @@ async function restorePendingImageRequests() {
         continue;
       }
       
-      // 提案後のユーザー応答を確認
-      const userResponses = await airtableBase('ConversationHistory')
-        .select({
-          filterByFormula: `AND({UserID} = "${userId}", {Role} = "user", {Timestamp} > "${proposal.get('Timestamp')}")`,
-          sort: [{ field: 'Timestamp', direction: 'asc' }]
-        })
-        .firstPage();
+      // PostgreSQL版: 提案後のユーザー応答を確認
+      const userResponses = await pool.query(`
+        SELECT * FROM user_messages 
+        WHERE user_id = $1 
+          AND role = 'user' 
+          AND timestamp > $2 
+        ORDER BY timestamp ASC
+      `, [userId, proposal.timestamp]);
       
-      console.log(`[DEBUG-RESTORE] User ${userId}: proposal time=${new Date(proposalTime).toISOString()}, found ${userResponses.length} responses after proposal`);
+      console.log(`[DEBUG-RESTORE] User ${userId}: proposal time=${new Date(proposalTime).toISOString()}, found ${userResponses.rows.length} responses after proposal`);
       
       // ユーザーが応答していない場合、提案を保留中として復元
-      if (userResponses.length === 0) {
+      if (userResponses.rows.length === 0) {
         console.log(`[DEBUG-RESTORE] Restoring pending image proposal for user ${userId} - no responses found after proposal`);
         
-        // 最後のアシスタントメッセージを取得（提案の直前のメッセージ）
-        const lastMessages = await airtableBase('ConversationHistory')
-          .select({
-            filterByFormula: `AND({UserID} = "${userId}", {Role} = "assistant", {Timestamp} < "${proposal.get('Timestamp')}")`,
-            sort: [{ field: 'Timestamp', direction: 'desc' }],
-            maxRecords: 1
-          })
-          .firstPage();
+        // PostgreSQL版: 提案以前の最後のアシスタントメッセージを取得
+        const lastMessages = await pool.query(`
+          SELECT * FROM user_messages 
+          WHERE user_id = $1 
+            AND role = 'assistant' 
+            AND timestamp < $2 
+          ORDER BY timestamp DESC 
+          LIMIT 1
+        `, [userId, proposal.timestamp]);
         
-        if (lastMessages.length > 0) {
-          const content = lastMessages[0].get('Content');
+        if (lastMessages.rows.length > 0) {
+          const content = lastMessages.rows[0].content;
           pendingImageExplanations.set(userId, {
             content: content,
             timestamp: proposalTime
@@ -3418,8 +3352,8 @@ async function restorePendingImageRequests() {
         }
       } else {
         console.log(`[DEBUG-RESTORE] User ${userId} already responded after proposal, not restoring`);
-        if (userResponses.length > 0) {
-          console.log(`[DEBUG-RESTORE] First response: "${userResponses[0].get('Content')}" at ${userResponses[0].get('Timestamp')}`);
+        if (userResponses.rows.length > 0) {
+          console.log(`[DEBUG-RESTORE] First response: "${userResponses.rows[0].content}" at ${userResponses.rows[0].timestamp}`);
         }
       }
     }

@@ -1,17 +1,33 @@
 // intentDetectionModel.js
-const tf = require('@tensorflow/tfjs');
+let tf;
+if (process.env.DISABLE_TENSORFLOW === 'true') {
+  // Minimal mock to avoid runtime require in test or lightweight envs
+  tf = {
+    sequential: () => ({ add: () => {}, compile: () => {}, predict: () => ({ data: async () => new Float32Array(13) }), getWeights: () => [] }),
+    layers: { embedding: () => ({}), conv1d: () => ({}), globalMaxPooling1d: () => ({}), dense: () => ({}), dropout: () => ({}) },
+    tensor2d: () => ({}),
+    dispose: () => {},
+    env: () => ({ set: () => {} }),
+    train: { adam: () => ({}) },
+    models: { modelFromJSON: () => ({}) }
+  };
+} else {
+  tf = require('@tensorflow/tfjs');
+  // Suppress TensorFlow warnings by configuring the environment
+  try {
+    tf.env().set('WEBGL_CPU_FORWARD', false);
+    tf.env().set('WEBGL_FORCE_F16_TEXTURES', false);
+    tf.env().set('WEBGL_RENDER_FLOAT32_ENABLED', true);
+    tf.env().set('WEBGL_FLUSH_THRESHOLD', 1);
+  } catch {}
+}
 const natural = require('natural');
 const { WordTokenizer } = natural;
 const tokenizer = new WordTokenizer();
 const path = require('path');
 const fs = require('fs');
 
-// Suppress TensorFlow warnings by configuring the environment
-// This doesn't improve performance but prevents the warnings from cluttering logs
-tf.env().set('WEBGL_CPU_FORWARD', false); // Force CPU ops to run on CPU
-tf.env().set('WEBGL_FORCE_F16_TEXTURES', false);
-tf.env().set('WEBGL_RENDER_FLOAT32_ENABLED', true);
-tf.env().set('WEBGL_FLUSH_THRESHOLD', 1); // Reduce memory pressure
+// (env configured above when enabled)
 
 // 共有メモリストア
 const memoryStore = require('./memoryStore');

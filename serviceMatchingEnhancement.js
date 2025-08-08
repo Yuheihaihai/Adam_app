@@ -31,29 +31,7 @@ function initialize(existingServiceRecommender) {
  * @returns {Promise<boolean>} - True if the user is explicitly requesting recommendations
  */
 async function isExplicitRecommendationRequest(userMessage, conversationHistory = []) {
-  // Direct keyword check for very obvious cases (fast)
-  const recommendationKeywords = [
-    'オススメ', 'おすすめ', 'お勧め', 'サービス', 'サポート', '紹介', 
-    '助けて', '支援', 'アドバイス', '相談', '教えて', '案内'
-  ];
-  
-  // Check for explicit recommendation request patterns
-  const explicitPatterns = [
-    '何かおすすめ', 'おすすめはありますか', 'オススメある', 'サービスを教えて',
-    'サービスの紹介', 'サービスを案内', 'サービスのアドバイス', 'サービスの提案',
-    'おすすめのサービス', 'オススメのサービス', 'お勧めのサービス',
-    'サービスを紹介', 'どんなサービス', 'どのようなサービス'
-  ];
-  
-  // Check for explicit patterns (very high confidence cases)
-  for (const pattern of explicitPatterns) {
-    if (userMessage.includes(pattern)) {
-      console.log(`[ServiceEnhancement] Explicit recommendation request detected: "${pattern}"`);
-      return true;
-    }
-  }
-  
-  // Use enhanced recommendation trigger for more subtle cases
+  // キーワードは廃止。LLM/MLで判定（会話文脈・感情を含む）。
   return await enhancedFeatures.shouldShowServiceRecommendations(userMessage, conversationHistory);
 }
 

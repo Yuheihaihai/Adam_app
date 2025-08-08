@@ -7,7 +7,8 @@
     "start": "node main.js",
     "dev": "nodemon main.js",
     "clean": "node cleanup.js",
-    "test": "jest"
+    "test": "jest",
+    "vendor:discover": "node scripts/runVendorDiscovery.js"
   },
   "keywords": [
     "ai",
@@ -26,6 +27,7 @@
     "axios": "^1.11.0",
     "bcrypt": "^5.1.1",
     "connect-timeout": "^1.9.0",
+    "cors": "^2.8.5",
     "csrf": "^3.1.0",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
@@ -37,7 +39,9 @@
     "openai": "^4.0.0",
     "pg": "^8.16.3",
     "rt-client": "^0.5.1",
-    "xss": "^1.0.15"
+    "xss": "^1.0.15",
+    "uuid": "^9.0.1",
+    "node-schedule": "^2.1.1"
   },
   "devDependencies": {
     "dotenv-cli": "^8.0.0",

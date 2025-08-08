@@ -145,42 +145,21 @@ class ServiceMatchingUtils {
     }
     
     try {
-      // Embeddingによる事前フィルタリング
-      const opennessSamples = [
-        "何かいいサービスを教えてください",
-        "助けになる情報がほしい",
-        "どうすればいいかわからない",
-        "対応できる支援はありますか",
-        "アドバイスをください"
-      ];
-      
-      // サンプルをまとめて1つのテキストにしてAPI呼び出し削減
-      const combinedSamples = opennessSamples.join(". ");
-      const samplesEmbedding = await this.embeddingService.getEmbeddingWithRateLimit(combinedSamples);
+      // Embedding＋LLMで判定（キーワードは廃止）
       const messageEmbedding = await this.embeddingService.getEmbeddingWithRateLimit(userMessage);
-      
-      // コサイン類似度を計算
-      const similarity = this.embeddingService.embeddingService.calculateSimilarity(
-        samplesEmbedding, 
-        messageEmbedding
+      const centroid = await this.embeddingService.getEmbeddingWithRateLimit(
+        "支援が必要, サービス提案, 相談したい, 困りごと, 具体的な手助けが欲しい"
       );
-      
-      // 正規化
+      const similarity = this.embeddingService.embeddingService.calculateSimilarity(centroid, messageEmbedding);
       const normalizedScore = (similarity + 1) / 2;
-      
-      // スコアで判断
-      if (normalizedScore < 0.3) {
-        // 低スコアはサービス表示しない
-        return false;
-      } else if (normalizedScore > 0.7) {
-        // 高スコアは直接表示
-        return true;
-      } else {
-        // 中間スコアはLLMで判断（従来機能を活用）
-        return typeof detectAdviceRequestWithLLM === 'function'
-          ? detectAdviceRequestWithLLM(userMessage, history)
-          : true;
-      }
+
+      if (normalizedScore < 0.35) return false;
+      if (normalizedScore > 0.75) return true;
+
+      // 中間域はLLMに委譲
+      return typeof detectAdviceRequestWithLLM === 'function'
+        ? detectAdviceRequestWithLLM(userMessage, history)
+        : true;
     } catch (error) {
       console.error('Error in service recommendation decision:', error);
       // フォールバック：従来の方法

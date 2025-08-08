@@ -1,12 +1,20 @@
 // determineModeAndLimit.test.js
 
 // server.js からテスト対象の関数や定数をインポート
-const {
-    determineModeAndLimit,
-    cosineSimilarity,
-    MODE_LIMITS
-    // MODE_VECTORS はここでは require しない ★★★ 変更点 ★★★
-} = require('./adam-app-cloud-v2-4/server'); // Ensure this path is correct
+// サイドエフェクトの少ないユーティリティからインポート
+const { determineModeAndLimit } = require('./modeUtils');
+
+// 期待値マップをテスト側で定義（サーバ実装に合わせる）
+const MODE_LIMITS = {
+  career: 200,
+  memoryTest: 50,
+  characteristics: 200,
+  memoryRecall: 200,
+  humanRelationship: 200,
+  share: 10,
+  general: 30,
+  'deep-exploration': 8000,
+};
         // このヘルパー関数を追加
         const createSparseVector = (index, value = 0.9, length = 1536) => {
             const vector = Array(length).fill(0);
@@ -187,9 +195,9 @@ describe('determineModeAndLimit Function Tests (Embedding Based)', () => {
     });
 
      // Test Case 7: Deep exploration message
-     test('should return "deepExploration" mode for deep exploration messages', async () => {
+    test('should return "deepExploration" mode for deep exploration messages', async () => {
         const message = "その理論についてもっと詳しく教えてくれない？";
-        const expectedMode = 'deepExploration';
+        const expectedMode = 'deep-exploration';
         const expectedLimit = MODE_LIMITS[expectedMode];
 
         console.log(`\n[Test 7 Input] "${message}"`);

@@ -15,6 +15,8 @@ const { explicitAdvicePatterns } = require('./advice_patterns');
 const rateLimit = require('express-rate-limit');
 const xss = require('xss');
 const Tokens = require('csrf');
+const cors = require('cors');
+const rateLimit = require('./rateLimit');
 const crypto = require('crypto');
 
 // 画像生成モジュールをインポート
@@ -382,6 +384,38 @@ const csrfProtection = (req, res, next) => {
   
   next();
 };
+
+// クライアント用のCSRFトークン発行エンドポイント（GET）
+app.get('/csrf', (req, res) => {
+  try {
+    const token = csrfTokens.create(process.env.CHANNEL_SECRET);
+    return res.json({ token });
+  } catch (e) {
+    return res.status(500).json({ error: 'failed_to_issue_csrf' });
+  }
+});
+
+// CORS（厳格）
+const ALLOW_ORIGINS = (process.env.ALLOW_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, false);
+    if (ALLOW_ORIGINS.includes(origin)) return callback(null, true);
+    return callback(new Error('CORS not allowed'), false);
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'X-Requested-With'],
+  credentials: false,
+  maxAge: 600
+};
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === 'development' && !ALLOW_ORIGINS.length) return next();
+  return cors(corsOptions)(req, res, next);
+});
+
+// JSONボディパーサを必要ルートに限定して適用
+app.use('/api/intent', express.json());
+app.use('/session', express.json());
 
 // 静的ファイルを提供する際に使用（実際のアプリで使用している場合）
 app.use(express.static(path.join(__dirname, 'public')));
@@ -786,8 +820,13 @@ function isDeepExplorationRequest(text) {
   
   // 短いテスト用の部分フレーズ
   const deepExplorationPartial = 'もっと深く考えを掘り下げて';
-  
-  return text.includes(deepExplorationPhrase) || text.includes(deepExplorationPartial);
+  // 追加の自然な表現も許容
+  const additionalTriggers = ['もっと詳しく', '詳しく教えて', '掘り下げて'];
+  return (
+    text.includes(deepExplorationPhrase) ||
+    text.includes(deepExplorationPartial) ||
+    additionalTriggers.some(t => text.includes(t))
+  );
 }
 
 /**
@@ -866,7 +905,7 @@ function determineModeAndLimit(userMessage) {
   if (isDeepExplorationRequest(userMessage)) {
     return {
       mode: 'deep-exploration',
-      tokenLimit: 8000,  // 掘り下げモードは詳細な回答が必要なので多めのトークン数
+      limit: 8000,  // 掘り下げモードは詳細な回答が必要なので多めのトークン数
       temperature: 0.7
     };
   }
@@ -903,7 +942,12 @@ function determineModeAndLimit(userMessage) {
   ) {
     return { mode: 'characteristics', limit: 200 };
   }
-  if (lcMsg.includes('思い出して') || lcMsg.includes('今までの話')) {
+  if (
+    lcMsg.includes('思い出して') ||
+    lcMsg.includes('今までの話') ||
+    lcMsg.includes('今までの会話') ||
+    lcMsg.includes('要約して')
+  ) {
     return { mode: 'memoryRecall', limit: 200 };
   }
   if (
@@ -1714,7 +1758,7 @@ async function processWithAI(systemPrompt, userMessage, historyData, mode, userI
     
     // Determine which model to use
     const useGpt4 = mode === 'characteristics' || mode === 'analysis';
-    const model = useGpt4 ? 'chatgpt-4o-latest' : 'chatgpt-4o-latest';
+    const model = useGpt4 ? 'gpt-5' : 'gpt-5';
     console.log(`Using model: ${model}`);
     
     // ─────────────────────────────────────────────────────────────────────
@@ -2286,7 +2330,7 @@ async function processMessage(userId, messageText) {
     // 混乱状態のチェック
     if (isConfusionRequest(sanitizedMessage)) {
       console.log('混乱状態の質問を検出しました');
-      return '申し訳ありませんが、質問の意図が明確ではありません。もう少し詳しく教えていただけますか？';
+      return await buildClarificationReply(sanitizedMessage);
     }
     
     // 管理者コマンドのチェック
@@ -2327,6 +2371,42 @@ async function processMessage(userId, messageText) {
     console.error(error.stack);
     return '申し訳ありません、メッセージの処理中にエラーが発生しました。しばらく経ってからもう一度お試しください。';
   }
+}
+
+// 曖昧な入力時に、前向きで選びやすい確認メッセージを返す
+async function buildClarificationReply(userMessage) {
+  try {
+    const prompt = `あなたは丁寧で要点を外さない日本語アシスタントです。次のユーザー発話を簡潔に要約し、その要約に基づいて「〜と解釈しました。これで合っていますか？」という確認文と、解釈確認に役立つ関連の追い質問を1つ提示してください。
+
+出力要件:
+1行目: 要約（1文・40文字以内）
+2行目: 解釈確認（「〜と解釈しました。これで合っていますか？」）
+3行目: 関連する追い質問（1問のみ、具体的）
+禁止: 不要な謝罪表現、冗長表現、敬語の過剰装飾
+
+ユーザー発話:
+"""
+${userMessage}
+"""`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-5',
+      temperature: 0.3,
+      max_tokens: 200,
+      messages: [
+        { role: 'system', content: '出力は必ず3行。追加の説明は書かない。' },
+        { role: 'user', content: prompt }
+      ]
+    });
+    const text = response.choices?.[0]?.message?.content?.trim();
+    if (text) return text;
+  } catch (err) {
+    console.warn('clarification LLM fallback:', err.message);
+  }
+  const excerpt = (userMessage || '').slice(0, 40);
+  return `要約: 「${excerpt}」に関するご相談
+「${excerpt}」という趣旨と解釈しました。これで合っていますか？
+差し支えなければ、目的や状況（いつ・どこで・誰と・何のために）を一言で教えてください。`;
 }
 
 async function handleChatRecallWithRetries(userId, messageText) {

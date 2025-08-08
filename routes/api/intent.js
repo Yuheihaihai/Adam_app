@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const IntentDetectionModel = require('../../intentDetectionModel');
 const intentModel = new IntentDetectionModel();
 
@@ -21,7 +22,9 @@ const memoryStore = require('../../memoryStore');
  * @desc    テキストから意図を検出する
  * @access  Public
  */
-router.post('/detect', async (req, res) => {
+const detectLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
+
+router.post('/detect', detectLimiter, async (req, res) => {
   try {
     const { text } = req.body;
     

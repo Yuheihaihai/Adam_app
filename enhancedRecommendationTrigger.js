@@ -17,8 +17,8 @@ class EnhancedRecommendationTrigger {
         maxRetries: 3   // Allow 3 retries for recommendations
       }) : null;
     
-    // Model to use
-    this.modelName = "gpt-4o";
+    // Model to use (non-audio use cases should use gpt-5)
+    this.modelName = "gpt-5";
     this.fallbackModel = "gpt-4o-mini"; // Fallback model if primary not available
     
     // Cache for LLM decisions to avoid redundant API calls

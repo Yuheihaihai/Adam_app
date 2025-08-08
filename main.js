@@ -12,7 +12,7 @@ require('dotenv').config({ override: false });
 console.log("HEROKU PORT ENV: ", process.env.PORT);
 
 const db = require('./db');
-const app = require('./server'); // expressアプリケーションオブジェクトをインポート
+const app = require('./fixed_server'); // Airtable削除済みサーバーを使用
 
 // アプリケーション起動時の初期化処理
 async function initialize() {
