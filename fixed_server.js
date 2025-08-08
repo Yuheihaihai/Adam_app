@@ -2893,6 +2893,17 @@ async function handleText(event) {
       audioResponse = await audioHandler.generateAudioResponse(replyMessage, userId, userVoicePrefs);
     }
     
+    // 返信テキストの型を正規化（LINE API は string 必須）
+    if (typeof replyMessage !== 'string') {
+      try {
+        replyMessage = (replyMessage && typeof replyMessage.text === 'string')
+          ? replyMessage.text
+          : '申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。';
+      } catch (_) {
+        replyMessage = '申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。';
+      }
+    }
+
     // 利用制限チェック（音声応答生成後）
     if (audioResponse && audioResponse.limitExceeded) {
       // 制限に達している場合はテキストのみを返信し、制限メッセージを追加
@@ -2905,6 +2916,9 @@ async function handleText(event) {
     
     if (!audioResponse || !audioResponse.buffer) {
       // 音声生成に失敗した場合はテキストのみ返信（失敗時はpushにフォールバック）
+      if (typeof replyMessage !== 'string') {
+        replyMessage = (replyMessage && typeof replyMessage.text === 'string') ? replyMessage.text : '申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。';
+      }
       try {
         await client.replyMessage(event.replyToken, {
           type: 'text',
@@ -2926,6 +2940,9 @@ async function handleText(event) {
     }
     
     // 正しいURLを構築（audioResponse.filePathがnullの場合に対応）
+    if (typeof replyMessage !== 'string') {
+      replyMessage = (replyMessage && typeof replyMessage.text === 'string') ? replyMessage.text : '申し訳ありません、応答の生成中に問題が発生しました。もう一度お試しください。';
+    }
     let audioUrl = '';
     let audioFileExists = false;
     try {
