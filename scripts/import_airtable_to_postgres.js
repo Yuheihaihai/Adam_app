@@ -33,13 +33,14 @@ const { userIsolationGuard } = require(path.resolve(__dirname, '../user_isolatio
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const out = { batch: 100, limit: null, execute: false };
+  const out = { batch: 100, limit: null, execute: false, forceInsert: false };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--batch') out.batch = parseInt(args[++i], 10);
     else if (a === '--limit') out.limit = parseInt(args[++i], 10);
     else if (a === '--execute') out.execute = true;
     else if (a === '--dry-run') out.execute = false;
+    else if (a === '--force-insert') out.forceInsert = true;
   }
   return out;
 }
@@ -66,6 +67,31 @@ function normalizeRecordFields(fields) {
 
 function sha256Hex(s) { return crypto.createHash('sha256').update(String(s)).digest('hex'); }
 
+function parseTimestampFlexible(value, record) {
+  if (!value) {
+    return record?.createdTime ? new Date(record.createdTime) : new Date(NaN);
+  }
+  // numeric epoch (ms or sec)
+  if (typeof value === 'number') {
+    return new Date(value > 1e12 ? value : value * 1000);
+  }
+  const str = String(value).trim();
+  // try native Date
+  let d = new Date(str);
+  if (!isNaN(d.getTime())) return d;
+  // try replace space with T for ISO-like strings
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(str)) {
+    d = new Date(str.replace(' ', 'T'));
+    if (!isNaN(d.getTime())) return d;
+  }
+  // fallback to Airtable createdTime
+  if (record?.createdTime) {
+    const c = new Date(record.createdTime);
+    if (!isNaN(c.getTime())) return c;
+  }
+  return new Date(NaN);
+}
+
 async function fetchAirtableAll({ apiKey, baseId, table, view, filter, batch, limit }) {
   const out = [];
   let offset = undefined;
@@ -90,7 +116,7 @@ async function fetchAirtableAll({ apiKey, baseId, table, view, filter, batch, li
 }
 
 async function main() {
-  const { batch, limit, execute } = parseArgs();
+  const { batch, limit, execute, forceInsert } = parseArgs();
   const apiKey = assertEnv('AIRTABLE_API_KEY');
   const baseId = assertEnv('AIRTABLE_BASE_ID');
   const table = assertEnv('AIRTABLE_TABLE');
@@ -112,30 +138,32 @@ async function main() {
       // Verify user id integrity
       await userIsolationGuard.verifyUserIdIntegrity(f.userId, 'airtable_import', { messageId: f.messageId });
       const hashedUserId = userIsolationGuard.generateSecureHashedUserId(f.userId);
-      const when = new Date(f.timestamp);
+      const when = parseTimestampFlexible(f.timestamp, rec);
       if (isNaN(when.getTime())) { skipped++; continue; }
 
-      // Dedupe: prefer message_id, else time proximity + role
-      let exists = false;
-      if (f.messageId) {
-        const ex = await client.query(
-          'SELECT 1 FROM user_messages WHERE user_id=$1 AND message_id=$2 LIMIT 1',
-          [hashedUserId, String(f.messageId)]
-        );
-        exists = ex.rowCount > 0;
+      // Optional dedupe can be bypassed via --force-insert
+      if (!forceInsert) {
+        let exists = false;
+        if (f.messageId) {
+          const ex = await client.query(
+            'SELECT 1 FROM user_messages WHERE user_id=$1 AND message_id=$2 LIMIT 1',
+            [hashedUserId, String(f.messageId)]
+          );
+          exists = ex.rowCount > 0;
+        }
+        if (!exists) {
+          const ex = await client.query(
+            `SELECT 1 FROM user_messages 
+               WHERE user_id=$1 AND role=$2 
+                 AND timestamp BETWEEN to_timestamp($3/1000.0)-interval '2 seconds' 
+                                 AND to_timestamp($3/1000.0)+interval '2 seconds'
+               LIMIT 1`,
+            [hashedUserId, f.role, when.getTime()]
+          );
+          exists = ex.rowCount > 0;
+        }
+        if (exists) { skipped++; continue; }
       }
-      if (!exists) {
-        const ex = await client.query(
-          `SELECT 1 FROM user_messages 
-             WHERE user_id=$1 AND role=$2 
-               AND timestamp BETWEEN to_timestamp($3/1000.0)-interval '2 seconds' 
-                               AND to_timestamp($3/1000.0)+interval '2 seconds'
-             LIMIT 1`,
-          [hashedUserId, f.role, when.getTime()]
-        );
-        exists = ex.rowCount > 0;
-      }
-      if (exists) { skipped++; continue; }
 
       const encrypted = encryptionService.encrypt(String(f.content));
       if (!encrypted) { skipped++; continue; }
