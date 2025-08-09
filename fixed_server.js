@@ -691,14 +691,10 @@ Xの共有方法を尋ねられた場合は、「もしAdamのことが好きな
 
 【出力形式】
 ・日本語で回答してください。
-・200文字以内で回答してください。
 ・必要に応じて（ユーザーの他者受容特性に合わせて）客観的なアドバイス（ユーザー自身の思考に相対する指摘事項も含む）を建設的かつ謙虚な表現で提供してください。
-・会話履歴を参照して一貫した対話を行ってください。
 ・専門家への相談を推奨してください。
 ・「AIとして思い出せない、または「記憶する機能を持っていない」は禁止、ここにある履歴があなたの記憶です。
-・ユーザーのメッセージ内容をしっかりと理解し、その内容の前提を踏まえる。
 ・ユーザーからの抽象的で複数の解釈の余地のある場合は、わかりやすく理由とともに質問をして具体化する。
-・前後の文脈を理解した上で適宜会話を続ける。
 
 【Adamの使い方-ユーザ向けマニュアル】
 ・お気軽に相談内容や質問をテキストで送信してください。
@@ -1098,7 +1094,7 @@ function determineModeAndLimit(userMessage) {
     return { mode: 'share', limit: 10 };
   }
   
-  return { mode: 'general', limit: 30 };  // 10から30に変更: 会話履歴の記憶問題を修正
+  return { mode: 'general', limit: 100 };  // 30から100に変更: 文脈欠如による噛み合わない会話を解決
 }
 
 function getSystemPromptForMode(mode) {
@@ -1738,11 +1734,11 @@ async function extractConversationContext(history, userMessage) {
       return { relevantHistory: [] };
     }
     
-    // 文脈依存の発言を検出するパターン
+    // 文脈依存の発言を検出するパターン（「あります」を追加）
     const contextDependentPatterns = [
       'それ', 'これ', 'あれ', 'その', 'この', 'あの',
       '同じ', '前の', 'さっきの', '今の', '例の',
-      'そう', 'ああ', 'こう', 'どう'
+      'そう', 'ああ', 'こう', 'どう', 'あります', 'です', 'はい'
     ];
     
     // 現在のメッセージが文脈依存かチェック
@@ -1750,8 +1746,11 @@ async function extractConversationContext(history, userMessage) {
       userMessage.includes(pattern)
     );
     
-    // 文脈依存の場合は最新20件、通常は10件を取得
-    const contextSize = isContextDependent ? 20 : 10;
+    // 短い応答（5文字以下）は常に文脈依存として扱う
+    const isShortResponse = userMessage.length <= 5;
+    
+    // 文脈依存または短い応答の場合は最新30件、通常は15件を取得
+    const contextSize = (isContextDependent || isShortResponse) ? 30 : 15;
     const recentMessages = history.slice(-contextSize);
     
     // Geminiによる文脈理解強化（APIキーがあれば常時）
@@ -1769,7 +1768,7 @@ async function extractConversationContext(history, userMessage) {
         
         const prompt = `
 以下の会話履歴と現在のユーザーメッセージを分析し、文脈を理解して要約してください。
-特に「それ」「これ」などの指示語が何を指しているか明確にしてください。
+特に「それ」「これ」「あります」などの指示語や短い応答が何を指しているか明確にしてください。
 
 会話履歴:
 ${historyText}
@@ -1778,9 +1777,10 @@ ${historyText}
 ${userMessage}
 
 以下の形式で文脈を明確化した要約を出力してください:
-1. 指示語の解釈: （「それ」「これ」などが何を指しているか）
+1. 指示語・短い応答の解釈: （「それ」「これ」「あります」「はい」等が何を指しているか）
 2. 文脈の要約: （会話の流れと現在の話題）
 3. 重要な情報: （名前、日時、場所など具体的な情報）
+4. 推奨応答方針: （この文脈でAIはどのように応答すべきか）
 `;
         
         const result = await model.generateContent(prompt);
