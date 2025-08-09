@@ -93,15 +93,17 @@ class ASDGuideHandler {
     await this.initialize();
     
     try {
-      // キーワードマッチング（高速フィルタリング）
-      const asdKeywords = ['asd', '自閉症', 'スペクトラム', 'アスペルガー', 'コミュニケーション困難', '感覚過敏'];
+      // キーワードマッチング（複数キーワード必須で誤検出防止）
+      const asdKeywords = ['asd', '自閉症', 'スペクトラム', 'アスペルガー', 'コミュニケーション困難', '感覚過敏', '発達障害', '支援'];
       const lowercaseMessage = userMessage.toLowerCase();
       
-      // キーワードが含まれている場合は即座にtrueを返す
-      for (const keyword of asdKeywords) {
-        if (lowercaseMessage.includes(keyword)) {
-          return true;
-        }
+      // 複数キーワードマッチング確認
+      const asdMatchCount = asdKeywords.filter(keyword => lowercaseMessage.includes(keyword.toLowerCase())).length;
+      console.log(`[ASD] ASD keywords matched: ${asdMatchCount}/8 (need 2+)`);
+      
+      // 2つ以上のキーワードがマッチした場合は即座にtrueを返す
+      if (asdMatchCount >= 2) {
+        return true;
       }
       
       // 関連するテキストサンプル
@@ -113,14 +115,18 @@ class ASDGuideHandler {
         asdRelatedText
       );
       
-      // 閾値以上なら関連ありと判断
-      return similarity > 0.7;
+      // 閾値以上なら関連ありと判断（より厳格な条件）
+      console.log(`[ASD] ASD-related similarity: ${similarity.toFixed(3)} (need 0.8+)`);
+      return similarity > 0.8;
     } catch (error) {
       console.error('Error detecting ASD related question:', error);
-      // フォールバック：シンプルなキーワードマッチング
-      return userMessage.toLowerCase().includes('asd') || 
-             userMessage.toLowerCase().includes('自閉症') ||
-             userMessage.toLowerCase().includes('発達障害');
+      // フォールバック：明確なASD関連キーワードのみ
+      const fallbackKeywords = ['asd', '自閉症', '発達障害'];
+      const fallbackMatchCount = fallbackKeywords.filter(keyword => 
+        userMessage.toLowerCase().includes(keyword)).length;
+      
+      console.log(`[ASD] Fallback keywords matched: ${fallbackMatchCount}/3 (need 1+)`);
+      return fallbackMatchCount >= 1;
     }
   }
   
@@ -142,13 +148,18 @@ class ASDGuideHandler {
         usageGuideText
       );
       
-      // 閾値以上なら使い方ガイドと判断
-      return similarity > 0.7;
+      // 閾値以上なら使い方ガイドと判断（より厳格な条件）
+      console.log(`[ASD] Usage guide similarity: ${similarity.toFixed(3)} (need 0.8+)`);
+      return similarity > 0.8;
     } catch (error) {
       console.error('Error detecting usage guide request:', error);
-      // フォールバック：シンプルなキーワードマッチング
+      // フォールバック：複数キーワードマッチング（誤検出防止）
       const usageKeywords = ['使い方', '説明して', 'ヘルプ', '対応', 'できること', '機能', '例', '質問例'];
-      return usageKeywords.some(keyword => userMessage.includes(keyword));
+      const matchCount = usageKeywords.filter(keyword => userMessage.includes(keyword)).length;
+      
+      // 2つ以上のキーワードがマッチした場合のみtrueを返す
+      console.log(`[ASD] Usage keywords matched: ${matchCount}/8 (need 2+)`);
+      return matchCount >= 2;
     }
   }
   
