@@ -2150,27 +2150,28 @@ ${additionalPromptData.jobTrends.analysis}`;
     // ログ: システムプロンプトの追加
     console.log(`→ システムプロンプトをメッセージ配列に追加 (${updatedSystemPrompt.length}文字)`);
     
-    // ここで会話履歴を追加（ここが重要なポイント）
+    // ここで会話履歴を追加（新しい会話を優先するよう逆順で追加）
     if (history.length > 0) {
-      console.log(`→ 会話履歴の追加開始...`);
+      console.log(`→ 会話履歴の追加開始（新しい会話優先）...`);
       
-      // 履歴をメッセージ配列に追加
-      history.forEach((msg, idx) => {
+      // 履歴を逆順（新しい→古い）でメッセージ配列に追加
+      history.slice().reverse().forEach((msg, idx) => {
         const role = msg.role === 'user' ? 'user' : 'assistant';
         messages.push({
           role: role,
           content: msg.content
         });
         
-        // 最初と最後の数件だけログ表示
+        // 最初と最後の数件だけログ表示（逆順インデックス）
+        const reverseIdx = history.length - 1 - idx;
         if (idx < 2 || idx >= history.length - 2) {
-          console.log(`  [${idx+1}/${history.length}] ${role}: ${msg.content.substring(0, 50)}${msg.content.length > 50 ? '...' : ''}`);
+          console.log(`  [${reverseIdx+1}/${history.length}] ${role}: ${msg.content.substring(0, 50)}${msg.content.length > 50 ? '...' : ''}`);
         } else if (idx === 2 && history.length > 5) {
           console.log(`  ... ${history.length - 4} more messages ...`);
         }
       });
       
-      console.log(`→ 会話履歴の追加完了 (${history.length}件)`);
+      console.log(`→ 会話履歴の追加完了 (${history.length}件、新しい順)`);
     } else {
       console.log(`⚠ 警告: 会話履歴が空のため、過去のメッセージは追加されません`);
     }
