@@ -575,28 +575,33 @@ class PostgreSQLLocalML {
   }
 
   /**
-   * 会話履歴の取得（PSQL優先、必要時のみメモリ/Airtable）
+   * 会話履歴の取得（統合キャッシュマネージャー使用）
    */
   async _fetchConversationHistory(userId, limit = 200) {
     try {
-      // PostgreSQL からのセキュア履歴取得
-      if (db && db.fetchSecureUserHistory) {
-        const rows = await db.fetchSecureUserHistory(userId, Math.max(1, Math.min(limit, 500)));
-        if (Array.isArray(rows) && rows.length > 0) {
-          // fixed_server/db.js の戻りを role/content に正規化
-          return rows.map(row => ({ role: row.role, message: row.content || '' }));
-        }
+      // [OPTIMIZATION] 統合履歴キャッシュマネージャーを使用して重複取得を防止
+      const historyCacheManager = require('./history_cache_manager');
+      const rows = await historyCacheManager.getUnifiedHistory(userId, Math.max(1, Math.min(limit, 500)), 'localML');
+      
+      if (Array.isArray(rows) && rows.length > 0) {
+        // dataInterface形式からLocalML形式に正規化
+        return rows.map(row => ({ role: row.role, message: row.content || '' }));
       }
     } catch (e) {
-      console.warn('[PostgreSQL-LocalML] PSQL history fetch failed, falling back to in-memory/Airtable:', this._maskSensitiveData(e.message));
-    }
-    // フォールバック: メモリ/Airtable（会話モジュール）
-    try {
-      const memHist = await getUserConversationHistory(userId, limit);
-      if (Array.isArray(memHist) && memHist.length > 0) {
-        return memHist.map(item => ({ role: item.role, message: item.content || item.message || '' }));
+      console.warn('[PostgreSQL-LocalML] 統合履歴取得失敗、フォールバック:', this._maskSensitiveData(e.message));
+      
+      // フォールバック: 直接PostgreSQL取得
+      try {
+        if (db && db.fetchSecureUserHistory) {
+          const rows = await db.fetchSecureUserHistory(userId, Math.max(1, Math.min(limit, 500)));
+          if (Array.isArray(rows) && rows.length > 0) {
+            return rows.map(row => ({ role: row.role, message: row.content || '' }));
+          }
+        }
+      } catch (e2) {
+        console.warn('[PostgreSQL-LocalML] 直接取得も失敗:', this._maskSensitiveData(e2.message));
       }
-    } catch (_) {}
+    }
     return [];
   }
 

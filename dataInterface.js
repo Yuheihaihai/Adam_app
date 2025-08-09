@@ -21,9 +21,15 @@ class DataInterface {
         }
       }
       
-      // セキュアなメソッドを使用してユーザーのメッセージ履歴を取得（メイン + バックアップを統合）
+      // セキュアなメソッドを使用してユーザーのメッセージ履歴を取得（バックアップ統合は一時無効化）
       const primary = await this.dbConnection.fetchSecureUserHistory(userId, limit);
       let merged = primary;
+      
+      // バックアップ取得は復号化エラーが大量発生するため一時無効化 [[memory:5553917]]
+      // レガシー暗号化キーが利用可能になるまで統合処理をスキップ
+      console.log(`🔒 メイン履歴のみ使用: ${merged?.length || 0}件 (バックアップ統合は復号化問題により無効化)`);
+      
+      /* 一時無効化：レガシーキー問題解決まで
       if (Array.isArray(primary) && primary.length < limit && typeof this.dbConnection.fetchSecureUserHistoryFromBackup === 'function') {
         const remaining = Math.max(0, limit - primary.length);
         const backup = await this.dbConnection.fetchSecureUserHistoryFromBackup(userId, remaining);
@@ -42,6 +48,7 @@ class DataInterface {
         // limit件に切り詰め
         merged = merged.slice(0, limit);
       }
+      */
       
       // キャッシュに保存
       this.messageCache.set(cacheKey, {

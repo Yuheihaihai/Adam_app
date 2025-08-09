@@ -1179,7 +1179,8 @@ async function fetchUserHistory(userId, limit) {
   try {
     console.log(`Fetching history for user ${userId}, limit: ${limit}`);
     
-    // [CLEANUP] PostgreSQL移行完了: 古いAirtable認証検証ログを削除
+    // [OPTIMIZATION] 統合履歴キャッシュマネージャーを使用
+    const historyCacheManager = require('./history_cache_manager');
     
     // 履歴分析用のメタデータオブジェクトを初期化
     const historyMetadata = {
@@ -1190,7 +1191,7 @@ async function fetchUserHistory(userId, limit) {
     };
     
     try {
-      const rows = await dataInterface.getUserHistory(userId, Number(limit) || 30);
+      const rows = await historyCacheManager.getUnifiedHistory(userId, Number(limit) || 30, 'fixed_server');
       historyMetadata.totalRecords = rows.length;
       const history = rows.map(r => ({ role: r.role || 'user', content: r.content || '' }));
       return { history, metadata: historyMetadata };
