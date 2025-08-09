@@ -1124,21 +1124,24 @@ function getSystemPromptForMode(mode) {
       return SYSTEM_PROMPT_CONSULTANT;
     case 'deep-exploration':
       return `あなたは親切で役立つAIアシスタントです。
-ユーザーが深い考察と具体例を求めています。抽象的な表現を避け、以下のガイドラインに従ってください：
+ユーザーがあなたの直前の回答について、より深い分析と具体例を求めています。
 
 【重要な制約】
-- 必ずユーザーの会話履歴と現在の文脈に基づいて回答する
+- 直前のあなたの回答（【直前のあなたの回答】セクションに記載）を必ず参照する
+- ユーザーの「それ」「その」「この」などの指示語は直前の回答の内容を指している
+- 直前の回答の内容を基に、より詳細で具体的な説明を提供する
 - 根拠のない仮定や推測に基づく具体例は提供しない
 
-【回答ガイドライン】
-1. 概念や理論を詳細に掘り下げて説明する
-2. ユーザーの会話履歴から得られる文脈に基づく具体例を用いる
-3. ユーザーが実際に言及した内容に関連付けた実践的な例を含める
-4. 抽象的な言葉や曖昧な表現を避け、明確で具体的な言葉を使う
-5. 必要に応じて、ステップバイステップの説明を提供する
-6. 専門用語を使う場合は、必ずわかりやすく解説する
+【深掘りガイドライン】
+1. 直前の回答の中で最も重要な概念や提案を特定する
+2. その概念の理論的背景を詳しく説明する
+3. 具体的な実例を3つ以上提示する
+4. 実践的な手順を段階的に説明する
+5. 注意点や制限事項も含める
+6. 抽象的な言葉や曖昧な表現を避け、明確で具体的な言葉を使う
+7. 専門用語を使う場合は、必ずわかりやすく解説する
 
-文脈に十分な情報がない場合は、汎用例を作らず「より具体的な情報があれば、より適切な例を提供できます」と伝えてください。`;
+直前の回答に関する文脈が不明な場合は「どの部分について詳しく知りたいですか？」と確認してください。`;
     default:
       return SYSTEM_PROMPT_GENERAL;
   }
@@ -2054,9 +2057,35 @@ ${conversationContext.relevantHistory.join('\n')}`;
       }
     }
     
-    // 2.3 Add user insights if available
+    // 2.3 Add Deep Exploration specific data (direct previous AI response)
+    if (mode === 'deep-exploration' && history && history.length > 0) {
+      console.log('\n🔍 [2B] INTEGRATING DEEP EXPLORATION CONTEXT');
+      const deepExplorationStartTime = Date.now();
+      
+      // Find the most recent AI response
+      const lastAiResponse = history.find(msg => msg.role === 'assistant');
+      
+      if (lastAiResponse) {
+        updatedSystemPrompt += `
+
+【直前のあなたの回答】
+「${lastAiResponse.content}」
+
+ユーザーは上記の回答について、より詳細な説明や具体例を求めています。
+「それ」「その部分」「この」などの指示語は、この直前の回答の内容を指していると解釈してください。`;
+        
+        console.log(`🔍 [2B] Added previous AI response (${lastAiResponse.content.length} chars)`);
+        console.log(`🔍 [2B] Previous AI response: "${lastAiResponse.content.substring(0, 100)}..."`);
+      } else {
+        console.log(`🔍 [2B] No previous AI response found in history`);
+      }
+      
+      console.log(`🔍 [2B] DEEP EXPLORATION INTEGRATION - Completed in ${Date.now() - deepExplorationStartTime}ms`);
+    }
+    
+    // 2.4 Add user insights if available
     if (userNeeds) {
-      console.log('\n👤 [2B] INTEGRATING USER NEEDS ANALYSIS');
+      console.log('\n👤 [2C] INTEGRATING USER NEEDS ANALYSIS');
       const userInsightsStartTime = Date.now();
       
       // Add user needs summary to system prompt if available
@@ -2064,15 +2093,15 @@ ${conversationContext.relevantHistory.join('\n')}`;
         updatedSystemPrompt += `\n\nユーザーの特性と傾向:
 ${userNeeds.summary}`;
         
-        console.log(`👤 [2B] Added user needs summary (${userNeeds.summary.length} chars)`);
+        console.log(`👤 [2C] Added user needs summary (${userNeeds.summary.length} chars)`);
       }
       
-      console.log(`👤 [2B] USER NEEDS INTEGRATION - Completed in ${Date.now() - userInsightsStartTime}ms`);
+      console.log(`👤 [2C] USER NEEDS INTEGRATION - Completed in ${Date.now() - userInsightsStartTime}ms`);
     }
     
-    // 2.4 Add career specific data if available
+    // 2.5 Add career specific data if available
     if (mode === 'career' && additionalPromptData) {
-      console.log('\n💼 [2C] INTEGRATING CAREER DATA');
+      console.log('\n💼 [2D] INTEGRATING CAREER DATA');
       const careerDataStartTime = Date.now();
       
       // Add career enhancement data to system prompt if available
@@ -2080,7 +2109,7 @@ ${userNeeds.summary}`;
         updatedSystemPrompt += `\n\n最新の業界情報:
 ${additionalPromptData.knowledge}`;
         
-        console.log(`💼 [2C] Added industry knowledge (${additionalPromptData.knowledge.length} chars)`);
+        console.log(`💼 [2D] Added industry knowledge (${additionalPromptData.knowledge.length} chars)`);
       }
       
       // Add job trends data to system prompt if available
@@ -2088,13 +2117,13 @@ ${additionalPromptData.knowledge}`;
         updatedSystemPrompt += `\n\n現在の求人トレンド:
 ${additionalPromptData.jobTrends.analysis}`;
         
-        console.log(`💼 [2C] Added job trends (${additionalPromptData.jobTrends.analysis.length} chars)`);
+        console.log(`💼 [2D] Added job trends (${additionalPromptData.jobTrends.analysis.length} chars)`);
       }
       
-      console.log(`💼 [2C] CAREER DATA INTEGRATION - Completed in ${Date.now() - careerDataStartTime}ms`);
+      console.log(`💼 [2D] CAREER DATA INTEGRATION - Completed in ${Date.now() - careerDataStartTime}ms`);
     }
     
-    // 2.5 Apply any additional instructions based on the mode
+    // 2.6 Apply any additional instructions based on the mode
     updatedSystemPrompt = applyAdditionalInstructions(updatedSystemPrompt, mode, historyMetadata, userMessage);
     
     // ─────────────────────────────────────────────────────────────────────
