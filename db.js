@@ -764,6 +764,10 @@ module.exports = {
   query,
   testConnection,
   initializeTables,
+  // Services registry APIs
+  upsertService,
+  bulkUpsertServices,
+  fetchAllServicesFromDB,
   storeSecureUserMessage,
   fetchSecureUserHistory,
   fetchSecureUserHistoryFromBackup,
