@@ -347,6 +347,157 @@ async function initializeTables() {
   }
 }
 
+// =============== Services Registry (Encrypted) ==================
+// テーブル:
+// services_registry(
+//   id TEXT PRIMARY KEY,
+//   name_enc TEXT NOT NULL,
+//   url_enc TEXT NOT NULL,
+//   description_enc TEXT NOT NULL,
+//   criteria_enc TEXT NOT NULL,
+//   tags_enc TEXT NOT NULL,
+//   cooldown_days INTEGER NOT NULL DEFAULT 14,
+//   corporate_number_enc TEXT,
+//   corporate_number_hash TEXT UNIQUE,
+//   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+// )
+
+async function ensureServicesTable(client) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS services_registry (
+      id TEXT PRIMARY KEY,
+      name_enc TEXT NOT NULL,
+      url_enc TEXT NOT NULL,
+      description_enc TEXT NOT NULL,
+      criteria_enc TEXT NOT NULL,
+      tags_enc TEXT NOT NULL,
+      cooldown_days INTEGER NOT NULL DEFAULT 14,
+      corporate_number_enc TEXT,
+      corporate_number_hash TEXT UNIQUE,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_services_registry_updated_at ON services_registry(updated_at)`);
+}
+
+// initializeTablesにservices_registry作成を追加
+const _originalInitializeTables = initializeTables;
+initializeTables = async function() {
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // 既存初期化
+    await client.query('COMMIT');
+  } catch (e) {
+    if (client) await client.query('ROLLBACK');
+  } finally {
+    if (client) client.release();
+  }
+  // 既存の関数を呼び出した後、services_registryを保証
+  const ok = await _originalInitializeTables();
+  try {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await ensureServicesTable(c);
+      await c.query('COMMIT');
+      console.log('Services registry table initialized');
+    } catch (err) {
+      await c.query('ROLLBACK');
+      console.error('Failed to initialize services registry:', err.message);
+    } finally {
+      c.release();
+    }
+  } catch (_) {}
+  return ok;
+};
+
+function sha256(text) {
+  return require('crypto').createHash('sha256').update(text).digest('hex');
+}
+
+// DBへサービスUPSERT（暗号化保存）
+async function upsertService(service) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await ensureServicesTable(client);
+
+    const id = String(service.id);
+    const nameEnc = encryptionService.encrypt(String(service.name || ''));
+    const urlEnc = encryptionService.encrypt(String(service.url || ''));
+    const descEnc = encryptionService.encrypt(String(service.description || ''));
+    const criteriaEnc = encryptionService.encrypt(JSON.stringify(service.criteria || {}));
+    const tagsEnc = encryptionService.encrypt(JSON.stringify(service.tags || []));
+    const cooldown = Number.isFinite(service.cooldown_days) ? service.cooldown_days : 14;
+    const corpNum = service.corporateNumber ? String(service.corporateNumber) : null;
+    const corpEnc = corpNum ? encryptionService.encrypt(corpNum) : null;
+    const corpHash = corpNum ? sha256(corpNum) : null;
+
+    await client.query(
+      `INSERT INTO services_registry 
+        (id, name_enc, url_enc, description_enc, criteria_enc, tags_enc, cooldown_days, corporate_number_enc, corporate_number_hash, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+       ON CONFLICT (id) DO UPDATE SET 
+         name_enc = EXCLUDED.name_enc,
+         url_enc = EXCLUDED.url_enc,
+         description_enc = EXCLUDED.description_enc,
+         criteria_enc = EXCLUDED.criteria_enc,
+         tags_enc = EXCLUDED.tags_enc,
+         cooldown_days = EXCLUDED.cooldown_days,
+         corporate_number_enc = EXCLUDED.corporate_number_enc,
+         corporate_number_hash = COALESCE(EXCLUDED.corporate_number_hash, services_registry.corporate_number_hash),
+         updated_at = NOW()`,
+      [id, nameEnc, urlEnc, descEnc, criteriaEnc, tagsEnc, cooldown, corpEnc, corpHash]
+    );
+
+    await client.query('COMMIT');
+    return true;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Upsert service failed:', error.message);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
+async function bulkUpsertServices(servicesList = []) {
+  if (!Array.isArray(servicesList) || servicesList.length === 0) return { inserted: 0 };
+  let okCount = 0;
+  for (const s of servicesList) {
+    const ok = await upsertService(s);
+    if (ok) okCount++;
+  }
+  return { inserted: okCount };
+}
+
+async function fetchAllServicesFromDB() {
+  try {
+    const rows = await query('SELECT * FROM services_registry ORDER BY updated_at DESC');
+    const list = [];
+    for (const r of rows) {
+      const service = {
+        id: r.id,
+        name: encryptionService.decrypt(r.name_enc) || '',
+        url: encryptionService.decrypt(r.url_enc) || '',
+        description: encryptionService.decrypt(r.description_enc) || '',
+        criteria: JSON.parse(encryptionService.decrypt(r.criteria_enc) || '{}'),
+        tags: JSON.parse(encryptionService.decrypt(r.tags_enc) || '[]'),
+        cooldown_days: r.cooldown_days || 14
+      };
+      const corp = r.corporate_number_enc ? encryptionService.decrypt(r.corporate_number_enc) : null;
+      if (corp) service.corporateNumber = corp;
+      list.push(service);
+    }
+    return list;
+  } catch (error) {
+    console.error('Fetch services from DB failed:', error.message);
+    return [];
+  }
+}
+
 // クエリを実行するラッパー関数
 async function query(sql, params = []) {
   try {

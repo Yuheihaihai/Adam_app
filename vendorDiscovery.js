@@ -6,6 +6,8 @@ const dns = require('dns').promises;
 
 const PerplexitySearch = require('./perplexitySearch');
 const existingServices = require('./services');
+const db = require('./db');
+const CorporateNumberAPI = require('./corporateNumberAPI');
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
@@ -36,21 +38,59 @@ function collectExistingKeys() {
   const ids = new Set();
   const nameSlugs = new Set();
   const hostKeys = new Set();
+  const corporateNumbers = new Set();
+  
   for (const s of Array.isArray(existingServices) ? existingServices : []) {
     if (s.id) ids.add(String(s.id).toLowerCase());
     if (s.name) nameSlugs.add(slugify(s.name));
     if (s.url) hostKeys.add(urlHostKey(s.url));
+    if (s.corporateNumber) corporateNumbers.add(s.corporateNumber);
   }
-  return { ids, nameSlugs, hostKeys };
+  return { ids, nameSlugs, hostKeys, corporateNumbers };
 }
 
-function isDuplicateCandidate(candidate, keys) {
+async function isDuplicateCandidate(candidate, keys, corporateAPI = null) {
+  // 1. 法人番号による確実な重複判定（最優先）
+  if (candidate.corporateNumber && keys.corporateNumbers.has(candidate.corporateNumber)) {
+    console.log(`[Duplicate] Corporate number match: ${candidate.corporateNumber} for ${candidate.name}`);
+    return true;
+  }
+
+  // 2. 法人番号がない場合は検索試行
+  if (!candidate.corporateNumber && corporateAPI && candidate.name) {
+    try {
+      const corporateNumber = await corporateAPI.searchCorporateNumber(candidate.name, candidate.url);
+      if (corporateNumber) {
+        candidate.corporateNumber = corporateNumber; // 取得した番号を候補に付与
+        if (keys.corporateNumbers.has(corporateNumber)) {
+          console.log(`[Duplicate] Found corporate number ${corporateNumber} for ${candidate.name} - duplicate detected`);
+          return true;
+        }
+        console.log(`[Discovery] Assigned corporate number ${corporateNumber} to ${candidate.name}`);
+      }
+    } catch (error) {
+      console.warn(`[Corporate] Error searching corporate number for ${candidate.name}:`, error.message);
+    }
+  }
+
+  // 3. 従来の重複判定（フォールバック）
   const idKey = (candidate.id || '').toLowerCase();
   const nameKey = candidate.name ? slugify(candidate.name) : '';
   const hostKey = candidate.url ? urlHostKey(candidate.url) : '';
-  if (idKey && keys.ids.has(idKey)) return true;
-  if (nameKey && keys.nameSlugs.has(nameKey)) return true;
-  if (hostKey && keys.hostKeys.has(hostKey)) return true;
+  
+  if (idKey && keys.ids.has(idKey)) {
+    console.log(`[Duplicate] ID match: ${idKey} for ${candidate.name}`);
+    return true;
+  }
+  if (nameKey && keys.nameSlugs.has(nameKey)) {
+    console.log(`[Duplicate] Name slug match: ${nameKey} for ${candidate.name}`);
+    return true;
+  }
+  if (hostKey && keys.hostKeys.has(hostKey)) {
+    console.log(`[Duplicate] Host key match: ${hostKey} for ${candidate.name}`);
+    return true;
+  }
+  
   return false;
 }
 
@@ -71,7 +111,7 @@ function writeJsonAtomic(targetFile, data) {
 function toServiceSchema(candidate) {
   // Minimal normalization into our service schema
   const id = candidate.id || slugify(candidate.url || candidate.name || uuidv4());
-  return {
+  const schema = {
     id,
     name: candidate.name,
     url: candidate.url,
@@ -86,6 +126,13 @@ function toServiceSchema(candidate) {
     tags: candidate.tags || [],
     cooldown_days: typeof candidate.cooldown_days === 'number' ? candidate.cooldown_days : 14
   };
+
+  // 法人番号が取得済みの場合は追加
+  if (candidate.corporateNumber) {
+    schema.corporateNumber = candidate.corporateNumber;
+  }
+
+  return schema;
 }
 
 function getLlmModel() {
@@ -183,6 +230,7 @@ async function runDiscoveryOnce() {
   }
   const openai = new OpenAI({ apiKey: openaiKey });
   const px = new PerplexitySearch(perplexityKey);
+  const corporateAPI = new CorporateNumberAPI(); // 法人番号API初期化
 
   // 1) 検索クエリを組む（ND/精神発達×高評価×コンプライアンス観点）
   const queries = [
@@ -211,7 +259,13 @@ async function runDiscoveryOnce() {
 
   // Remove candidates that appear to be duplicates of existing services
   const existingKeys = collectExistingKeys();
-  const newOnly = uniqueCandidates.filter(c => !isDuplicateCandidate(c, existingKeys));
+  const newOnly = [];
+  for (const c of uniqueCandidates) {
+    const isDupe = await isDuplicateCandidate(c, existingKeys, corporateAPI);
+    if (!isDupe) {
+      newOnly.push(c);
+    }
+  }
 
   // 2) 各候補をLLMでコンプライアンス評価
   const approved = [];
@@ -275,7 +329,7 @@ async function runDiscoveryOnce() {
               .reduce((n,k)=> n + (Array.isArray(evalResult.evidence[k]) ? evalResult.evidence[k].length : 0), 0)
           : 0;
         const ok = Boolean(evalResult.passes) && (evalResult.confidence || 0) >= 0.6 && evidenceCount >= 2;
-        if (ok && !isDuplicateCandidate(seed, collectExistingKeys())) {
+        if (ok && !(await isDuplicateCandidate(seed, collectExistingKeys(), corporateAPI))) {
           approved.push(toServiceSchema(seed));
           break; // 1件でも追加できたら終了
         }
@@ -283,7 +337,18 @@ async function runDiscoveryOnce() {
     }
   }
 
-  // 4) 追記保存（発見分）: 直接 core.json に書き込み
+  // 4) DBへUPSERT（優先）しつつ、従来のcore.jsonも更新（フォールバック/冗長保存）
+  if (approved.length > 0) {
+    try {
+      await db.initializeTables();
+      await db.bulkUpsertServices(approved);
+      console.log(`[VendorDiscovery] Upserted ${approved.length} services into DB`);
+    } catch (e) {
+      console.warn('[VendorDiscovery] DB upsert failed, will still write to core.json:', e.message);
+    }
+  }
+
+  // 従来のJSONにも書き込み（後方互換・ローカル検査用）
   const coreFile = path.join(__dirname, 'data', 'services', 'core.json');
   const coreList = fs.existsSync(coreFile) ? JSON.parse(fs.readFileSync(coreFile, 'utf8')) : [];
   const idToObj = new Map();

@@ -1,5 +1,6 @@
 // serviceRecommender.js - Matches user needs with available services
 const services = require('./services');
+const { loadServicesAsync } = require('./services');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
@@ -35,7 +36,7 @@ class ServiceRecommender {
     this.tableExists = false;
     this.localRecommendations = [];
     this.localStoragePath = path.join(__dirname, 'local_recommendations.json');
-    this.services = services; // Use the imported services module
+    this.services = services; // initial fallback (JSON at require-time)
     this.CONFIDENCE_THRESHOLD = DEFAULT_CONFIDENCE_THRESHOLD;
     console.log(`Initial CONFIDENCE_THRESHOLD set to: ${this.CONFIDENCE_THRESHOLD} (${this.CONFIDENCE_THRESHOLD * 100}%)`);
     this.openaiApiKey = process.env.OPENAI_API_KEY;
@@ -148,6 +149,17 @@ class ServiceRecommender {
 
   async _loadOrGenerateEmbeddings() {
     try {
+      // DB優先でサービス一覧を最新化
+      try {
+        const dbServices = await loadServicesAsync();
+        if (Array.isArray(dbServices) && dbServices.length > 0) {
+          this.services = dbServices;
+          console.log(`[ServiceRecommender] Loaded ${dbServices.length} services from DB`);
+        }
+      } catch (e) {
+        console.warn('[ServiceRecommender] DB services load failed, keep existing list:', e.message);
+      }
+
       if (fs.existsSync(this.embeddingsPath)) {
         const data = fs.readFileSync(this.embeddingsPath, 'utf8');
         this.serviceEmbeddings = JSON.parse(data);
