@@ -1,5 +1,34 @@
 # CHANGE LOG - Adam AI v2.4
 
+## 2025-08-10 - v1017 Deployment
+
+### Added
+- `scheduler/monthlyServiceUpdate.js`: 月次サービス更新スケジューラーを追加
+- `utils/backupManager.js`: 重要データの安全なバックアップ管理ユーティリティを追加
+- `utils/notificationService.js`: 運用通知ユーティリティを追加
+- `scripts/setupHerokuScheduler.js`: Heroku Scheduler セットアップ用スクリプトを追加
+- `corporateNumberAPI.js` および関連スクリプト（`scripts/testCorporateNumberAPI.js`, `scripts/updateExistingServicesCorporateNumbers.js`）を追加
+
+### Changed
+- `serviceRecommender.js`: 推薦強化・サービス定義の最新化に対応
+- `vendorDiscovery.js`: ベンダー情報の取得ロジックを更新
+- `services.js`: サービス定義を更新（整合性・識別子の改善）
+- `db.js`: サービス取得・初期化周辺の安定性改善
+
+### Fixed
+- 軽微なログ整形と起動時の順序性を改善（初期化完了メッセージの明確化）
+
+### Security
+- SCA（`npm audit --omit=dev`）で既知の脆弱性 0 件を確認
+- 既存のセキュリティ実装（E2EE、User Isolation、Apple Security準拠ヘッダ、レート制限等）に変更なし
+- 暗号化・復号化ロジックは変更なし（SECURITY CRITICAL - DO NOT MODIFY）
+
+### Deployment
+- Heroku Release: v1017（Stack: heroku-24, Node 18.20.8）
+- Procfile: `web: node fixed_server.js`
+- Web: 正常起動（`web.1 up`）
+- 健全性確認: 起動ログにエラーなし、ルートURLへHTTPアクセス成功、主要モジュール初期化完了（Embedding/Emotion/Intent/Service Matching 等）
+
 ## 2025-07-22 - PostgreSQL完全移行完了
 
 ### 🚀 **LINE統合のPostgreSQL化完了**
