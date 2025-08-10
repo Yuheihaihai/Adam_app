@@ -2170,9 +2170,38 @@ ${additionalPromptData.jobTrends.analysis}`;
     console.log(`├─ Sending request to OpenAI API...`);
     
     console.log(`\n🔍 [4B] SERVICE MATCHING - Processing`);
-    console.log(`├─ Service matching completed in 0ms`);
-    console.log(`├─ Recommendations found: 0`);
-    console.log(`└─ No recommendations matched criteria`);
+    const serviceMatchingStartTime = Date.now();
+    let serviceMatches = [];
+    try {
+      // 実際の表示可否判定
+      const showServices = await shouldShowServicesToday(userId, history, userMessage);
+      if (showServices) {
+        // 実際のマッチング処理（返却値の構造は変更せず、ログのみ反映）
+        const recentMessages = Array.isArray(history)
+          ? history.map(h => (h && h.content) ? h.content : '').filter(Boolean).slice(-5)
+          : [];
+        const conversationCtx = { recentMessages };
+        serviceMatches = await serviceRecommender.getFilteredRecommendations(
+          userId,
+          userNeeds || {},
+          conversationCtx
+        );
+      } else {
+        console.log('├─ Skipped service matching (shouldShowServicesToday=false due to cooldown/limits)');
+      }
+    } catch (e) {
+      console.error('├─ Service matching error:', e.message);
+    }
+    const serviceMatchingTime = Date.now() - serviceMatchingStartTime;
+    console.log(`├─ Service matching completed in ${serviceMatchingTime}ms`);
+    console.log(`├─ Recommendations found: ${serviceMatches.length}`);
+    if (serviceMatches.length === 0) {
+      console.log('└─ No recommendations matched criteria');
+    } else {
+      const top = serviceMatches[0];
+      const conf = (top && (top.confidence !== undefined && top.confidence !== null)) ? top.confidence : 'N/A';
+      console.log(`└─ Top recommendation: ${top && top.name ? top.name : 'Unknown'} (confidence: ${conf})`);
+    }
     
     // ─────────────────────────────────────────────────────────────────────
     console.log('┌──────────────────────────────────────────────────────────┐');
